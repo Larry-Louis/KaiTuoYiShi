@@ -19,14 +19,12 @@ import {
   归一化视觉文本设置,
 } from '@/models/settings';
 import { loadLatestSave, loadSave, deleteSave as dbDeleteSave, saveGame, saveSetting } from '@/services/dbService';
-import { DEFAULT_WORLD_ID, 世界存储键 } from '@/models/worldProfile';
-import { 归一化智库系统 } from '@/models/zhiku';
 import {
   buildPersistedZhikuSystem,
-  loadAllBundledZhikuPresets,
   mergeBundledZhikuSystem,
   ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY,
 } from '@/data/zhikuPreset';
+import { loadBundledZhikuCatalogWithFallback } from '@/data/zhikuCatalogRepository';
 import { loadSetting } from '@/services/dbService';
 import { clearWorkflowRecoveryJournal, isWorkflowRecoveryComplete } from '@/services/workflowRecovery';
 import { normalizeMemorySystem } from './memoryUtils';
@@ -76,7 +74,6 @@ export function buildSavePayload(
     id: 0,
     type,
     timestamp,
-    worldId: state.worldId,
     turnCount: overrides?.turnCount ?? state.turnCount,
     旅人: overrides?.旅人 ?? state.旅人,
     世界: overrides?.世界 ?? state.世界,
@@ -261,10 +258,6 @@ async function applySaveToState(
   save: 存档数据,
   state: UseGameStateReturn,
 ): Promise<void> {
-  // 世界隔离：存档归属其他世界观时拒绝读取，避免跨世界数据串库。
-  if (save.worldId && save.worldId !== state.worldId) {
-    throw new Error(`该存档属于其他世界观，无法在当前世界读取（存档世界: ${save.worldId}）。`);
-  }
   activeSaveTreeMeta = getSaveTreeMeta(save);
   const safeChatHistory = compactChatHistoryForLongSession(normalizeSaveChatHistory(save.chatHistory));
   const safeWorld = 归一化世界状态(save.世界);
@@ -291,18 +284,18 @@ async function applySaveToState(
       save.忆庭 ?? ({ 回忆档案: legacyArchives } as Partial<import('@/models/yiting').忆庭系统>),
     ),
   );
-  const isDefaultWorld = state.worldId === DEFAULT_WORLD_ID;
   const savedZhikuMigrationAt = await loadSetting<number>(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY);
   const zhikuMigrationAt = savedZhikuMigrationAt ?? Date.now();
   if (!savedZhikuMigrationAt) {
     await saveSetting(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, zhikuMigrationAt);
   }
-  // 默认世界：存档智库与内置预设合并；自建世界：直接还原存档智库（不注入星穹铁道预设）。
-  const nextZhiku = isDefaultWorld
-    ? mergeBundledZhikuSystem(await loadAllBundledZhikuPresets(), save.智库, zhikuMigrationAt)
-    : 归一化智库系统(save.智库);
+  const catalogResult = await loadBundledZhikuCatalogWithFallback();
+  if (catalogResult.source === 'cache') {
+    console.warn('[zhiku] 读档时新目录加载失败，已使用最后一份完整目录:', catalogResult.loadError);
+  }
+  const nextZhiku = mergeBundledZhikuSystem(catalogResult.system, save.智库, zhikuMigrationAt);
   state.set智库(nextZhiku);
-  await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(nextZhiku));
+  await saveSetting('zhikuSystem', buildPersistedZhikuSystem(nextZhiku));
   state.set手机(归一化手机系统(save.手机));
   state.setNPC(归一化NPC记录列表(save.NPC));   // 旧存档/AI 半成品对象统一兜底
   const nextAlbum = materializeAlbumRuntimePayload(归一化相册系统(save.相册));
@@ -325,7 +318,7 @@ async function applySaveToState(
   });
   const nextStoryWeaving = storyRepair.system;
   state.set剧情编织(nextStoryWeaving);
-  await saveSetting(世界存储键('storyWeavingSystem', state.worldId), buildPersistedStoryWeavingSystem(nextStoryWeaving));
+  await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
   state.setVariableBatches(compactVariableBatchHistory(save.variableBatches ?? []));
   state.setQueueTasks(save.queueTasks ?? []); // 旧存档没有该字段，兜底空数组
   // 兼容旧存档：promptModules 是后加的（需补齐 builtin + 迁移 customPrompt）。
