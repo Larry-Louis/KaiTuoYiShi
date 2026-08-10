@@ -55,10 +55,12 @@ import { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, i
 import type { 世界书 } from '@/models/worldbook';
 import { loadWorkflowRecoveryJournal, type WorkflowRecoveryJournal } from '@/services/workflowRecovery';
 import { applyTheme, normalizeThemeId } from '@/styles/themes';
-import { loadSetting, saveSetting, hasAnySave } from '@/services/dbService';
+import { loadSetting, saveSetting, hasAnySave, tryRestoreLocalSnapshot } from '@/services/dbService';
 import { WORLDBOOK_STORAGE_KEY, normalizeWorldbooks } from '@/utils/worldbook';
 import { createBuiltinWorldbooks } from '@/data/worldbookPresets';
 import { loadAllBundledWorldbookPresets } from '@/data/openingWorldbookPreset';
+import { DEFAULT_WORLD_ID, 世界存储键, type 世界档案 } from '@/models/worldProfile';
+import { loadActiveWorldId, loadWorldProfiles } from '@/services/worldProfileService';
 
 const REMOVED_LEGACY_WORLDBOOK_IDS = new Set([
   'builtin_express_crew',
@@ -235,6 +237,12 @@ export interface UseGameStateReturn {
   setCurrentTheme: React.Dispatch<React.SetStateAction<主题预设>>;
   worldbooks: 世界书[];
   setWorldbooks: React.Dispatch<React.SetStateAction<世界书[]>>;
+  /** 当前激活的世界 ID（默认世界 = 'default'）。 */
+  worldId: string;
+  setWorldId: React.Dispatch<React.SetStateAction<string>>;
+  /** 全部世界观档案（含默认世界）。 */
+  worldProfiles: 世界档案[];
+  setWorldProfiles: React.Dispatch<React.SetStateAction<世界档案[]>>;
   hasSave: boolean;
   setHasSave: React.Dispatch<React.SetStateAction<boolean>>;
   loading: boolean;
@@ -280,6 +288,8 @@ export function useGameState(): UseGameStateReturn {
   const [gameSettings, setGameSettings] = useState<游戏设置>(创建默认游戏设置);
   const [currentTheme, setCurrentTheme] = useState<主题预设>('deepspace');
   const [worldbooks, setWorldbooks] = useState<世界书[]>([]);
+  const [worldId, setWorldId] = useState<string>(DEFAULT_WORLD_ID);
+  const [worldProfiles, setWorldProfiles] = useState<世界档案[]>([]);
   const [hasSave, setHasSave] = useState(false);
   const [loading, setLoading] = useState(false);
   const [workflowHint, setWorkflowHint] = useState('');
@@ -297,11 +307,23 @@ export function useGameState(): UseGameStateReturn {
   // Load persisted settings on mount
   useEffect(() => {
     (async () => {
+      // 本地持久化恢复：浏览器仓储为空（如被清理）时从 save/snapshot.json 恢复
+      await tryRestoreLocalSnapshot();
       const recoveryJournal = await loadWorkflowRecoveryJournal();
       if (recoveryJournal) {
         setInterruptedWorkflow(recoveryJournal);
         setWorkflowHint('上次生成被浏览器中断，输入将在进入游戏后恢复；请检查存档后重新发送。');
       }
+
+      // 世界观：先确定当前激活世界，后续智库 / 世界书 / 剧情编织按世界命名空间加载。
+      const [profiles, activeWorldId] = await Promise.all([loadWorldProfiles(), loadActiveWorldId()]);
+      const resolvedWorldId = profiles.some((p) => p.id === activeWorldId) ? activeWorldId : DEFAULT_WORLD_ID;
+      setWorldProfiles(profiles);
+      setWorldId(resolvedWorldId);
+      const isDefaultWorld = resolvedWorldId === DEFAULT_WORLD_ID;
+      const 智库存储键 = 世界存储键('zhikuSystem', resolvedWorldId);
+      const 世界书存储键 = 世界存储键(WORLDBOOK_STORAGE_KEY, resolvedWorldId);
+      const 剧情编织存储键 = 世界存储键('storyWeavingSystem', resolvedWorldId);
 
       const savedTheme = await loadSetting<主题预设>('theme');
       if (savedTheme) setCurrentTheme(normalizeThemeId(savedTheme) as 主题预设);
@@ -345,14 +367,15 @@ export function useGameState(): UseGameStateReturn {
       }
 
       try {
-        const bundledStoryWeaving = await loadAllBundledStoryWeavingPresets();
-        const savedStoryWeaving = await loadSetting<剧情编织系统>('storyWeavingSystem');
+        // 默认世界合并内置原著剧情编织；自建世界不注入 HSR 主线，从空系统开始。
+        const bundledStoryWeaving = isDefaultWorld ? await loadAllBundledStoryWeavingPresets() : 创建空剧情编织系统();
+        const savedStoryWeaving = await loadSetting<剧情编织系统>(剧情编织存储键);
         const mergedStoryWeaving = hydratePersistedStoryWeavingSystem(savedStoryWeaving, bundledStoryWeaving);
         set剧情编织(mergedStoryWeaving);
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(mergedStoryWeaving));
+        await saveSetting(剧情编织存储键, buildPersistedStoryWeavingSystem(mergedStoryWeaving));
       } catch (err) {
         console.warn('[story-weaving] preset 加载失败，回退到本地已存剧情编织:', err);
-        const savedStoryWeaving = await loadSetting<剧情编织系统>('storyWeavingSystem');
+        const savedStoryWeaving = await loadSetting<剧情编织系统>(剧情编织存储键);
         if (isSelfContainedStoryWeavingSystem(savedStoryWeaving)) {
           set剧情编织(归一化剧情编织系统(savedStoryWeaving));
         } else if (savedStoryWeaving) {
@@ -366,13 +389,23 @@ export function useGameState(): UseGameStateReturn {
         if (catalogResult.source === 'cache') {
           console.warn('[zhiku] 新目录加载失败，已继续使用最后一份完整目录:', catalogResult.loadError);
         }
-        const savedZhiku = await loadSetting<智库系统>('zhikuSystem');
-        const mergedZhiku = composeZhikuSystem(preset, savedZhiku);
-        set智库(mergedZhiku);
-        await saveSetting('zhikuSystem', buildPersistedZhikuSystem(mergedZhiku));
+        const savedZhiku = await loadSetting<智库系统>(智库存储键);
+        if (isDefaultWorld) {
+          // 默认世界：V3 内置目录与本地保存合并（预设条目可被玩家编辑/删除）。
+          const mergedZhiku = composeZhikuSystem(preset, savedZhiku);
+          set智库(mergedZhiku);
+          await saveSetting(智库存储键, buildPersistedZhikuSystem(mergedZhiku));
+        } else if (savedZhiku) {
+          // 自建世界：只加载该世界自己的智库命名空间，不注入任何星穹铁道条目。
+          set智库(buildZhikuCustomSystem(savedZhiku));
+        } else {
+          const empty = 创建空智库系统();
+          set智库(empty);
+          await saveSetting(智库存储键, buildPersistedZhikuSystem(empty));
+        }
       } catch (err) {
         console.warn('[zhiku-v3] 当前目录与最后完整目录缓存均不可用，仅恢复 V3 自制资料:', err);
-        const savedZhiku = await loadSetting<智库系统>('zhikuSystem');
+        const savedZhiku = await loadSetting<智库系统>(智库存储键);
         if (savedZhiku) {
           set智库(buildZhikuCustomSystem(savedZhiku));
         }
@@ -381,8 +414,9 @@ export function useGameState(): UseGameStateReturn {
       // Worldbooks 加载策略:
       // - savedWorldbooks === null   → 首次启动,把预设写入 IndexedDB(玩家之后可自由修改/删除)
       // - savedWorldbooks 是数组     → 玩家已与世界书交互过,完全尊重其状态,不再覆盖
-      const builtins = createBuiltinWorldbooks();
-      const rawSavedWorldbooks = await loadSetting<世界书[]>(WORLDBOOK_STORAGE_KEY);
+      // - 自建世界: 不注入星穹铁道内置世界书,从空库开始,持久化在 worldbooks:<worldId> 命名空间。
+      const builtins = isDefaultWorld ? createBuiltinWorldbooks() : [];
+      const rawSavedWorldbooks = await loadSetting<世界书[]>(世界书存储键);
       // 旧版本只有 'builtin_core_config' 一本内置；现在已拆为 6 本，老用户库里这本要丢弃。
       // 同样：CoT 已从世界书迁移到提示词模块系统，旧的 'builtin_cot' 本也要丢弃。
       // 它里面的 'builtin_first_turn_rule' 条目已经被新的 'builtin_opening_rule' 本继承。
@@ -400,10 +434,10 @@ export function useGameState(): UseGameStateReturn {
 
       if (savedWorldbooks === null) {
         try {
-          const presets = await loadAllBundledWorldbookPresets();
+          const presets = isDefaultWorld ? await loadAllBundledWorldbookPresets() : [];
           const initial = [...builtins, ...presets];
           setWorldbooks(initial);
-          await saveSetting(WORLDBOOK_STORAGE_KEY, initial);
+          await saveSetting(世界书存储键, initial);
         } catch (err) {
           console.warn('[opening-worldbook] preset 加载失败,使用内置空集:', err);
           setWorldbooks(builtins);
@@ -433,10 +467,10 @@ export function useGameState(): UseGameStateReturn {
         });
         const nextWorldbooks = [...merged, ...userBooks];
         setWorldbooks(nextWorldbooks);
-        await saveSetting(WORLDBOOK_STORAGE_KEY, nextWorldbooks);
+        await saveSetting(世界书存储键, nextWorldbooks);
       } else {
         setWorldbooks(builtins);
-        await saveSetting(WORLDBOOK_STORAGE_KEY, builtins);
+        await saveSetting(世界书存储键, builtins);
       }
 
       const saveExists = await hasAnySave();
@@ -500,6 +534,8 @@ export function useGameState(): UseGameStateReturn {
     gameSettings, setGameSettings,
     currentTheme, setCurrentTheme,
     worldbooks, setWorldbooks,
+    worldId, setWorldId,
+    worldProfiles, setWorldProfiles,
     hasSave, setHasSave,
     loading, setLoading,
     workflowHint, setWorkflowHint,

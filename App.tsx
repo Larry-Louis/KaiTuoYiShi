@@ -31,6 +31,7 @@ const SaveLoadModal = lazyWithRetry(() => import('@/components/features/SaveLoad
 const PhoneModal = lazyWithRetry(() => import('@/components/features/Phone/PhoneModal').then((module) => ({ default: module.PhoneModal })));
 const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })));
 const ZhikuManagerModal = lazyWithRetry(() => import('@/components/features/ZhikuV3/ZhikuManagerModal').then((module) => ({ default: module.ZhikuManagerModal })));
+const WorldManagerModal = lazyWithRetry(() => import('@/components/features/World/WorldManagerModal').then((module) => ({ default: module.WorldManagerModal })));
 const GitHubCloudSaveModal = lazyWithRetry(() => import('@/components/features/CloudSave/GitHubCloudSaveModal').then((module) => ({ default: module.GitHubCloudSaveModal })));
 const ReleaseAnnouncementsModal = lazyWithRetry(() => import('@/components/features/Release/ReleaseAnnouncementsModal').then((module) => ({ default: module.ReleaseAnnouncementsModal })));
 const PlotPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PlotPanel').then((module) => ({ default: module.PlotPanel })));
@@ -430,6 +431,8 @@ import type { 队列任务ID } from '@/models/queueTask';
 import { 创建空手机系统 } from '@/models/phone';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
+import { 创建空剧情编织系统 } from '@/models/storyWeaving';
+import { DEFAULT_WORLD_ID, 世界存储键 } from '@/models/worldProfile';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { generateTravelerTemplate, type TravelerTemplateContext, type TravelerTemplateDraft } from '@/services/ai/travelerTemplate';
 
@@ -468,12 +471,15 @@ const getBookOpenViewSwitchDelay = () => prefersReducedMotion() ? BOOK_OPEN_REDU
 
 export default function App() {
   const { state, actions } = useGame();
+  const activeWorldProfile = state.worldProfiles.find((p) => p.id === state.worldId);
+  const activeWorldName = activeWorldProfile?.name ?? (state.worldId === DEFAULT_WORLD_ID ? '星穹铁道' : '自定义世界');
   const pendingMemoryDraftCount = (state.记忆.失败草稿 ?? []).filter(
     (draft) => draft.status === 'pending' || draft.status === 'retrying',
   ).length;
   const [showSettings, setShowSettings] = useState(false);
   const [showWorldbookManager, setShowWorldbookManager] = useState(false);
   const [showZhikuManager, setShowZhikuManager] = useState(false);
+  const [showWorldManager, setShowWorldManager] = useState(false);
   const [showSaveLoad, setShowSaveLoad] = useState(false);
   const [showCloudSave, setShowCloudSave] = useState(false);
   const [showReleaseAnnouncements, setShowReleaseAnnouncements] = useState(false);
@@ -574,6 +580,15 @@ export default function App() {
     await wait(Math.max(totalDelay - switchDelay, 0));
     setHomeJourneyTransitioning(false);
   }, [actions, bookOpenTransitioning, homeJourneyTransitioning, launchingJourney, saveLoadTransitioning]);
+
+  /** 切换世界前的钩子：先保存当前回合，随后由世界面板写入新激活世界并重载页面。 */
+  const handleEnterWorld = useCallback(async (worldId: string) => {
+    try {
+      await actions.handleSave();
+    } catch (err) {
+      console.warn('[world] 切换世界前自动保存失败:', err);
+    }
+  }, [actions]);
 
   const handleHomeLoadSave = useCallback(async () => {
     if (saveLoadTransitioning || homeJourneyTransitioning || bookOpenTransitioning || launchingJourney) return;
@@ -826,6 +841,7 @@ export default function App() {
             onGameSettingsChange: state.setGameSettings,
             apiSettings: state.apiSettings,
             turnCount: state.turnCount,
+            worldId: state.worldId,
             mainChatHistory: state.chatHistory,
           })}
         </Suspense>
@@ -850,17 +866,29 @@ export default function App() {
           onReleaseAnnouncements={() => setShowReleaseAnnouncements(true)}
           onDiscordPost={() => window.open('https://discord.com/channels/1380075940285124724/1509136913792241704', '_blank', 'noopener,noreferrer')}
           onMysteryChat={handleHomeMysteryChat}
+          worldName={activeWorldName}
+          onManageWorlds={() => setShowWorldManager(true)}
+          hasSave={state.hasSave}
         />
         {homeJourneyTransitioning ? <HomeJourneyOverlay /> : null}
         {saveLoadTransitioning ? <SaveLoadOverlay /> : null}
         {bookOpenTransitioning ? <BookOpenOverlay /> : null}
+        {showWorldManager && (
+          <Suspense fallback={<LazySurfaceFallback label="世界观载入中" />}>
+            <WorldManagerModal
+              activeWorldId={state.worldId}
+              onEnterWorld={handleEnterWorld}
+              onClose={() => setShowWorldManager(false)}
+            />
+          </Suspense>
+        )}
         {showWorldbookManager && (
           <Suspense fallback={<LazySurfaceFallback label="如我所书载入中" />}>
             <WorldbookManagerModal
               worldbooks={state.worldbooks}
               onSave={(books) => {
                 state.setWorldbooks(books);
-                saveSetting('worldbooks', books);
+                saveSetting(世界存储键('worldbooks', state.worldId), books);
               }}
               onClose={() => setShowWorldbookManager(false)}
             />
@@ -885,6 +913,7 @@ export default function App() {
                 if (ok) setShowSaveLoad(false);
                 return ok;
               }}
+              worldId={state.worldId}
               onClose={() => setShowSaveLoad(false)}
             />
           </Suspense>
@@ -940,9 +969,11 @@ export default function App() {
 
                 state.setWorldbooks(books);
 
-                saveSetting('worldbooks', books);
+                saveSetting(世界存储键('worldbooks', state.worldId), books);
 
               }}
+              activeWorldId={state.worldId}
+              onEnterWorld={handleEnterWorld}
               variableSetters={{
                 set旅人: state.set旅人,
                 set世界: state.set世界,
@@ -994,12 +1025,16 @@ export default function App() {
       state.set新闻([]);
       state.set剧情([]);
       try {
+        // 默认世界注入内置原著剧情；自建世界从空系统开始，不注入星穹铁道主线。
+        const bundled = state.worldId === DEFAULT_WORLD_ID
+          ? await loadAllBundledStoryWeavingPresets()
+          : 创建空剧情编织系统();
         const nextStoryWeaving = alignStoryWeavingToOpeningArchive(
-          await loadAllBundledStoryWeavingPresets(),
+          bundled,
           worldState.开局档案,
         );
         state.set剧情编织(nextStoryWeaving);
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
+        await saveSetting(世界存储键('storyWeavingSystem', state.worldId), buildPersistedStoryWeavingSystem(nextStoryWeaving));
       } catch (err) {
         console.warn('[story-weaving] 新开局加载内置原著剧情失败，保留当前剧情编织状态:', err);
       }
@@ -1019,6 +1054,8 @@ export default function App() {
             currentTheme={state.currentTheme}
             openingArchiveApiConfig={getActiveApiConfig()}
             onGenerateTravelerTemplate={handleGenerateTravelerTemplate}
+            worldId={state.worldId}
+            worldName={activeWorldName}
           />
         </Suspense>
         {homeJourneyTransitioning ? <HomeJourneyOverlay /> : null}
@@ -1082,8 +1119,10 @@ export default function App() {
             worldbooks={state.worldbooks}
             onWorldbooksChange={(books) => {
               state.setWorldbooks(books);
-              saveSetting('worldbooks', books);
+              saveSetting(世界存储键('worldbooks', state.worldId), books);
             }}
+            activeWorldId={state.worldId}
+            onEnterWorld={handleEnterWorld}
             variableSetters={{
               set旅人: state.set旅人,
               set世界: state.set世界,
@@ -1149,7 +1188,7 @@ export default function App() {
             worldbooks={state.worldbooks}
             onSave={(books) => {
               state.setWorldbooks(books);
-              saveSetting('worldbooks', books);
+              saveSetting(世界存储键('worldbooks', state.worldId), books);
             }}
             onClose={() => setShowWorldbookManager(false)}
           />
@@ -1176,6 +1215,7 @@ export default function App() {
               if (ok) setShowSaveLoad(false);
               return ok;
             }}
+            worldId={state.worldId}
             onClose={() => setShowSaveLoad(false)}
           />
         </Suspense>
@@ -1226,6 +1266,7 @@ function renderSystemPanel(
     onGameSettingsChange: React.Dispatch<React.SetStateAction<import('@/models/settings').游戏设置>>;
     apiSettings: import('@/models/settings').API设置;
     turnCount: number;
+    worldId: string;
     mainChatHistory: import('@/models/chat').聊天消息[];
   },
 ) {
@@ -1295,6 +1336,7 @@ function renderSystemPanel(
           onStoryWeavingChange={ctx.onStoryWeavingChange}
           gameSettings={ctx.gameSettings}
           apiSettings={ctx.apiSettings}
+          worldId={ctx.worldId}
         />
       );
     case 'yiting':
