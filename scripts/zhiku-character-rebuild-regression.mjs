@@ -3143,7 +3143,7 @@ assert(
 assert(
   preset.includes('removeLegacyZhikuCharacterEntries(') &&
     saveLoad.includes('mergeBundledZhikuSystem(await loadAllBundledZhikuPresets(), save.智库, zhikuMigrationAt)') &&
-    saveLoad.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(nextZhiku))"),
+    saveLoad.includes("await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(nextZhiku))"),
   'loading an old save must not restore legacy character entries into active zhiku.',
 );
 assert(
@@ -3174,14 +3174,14 @@ assert(
 assert(
   state.includes('buildPersistedZhikuSystem') &&
     state.includes('mergeBundledZhikuSystem(preset, savedZhiku, migrationAt)') &&
-    state.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(mergedZhiku))") &&
+    state.includes("await saveSetting(智库存储键, buildPersistedZhikuSystem(mergedZhiku))") &&
     saveLoad.includes('buildPersistedZhikuSystem') &&
     saveLoad.includes('mergeBundledZhikuSystem(await loadAllBundledZhikuPresets(), save.智库, zhikuMigrationAt)') &&
     saveLoad.includes('智库: buildPersistedZhikuSystem(overrides?.智库 ?? state.智库)') &&
-    saveLoad.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(nextZhiku))") &&
-    sendWorkflow.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock))") &&
-    panel.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next))"),
-  'all zhiku save paths must persist a slim zhiku payload instead of the full bundled library.',
+    saveLoad.includes("await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(nextZhiku))") &&
+    sendWorkflow.includes("await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock))") &&
+    panel.includes("await saveSetting(世界存储键('zhikuSystem', worldId ?? DEFAULT_WORLD_ID), buildPersistedZhikuSystem(next))"),
+  'all zhiku save paths must persist a slim zhiku payload instead of the full bundled library, scoped to the active world.',
 );
 assert(
   panel.includes('isDevBuild') &&
@@ -3599,9 +3599,9 @@ assert(
   'zhiku character workspace must show multi-role nodes under every related character, not only the first 角色 tag.',
 );
 assert(
-  panel.includes('grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden') &&
+  panel.includes('grid min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden') &&
     panel.includes('min-w-0 overflow-x-hidden overflow-y-visible md:min-h-0 md:overflow-y-auto md:pr-1'),
-  'zhiku character workspace must stack on mobile and only switch to internal desktop column scrolling at md+.',
+  'zhiku character workspace must stack on mobile and only switch to internal desktop column scrolling at md+ (page-level growth keeps content height).',
 );
 assert(
   panel.includes('nativePenaconyOrganizations') &&
@@ -5720,7 +5720,7 @@ assert(
     sendWorkflow.includes("import { buildPersistedZhikuSystem }") &&
     sendWorkflow.includes('storyAlignment.progressed') &&
     sendWorkflow.includes('applyStoryArchiveZhikuRuntimeUnlock({') &&
-    sendWorkflow.includes("await saveSetting('zhikuSystem', buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock))") &&
+    sendWorkflow.includes("await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock))") &&
     sendWorkflow.includes('剧情归档已更新智库门禁') &&
     sendWorkflow.includes('智库: zhikuAfterRuntimeUnlock'),
   'main workflow must update zhiku runtime unlocks after story weaving progresses and include them in autosave.',

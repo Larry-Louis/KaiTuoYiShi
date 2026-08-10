@@ -24,6 +24,7 @@ import { runNewsGenerationStep } from './newsWorkflow';
 import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 import { 归一化世界状态, 格式化开局档案上下文, type 世界状态 } from '@/models/world';
+import { 世界存储键 } from '@/models/worldProfile';
 import { loadSetting, saveGame, saveSetting } from '@/services/dbService';
 import {
   clearWorkflowRecoveryJournal,
@@ -709,8 +710,9 @@ function getStoryWeavingWriteSignature(system: 剧情编织系统): string {
 async function resolveStoryWeavingForBackgroundWrite(input: {
   workflowBase: 剧情编织系统;
   proposed: 剧情编织系统;
+  worldId: string;
 }): Promise<{ system: 剧情编织系统; concurrentChange: boolean }> {
-  const latest = await loadSetting<剧情编织系统>('storyWeavingSystem');
+  const latest = await loadSetting<剧情编织系统>(世界存储键('storyWeavingSystem', input.worldId));
   const latestNormalized = latest ? hydratePersistedStoryWeavingSystem(latest, input.workflowBase) : null;
   if (!latestNormalized) return { system: input.proposed, concurrentChange: false };
   const baseSignature = getStoryWeavingWriteSignature(归一化剧情编织系统(input.workflowBase));
@@ -2867,12 +2869,13 @@ export async function executeSendWorkflow(
         const resolvedStory = await resolveStoryWeavingForBackgroundWrite({
           workflowBase: state.剧情编织,
           proposed: storyAlignment.system,
+          worldId: state.worldId,
         });
         storyWeavingForSave = resolvedStory.system;
         storyWeavingConcurrentChange = resolvedStory.concurrentChange;
         if (!storyWeavingConcurrentChange) {
           state.set剧情编织(storyWeavingForSave);
-          await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(storyWeavingForSave));
+          await saveSetting(世界存储键('storyWeavingSystem', state.worldId), buildPersistedStoryWeavingSystem(storyWeavingForSave));
         } else {
           pushQueueTask(state, 'zhiku', 'success', {
             detail: '检测到剧情编织面板已有更新，本回合后台未覆盖最新导入/分解结果。',
@@ -2905,7 +2908,7 @@ export async function executeSendWorkflow(
           assertWorkflowActive();
           zhikuAfterRuntimeUnlock = zhikuUnlock.system;
           state.set智库(zhikuAfterRuntimeUnlock);
-          await saveSetting('zhikuSystem', buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock));
+          await saveSetting(世界存储键('zhikuSystem', state.worldId), buildPersistedZhikuSystem(zhikuAfterRuntimeUnlock));
           assertWorkflowActive();
           pushQueueTask(state, 'zhiku', 'success', {
             detail: `剧情归档已更新智库门禁：${zhikuUnlock.unlocked.slice(0, 3).map((item) => `${item.title}→${item.status}`).join('、')}${zhikuUnlock.unlocked.length > 3 ? ` 等 ${zhikuUnlock.unlocked.length} 项` : ''}。`,
@@ -3122,14 +3125,14 @@ export async function executeSendWorkflow(
     await saveSetting('theme', state.currentTheme);
     await saveSetting('apiSettings', state.apiSettings);
     await saveSetting('gameSettings', state.gameSettings);
-    await saveSetting('worldbooks', state.worldbooks);
+    await saveSetting(世界存储键('worldbooks', state.worldId), state.worldbooks);
     await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
   } catch (err: unknown) {
     if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
       state.setChatHistory(rollbackHistoryOnAbort);
       if (rollbackSnapshotOnAbort) {
         const rollbackStoryWeaving = restorePreTurnSnapshot(state, rollbackSnapshotOnAbort);
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(rollbackStoryWeaving));
+        await saveSetting(世界存储键('storyWeavingSystem', state.worldId), buildPersistedStoryWeavingSystem(rollbackStoryWeaving));
       }
       await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
       state.setWorkflowHint('已停止生成，本次输入已回到输入框，可修改后重新发送。');

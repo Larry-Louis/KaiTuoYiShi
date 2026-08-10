@@ -7,8 +7,9 @@ function assert(condition, message) {
 const panel = fs.readFileSync('components/features/GameSystems/ZhikuPanel.tsx', 'utf8');
 
 assert(
-  panel.includes('grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden'),
-  'Zhiku workbench must allow page-level vertical scrolling on mobile instead of hard-clipping columns.',
+  panel.includes('grid min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden') &&
+    !panel.includes('grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden'),
+  'Zhiku workbench must allow page-level vertical scrolling on mobile and keep content height when the page grows (no hard min-h-0 collapse).',
 );
 assert(
   panel.includes("activeCategory === 'character'") &&

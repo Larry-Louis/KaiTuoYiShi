@@ -22,6 +22,7 @@ import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { 队列任务记录 } from '@/models/queueTask';
 import { 根据开局档案创建初始NPC记录, 生成开局已成立事实, 归一化开局档案 } from '@/models/world';
 import { saveGame, saveSetting } from '@/services/dbService';
+import { 世界存储键 } from '@/models/worldProfile';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
 import {
   commitMemoryRebuildTask,
@@ -158,7 +159,7 @@ export function useGame(): UseGameReturn {
       s.setWorkflowHint(snapshot ? '已回滚到本回合发送前，可修改后重新发送。' : '本回合缺少快照，仅恢复输入文本。');
       if (snapshot) {
         const nextStoryWeaving = restorePreTurnSnapshot(s, snapshot);
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
+        await saveSetting(世界存储键('storyWeavingSystem', s.worldId), buildPersistedStoryWeavingSystem(nextStoryWeaving));
       } else {
         s.setTurnCount(Math.max(1, s.turnCount - 1));
       }
@@ -202,7 +203,7 @@ export function useGame(): UseGameReturn {
     s.setWorkflowHint(snapshot ? '已回滚到上一回合发送前，可修改后重新发送。' : '旧回复缺少完整快照，仅恢复输入文本。');
     if (snapshot) {
       const nextStoryWeaving = restorePreTurnSnapshot(s, snapshot);
-      await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
+      await saveSetting(世界存储键('storyWeavingSystem', s.worldId), buildPersistedStoryWeavingSystem(nextStoryWeaving));
     } else {
       // 老回复没 snapshot（迁移期 / 旧存档），只能粗略 turnCount -1，状态保持不变
       s.setTurnCount(Math.max(1, s.turnCount - 1));
@@ -500,7 +501,7 @@ export function useGame(): UseGameReturn {
     s.setQueueTasks([]);
     const nextStoryWeaving = alignStoryWeavingToOpeningArchive(s.剧情编织, restartOpeningArchive);
     s.set剧情编织(nextStoryWeaving);
-    saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
+    saveSetting(世界存储键('storyWeavingSystem', s.worldId), buildPersistedStoryWeavingSystem(nextStoryWeaving));
 
     // worldState：保留创角时的 currentPeriod / difficulty / storyMode / startingScenarioId / customStartPrompt。
     // 重新开局时必须重建开局档案对应的已成立事实，否则非黑塔/自由开局会只剩字段，缺少后续注入锚点。

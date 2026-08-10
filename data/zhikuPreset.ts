@@ -356,6 +356,47 @@ export function mergeZhikuRuntimeUnlockOverrides(
   });
 }
 
+export function mergeZhikuContentOverrides(
+  bundledEntries: 智库条目[],
+  savedEntries: 智库条目[] | undefined,
+): 智库条目[] {
+  const overridesById = new Map<string, 智库条目>();
+  const deletedById = new Set<string>();
+  for (const entry of savedEntries ?? []) {
+    if (!entry.builtin) continue;
+    if (entry.用户内容覆写) {
+      for (const id of 获取智库条目身份ID(entry)) overridesById.set(id, entry);
+    }
+    if (entry.已删除) {
+      for (const id of 获取智库条目身份ID(entry)) deletedById.add(id);
+    }
+  }
+  if (overridesById.size === 0 && deletedById.size === 0) return bundledEntries;
+  return bundledEntries
+    .filter((entry) => !获取智库条目身份ID(entry).some((id) => deletedById.has(id)))
+    .map((entry) => {
+    const override = 获取智库条目身份ID(entry)
+      .map((id) => overridesById.get(id))
+      .find((candidate): candidate is 智库条目 => Boolean(candidate));
+    if (!override) return entry;
+    return {
+      ...entry,
+      ...override,
+      // 身份与来源仍以预设为准，仅内容字段采用用户覆写。
+      id: entry.id,
+      兼容ID: entry.兼容ID,
+      治理分类: entry.治理分类,
+      资料所有者: entry.资料所有者,
+      来源预设ID: entry.来源预设ID,
+      来源文件: entry.来源文件,
+      来源序号: entry.来源序号,
+      builtin: true,
+      用户内容覆写: true,
+      createdAt: entry.createdAt,
+    };
+  });
+}
+
 export function mergeBundledZhikuSystem(
   bundledSystem: 智库系统,
   currentSystem: 智库系统 | null | undefined,
@@ -372,7 +413,13 @@ export function mergeBundledZhikuSystem(
   return 升级自制智库系统({
     自制资料契约版本: currentSystem?.自制资料契约版本,
     自制资料下一个序号: currentSystem?.自制资料下一个序号,
-    条目: [...mergeZhikuRuntimeUnlockOverrides(bundledSystem.条目, currentEntries), ...customEntries],
+    条目: [
+      ...mergeZhikuContentOverrides(
+        mergeZhikuRuntimeUnlockOverrides(bundledSystem.条目, currentEntries),
+        currentEntries,
+      ),
+      ...customEntries,
+    ],
   });
 }
 
@@ -383,9 +430,11 @@ export function buildPersistedZhikuSystem(system: 智库系统 | undefined): 智
     自制资料下一个序号: source.自制资料下一个序号,
     条目: source.条目
       .filter((entry) => !shouldRemoveRetiredZhikuEntry(entry))
-      .filter((entry) => !entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注))
+      .filter((entry) => !entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注) || entry.用户内容覆写)
       .map((entry) => {
         if (!entry.builtin) return entry;
+        // 被用户直接修改过的内置条目：完整保留内容，重启合并时以本地覆写为准。
+        if (entry.用户内容覆写) return entry;
         return {
           id: entry.id,
           兼容ID: entry.兼容ID,

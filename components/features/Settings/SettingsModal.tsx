@@ -5,6 +5,7 @@ import {
   Cable,
   Database,
   FileText,
+  Globe,
   HardDrive,
   Import as ImportIcon,
   Layers3,
@@ -27,6 +28,7 @@ import { ApiErrorReportsTab } from './ApiErrorReportsTab';
 import { StorageManagerTab } from './StorageManager';
 import { VariableManagerTab } from './VariableManager';
 import { ContextViewerTab } from './ContextViewer';
+import { WorldManagerPanel } from '@/components/features/World/WorldManagerPanel';
 import type { API设置, 游戏设置, 主题预设 } from '@/models/settings';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
 import type { 角色数据结构 } from '@/models/character';
@@ -75,9 +77,13 @@ interface SettingsModalProps {
   worldbooks: 世界书[];
   /** Phase 7.2：世界书变更回调（同时负责持久化到 IndexedDB）。 */
   onWorldbooksChange: (books: 世界书[]) => void;
+  /** 当前激活的世界观 ID。 */
+  activeWorldId: string;
+  /** 切换世界前的钩子（如先保存当前回合），随后切换与页面重载由面板完成。 */
+  onEnterWorld?: (worldId: string) => Promise<void> | void;
 }
 
-type Tab = 'api' | 'apiErrors' | 'game' | 'visual' | 'context' | 'nsfw' | 'variables' | 'prompts' | 'tavernPresets' | 'extra' | 'theme' | 'storage';
+type Tab = 'api' | 'apiErrors' | 'game' | 'visual' | 'context' | 'nsfw' | 'variables' | 'prompts' | 'tavernPresets' | 'extra' | 'theme' | 'storage' | 'world';
 
 const tabs: { key: Tab; label: string; icon: string; navIcon: LucideIcon; subtitle: string }[] = [
   { key: 'visual', label: '视觉设置', icon: '◇', navIcon: TypeIcon, subtitle: '正文显示与字号' },
@@ -91,6 +97,7 @@ const tabs: { key: Tab; label: string; icon: string; navIcon: LucideIcon; subtit
   { key: 'tavernPresets', label: '酒馆预设', icon: '◆', navIcon: ImportIcon, subtitle: 'ST 导入与消息链' },
   { key: 'extra', label: '额外功能', icon: '✦', navIcon: WandSparkles, subtitle: '污染词清理与扩展功能' },
   { key: 'theme', label: '主题风格', icon: '◇', navIcon: Palette, subtitle: '配色与氛围' },
+  { key: 'world', label: '世界观', icon: '✧', navIcon: Globe, subtitle: '世界管理、创建与切换' },
   { key: 'storage', label: '存档管理', icon: '✧', navIcon: HardDrive, subtitle: '本地存档与导入导出' },
 ];
 
@@ -122,6 +129,8 @@ export function SettingsModal({
   initialTab = 'api',
   worldbooks,
   onWorldbooksChange,
+  activeWorldId,
+  onEnterWorld,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [contextRefreshKey, setContextRefreshKey] = useState(0);
@@ -212,6 +221,8 @@ export function SettingsModal({
         );
       case 'theme':
         return <ThemeSettingsTab current={currentTheme} onChange={persistThemeChange} />;
+      case 'world':
+        return <WorldManagerPanel activeWorldId={activeWorldId} onEnterWorld={onEnterWorld} />;
       case 'storage':
         return <StorageManagerTab onSave={onSave} onContinue={onContinue} onLoadSave={onLoadSave} />;
     }

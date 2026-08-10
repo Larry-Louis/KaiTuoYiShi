@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   智库人物注入内容,
   智库系统,
@@ -27,6 +27,7 @@ import {
 } from '@/models/zhiku';
 import type { 智库系统设置 } from '@/models/settings';
 import { loadSetting, saveSetting } from '@/services/dbService';
+import { DEFAULT_WORLD_ID, 世界存储键 } from '@/models/worldProfile';
 import {
   ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY,
   buildPersistedZhikuSystem,
@@ -46,6 +47,8 @@ interface Props {
   zhikuSystem: 智库系统;
   onZhikuSystemChange: React.Dispatch<React.SetStateAction<智库系统>>;
   settings: 智库系统设置;
+  /** 当前世界观 ID：持久化键按世界命名空间隔离。 */
+  worldId?: string;
 }
 
 type Bucket = 'all' | 'builtin' | 'custom';
@@ -70,7 +73,7 @@ const categories: 智库分类[] = ['character', 'location', 'faction', 'term', 
 const zhikuScopeOptions = ['主剧情', '手机', '新闻', '变量参考', '剧情编织', '通用', '只读'];
 const isDevBuild = typeof import.meta !== 'undefined' && Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
-export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props) {
+export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings, worldId }: Props) {
   const normalized = useMemo(() => 归一化智库系统(zhikuSystem), [zhikuSystem]);
   const visibleEntries = useMemo(() => normalized.条目.filter((entry) => !isRetiredZhikuCategory(entry.分类)), [normalized]);
   const builtinEntries = useMemo(() => visibleEntries.filter((entry) => entry.builtin), [visibleEntries]);
@@ -191,7 +194,7 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
       条目: nextEntries,
     });
     onZhikuSystemChange(next);
-    await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next));
+    await saveSetting(世界存储键('zhikuSystem', worldId ?? DEFAULT_WORLD_ID), buildPersistedZhikuSystem(next));
     setSaveFlash(true);
     window.setTimeout(() => setSaveFlash(false), 1200);
   };
@@ -206,9 +209,12 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
       if (!savedMigrationAt) {
         await saveSetting(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, migrationAt);
       }
-      const next = mergeBundledZhikuSystem(bundled, normalized, migrationAt);
+      const persistedCurrent = await loadSetting<智库系统>(世界存储键('zhikuSystem', worldId ?? DEFAULT_WORLD_ID));
+      const next = worldId === DEFAULT_WORLD_ID || worldId === undefined
+        ? mergeBundledZhikuSystem(bundled, persistedCurrent ?? normalized, migrationAt)
+        : normalized;
       onZhikuSystemChange(next);
-      await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next));
+      await saveSetting(世界存储键('zhikuSystem', worldId ?? DEFAULT_WORLD_ID), buildPersistedZhikuSystem(next));
       setSelectedId((prev) => (prev && next.条目.some((entry) => entry.id === prev) ? prev : next.条目[0]?.id ?? null));
       setSaveFlash(true);
       setDevRefreshStatus('done');
@@ -289,18 +295,19 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
 
   const updateSelected = async (patch: Partial<智库条目>) => {
     if (!selected) return;
-    const allowedRuntimePatch = selected.builtin
-      ? {
-          ...(patch.运行时解锁状态 !== undefined ? { 运行时解锁状态: patch.运行时解锁状态 } : {}),
-          ...(patch.运行时解锁备注 !== undefined ? { 运行时解锁备注: patch.运行时解锁备注 } : {}),
-        }
-      : patch;
-    if (selected.builtin && Object.keys(allowedRuntimePatch).length === 0) return;
     const nextEntries = normalized.条目.map((entry) =>
-      entry.id === selected.id ? { ...entry, ...allowedRuntimePatch, updatedAt: Date.now() } : entry,
+      entry.id === selected.id
+        ? {
+            ...entry,
+            ...patch,
+            // 内置（原著）条目被直接修改：标记为用户覆写，重启合并时以本地内容为准。
+            ...(selected.builtin ? { 用户内容覆写: true } : {}),
+            updatedAt: Date.now(),
+          }
+        : entry,
     );
     const candidate = nextEntries.find((entry) => entry.id === selected.id);
-    if (candidate && !candidate.builtin) {
+    if (candidate && (!candidate.builtin || candidate.用户内容覆写)) {
       const missing = 获取智库注入内容缺失字段(candidate);
       if (!candidate.原文.trim() || missing.length) {
         onZhikuSystemChange({ ...normalized, 条目: nextEntries });
@@ -317,7 +324,26 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
   };
 
   const deleteSelected = async () => {
-    if (!selected || selected.builtin) return;
+    if (!selected) return;
+    if (selected.builtin) {
+      // 内置（原著）条目：本地移除 + 落盘删除标记，重启合并时不再从预设恢复。
+      const deletedEntry: 智库条目 = {
+        ...selected,
+        已删除: true,
+        用户内容覆写: true,
+        updatedAt: Date.now(),
+      };
+      const nextEntries = normalized.条目.filter((entry) => entry.id !== selected.id);
+      onZhikuSystemChange({ ...normalized, 条目: nextEntries });
+      await saveSetting(
+        世界存储键('zhikuSystem', worldId ?? DEFAULT_WORLD_ID),
+        buildPersistedZhikuSystem({ ...normalized, 条目: [...nextEntries, deletedEntry] }),
+      );
+      setSelectedId(nextEntries[0]?.id ?? null);
+      setSaveFlash(true);
+      window.setTimeout(() => setSaveFlash(false), 1200);
+      return;
+    }
     const nextEntries = normalized.条目.filter((entry) => entry.id !== selected.id);
     await persist(nextEntries);
     setSelectedId(nextEntries[0]?.id ?? null);
@@ -338,7 +364,7 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
   const visibleCount = activeEntries.length;
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden md:gap-4 md:overflow-y-hidden">
+    <div className="flex min-h-full min-w-0 flex-col gap-3 overflow-x-hidden md:gap-4">
       <section
         className="min-w-0 px-3 py-3 md:px-4 md:py-4"
         style={{
@@ -365,7 +391,7 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
               智库
             </div>
             <div className="mt-1 line-clamp-2 text-xs leading-relaxed md:mt-2 md:line-clamp-none md:text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.76)' }}>
-              内置资料来自预设原著内容，只读。自制资料走独立接口，支持你自己继续补原著、补设定、补说明。
+              内置资料来自预设原著内容，可直接修改并以覆写形式保存。自制资料走独立接口，支持你自己继续补原著、补设定、补说明。
             </div>
           </div>
           <div className="flex flex-col items-stretch gap-2 md:items-end">
@@ -632,7 +658,7 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
       )}
 
       <section
-        className={`grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden ${
+        className={`grid min-w-0 flex-1 gap-3 overflow-y-auto overflow-x-hidden p-3 md:overflow-hidden ${
           activeCategory === 'character'
             ? 'md:grid-cols-[170px_220px_minmax(0,1fr)] lg:grid-cols-[190px_260px_minmax(0,1fr)]'
             : 'md:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.2fr)]'
@@ -669,7 +695,6 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
             onSelectProfile={(entryId) => setSelectedId(entryId)}
             onUpdate={updateSelected}
             onDelete={deleteSelected}
-            onSelectCustomOnly={() => setBucket('custom')}
           />
         ) : (
           <>
@@ -684,7 +709,7 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
                   </div>
                 </div>
                 <div className="hidden text-[11px] font-mono tracking-[0.24em] md:block" style={{ color: 'rgba(160, 200, 160, 0.82)' }}>
-                  {bucket === 'builtin' ? 'READ ONLY' : bucket === 'custom' ? 'CUSTOM' : 'MIXED'}
+                  {bucket === 'builtin' ? 'BUILTIN' : bucket === 'custom' ? 'CUSTOM' : 'MIXED'}
                 </div>
               </div>
 
@@ -714,7 +739,6 @@ export function ZhikuPanel({ zhikuSystem, onZhikuSystemChange, settings }: Props
                 entry={selected}
                 onUpdate={updateSelected}
                 onDelete={deleteSelected}
-                onSelectCustomOnly={() => setBucket('custom')}
               />
             </div>
           </>
@@ -1004,7 +1028,6 @@ function CharacterWorkspace({
   onSelectProfile,
   onUpdate,
   onDelete,
-  onSelectCustomOnly,
 }: {
   groups: CharacterGroup[];
   activeProfile: CharacterProfile | null;
@@ -1016,7 +1039,6 @@ function CharacterWorkspace({
   onSelectProfile: (entryId: string) => void;
   onUpdate: (patch: Partial<智库条目>) => void;
   onDelete: () => void;
-  onSelectCustomOnly: () => void;
 }) {
   return (
     <>
@@ -1031,7 +1053,7 @@ function CharacterWorkspace({
             </div>
           </div>
           <div className="hidden shrink-0 whitespace-nowrap text-[11px] font-mono tracking-[0.14em] md:block" style={{ color: 'rgba(190, 224, 190, 0.92)' }}>
-            {bucket === 'builtin' ? 'READ ONLY' : bucket === 'custom' ? 'CUSTOM' : 'REBUILD'}
+            {bucket === 'builtin' ? 'BUILTIN' : bucket === 'custom' ? 'CUSTOM' : 'REBUILD'}
           </div>
         </div>
 
@@ -1051,19 +1073,60 @@ function CharacterWorkspace({
         )}
       </main>
 
-      <div className="min-h-0 min-w-0 overflow-hidden md:h-full">
-        {activeEntry ? (
-          <DetailPanel
-            entry={activeEntry}
-            onUpdate={onUpdate}
-            onDelete={onDelete}
-            onSelectCustomOnly={onSelectCustomOnly}
-          />
-        ) : (
-          <CharacterRebuildDetail />
-        )}
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden md:h-full">
+        <CharacterFormSwitcher profile={activeProfile} selectedId={activeEntry?.id ?? null} onSelect={onSelectProfile} />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {activeEntry ? (
+            <DetailPanel
+              entry={activeEntry}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ) : (
+            <CharacterRebuildDetail />
+          )}
+        </div>
       </div>
     </>
+  );
+}
+
+function CharacterFormSwitcher({
+  profile,
+  selectedId,
+  onSelect,
+}: {
+  profile: CharacterProfile | null;
+  selectedId: string | null;
+  onSelect: (entryId: string) => void;
+}) {
+  if (!profile || profile.entries.length < 2) return null;
+  return (
+    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5 px-3">
+      <span className="shrink-0 text-[10px] font-mono tracking-[0.18em]" style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }}>
+        同主体形态
+      </span>
+      {profile.entries.map((entry) => {
+        const active = selectedId === entry.id;
+        return (
+          <button
+            key={entry.id}
+            onClick={() => onSelect(entry.id)}
+            className="max-w-[46%] min-w-0 truncate px-2.5 py-1 text-[11px] font-mono tracking-[0.08em] transition-all hover:opacity-90"
+            style={{
+              color: active ? 'rgb(var(--tj-on-accent))' : 'rgba(var(--tj-text-secondary), 0.86)',
+              background: active
+                ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.9))'
+                : 'rgba(var(--tj-bg-secondary), 0.3)',
+              boxShadow: active ? 'none' : 'inset 0 0 0 1px rgba(var(--tj-border), 0.3)',
+              clipPath: smallClip,
+            }}
+          >
+            {entry.标题}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1545,15 +1608,17 @@ function DetailPanel({
   entry,
   onUpdate,
   onDelete,
-  onSelectCustomOnly,
 }: {
   entry: 智库条目 | null;
   onUpdate: (patch: Partial<智库条目>) => void;
   onDelete: () => void;
-  onSelectCustomOnly: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    setEditing(false);
+  }, [entry?.id]);
   if (!entry) return <EmptyNotice text="先录入或选择一条资料。" />;
-  const editable = !entry.builtin;
+  const editable = editing;
   const characterMeta = entry.分类 === 'character' ? 解析智库软结构标签(entry) : null;
 
   return (
@@ -1592,42 +1657,43 @@ function DetailPanel({
             style={{ color: 'rgb(var(--tj-text-primary))', opacity: editable ? 1 : 0.95 }}
           />
           <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.9)' }}>
-            {entry.builtin ? '内置条目只读，来自预设原著资料。' : '这里是自制条目编辑区，修改会即时保存到本地智库。'}
+            {entry.builtin
+              ? '内置条目来自预设原著资料，可直接修改，修改会以覆写形式保存并在重启后保留；删除后重启不再恢复。'
+              : '这里是自制条目编辑区，修改会即时保存到本地智库。'}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-          {!entry.builtin && (
-            <button
-              onClick={onDelete}
-              className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
-              style={{
-                color: 'rgba(255, 150, 150, 0.92)',
-                boxShadow: 'inset 0 0 0 1px rgba(255, 120, 120, 0.24)',
-                clipPath: smallClip,
-              }}
-            >
-              DELETE
-            </button>
-          )}
-          {entry.builtin && (
-            <button
-              onClick={onSelectCustomOnly}
-              className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
-              style={{
-                color: 'rgba(54, 111, 74, 0.96)',
-                background: 'rgba(54, 111, 74, 0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(54, 111, 74, 0.32)',
-                clipPath: smallClip,
-              }}
-            >
-              SWITCH CUSTOM
-            </button>
-          )}
+          <button
+            onClick={() => setEditing((value) => !value)}
+            className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
+            style={{
+              color: editing ? 'rgb(var(--tj-bg-primary))' : 'rgba(135, 215, 175, 0.92)',
+              background: editing ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-amber-deep), 0.95))' : 'transparent',
+              boxShadow: editing ? 'none' : 'inset 0 0 0 1px rgba(135, 215, 175, 0.3)',
+              clipPath: smallClip,
+            }}
+          >
+            {editing ? 'SAVE' : 'EDIT'}
+          </button>
+          <button
+            onClick={onDelete}
+            className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
+            style={{
+              color: 'rgba(255, 150, 150, 0.92)',
+              boxShadow: 'inset 0 0 0 1px rgba(255, 120, 120, 0.24)',
+              clipPath: smallClip,
+            }}
+          >
+            DELETE
+          </button>
         </div>
       </div>
 
       {entry.分类 === 'character' ? (
-        <CharacterProfileWorkspace entry={entry} editable={editable} onUpdate={onUpdate} />
+        <>
+          <CharacterProfileWorkspace entry={entry} editable={editable} onUpdate={onUpdate} />
+          <DetailMetadataForm entry={entry} editable={editable} characterMeta={characterMeta} onUpdate={onUpdate} />
+        </>
       ) : (
         <DetailMetadataForm entry={entry} editable={editable} characterMeta={characterMeta} onUpdate={onUpdate} />
       )}
@@ -1648,118 +1714,6 @@ function DetailMetadataForm({
 }) {
   return (
     <>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        <Field label="分类">
-          <select
-            value={entry.分类}
-            onChange={(e) => onUpdate({ 分类: e.target.value as 智库分类 })}
-            disabled={!editable}
-            className="kaituo-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
-          >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {ZHIKU_CATEGORY_LABELS[cat]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="重要度">
-          <input
-            type="number"
-            min={1}
-            max={5}
-            value={entry.重要度}
-            onChange={(e) => onUpdate({ 重要度: Number(e.target.value) || 3 })}
-            readOnly={!editable}
-            className="kaituo-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
-          />
-        </Field>
-      </div>
-      <Field label="来源">
-        <input
-          value={entry.来源 ?? ''}
-          onChange={(e) => onUpdate({ 来源: e.target.value })}
-          readOnly={!editable}
-          className="kaituo-input w-full px-3 py-2 text-sm"
-          style={{ clipPath: smallClip }}
-        />
-      </Field>
-      <Field label="资料关键词 / 标签">
-        <input
-          value={entry.关键词.join('、')}
-          onChange={(e) =>
-            onUpdate({
-              关键词: e.target.value
-                .split(/[,，、\n]/)
-                .map((k) => k.trim())
-                .filter(Boolean),
-            })
-          }
-          readOnly={!editable}
-          className="kaituo-input w-full px-3 py-2 text-sm"
-          style={{ clipPath: smallClip }}
-        />
-      </Field>
-      <Field label="触发关键词 / 别名">
-        <input
-          value={(entry.触发关键词 ?? []).join('、')}
-          onChange={(e) => onUpdate({ 触发关键词: splitKeywordText(e.target.value) })}
-          placeholder="留空时兼容读取现有核心触发词"
-          readOnly={!editable}
-          className="kaituo-input w-full px-3 py-2 text-sm"
-          style={{ clipPath: smallClip }}
-        />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="辅助关键词">
-          <input
-            value={(entry.辅助关键词 ?? []).join('、')}
-            onChange={(e) => onUpdate({ 辅助关键词: splitKeywordText(e.target.value) })}
-            placeholder="用于形态或上下文过滤"
-            readOnly={!editable}
-            className="kaituo-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
-          />
-        </Field>
-        <Field label="辅助逻辑">
-          <select
-            value={entry.辅助关键词逻辑 ?? 'AND_ANY'}
-            onChange={(e) => onUpdate({ 辅助关键词逻辑: e.target.value as 智库辅助关键词逻辑 })}
-            disabled={!editable}
-            className="kaituo-input w-full px-3 py-2 text-sm"
-            style={{ clipPath: smallClip }}
-          >
-            {(['AND_ANY', 'AND_ALL', 'NOT_ANY', 'NOT_ALL'] as 智库辅助关键词逻辑[]).map((logic) => <option key={logic} value={logic}>{logic}</option>)}
-          </select>
-        </Field>
-      </div>
-      <Field label="多形态互斥组">
-        <input
-          value={entry.互斥组ID ?? ''}
-          onChange={(e) => onUpdate({ 互斥组ID: e.target.value })}
-          placeholder="只给同一人物或同一主体的互斥形态填写"
-          readOnly={!editable}
-          className="kaituo-input w-full px-3 py-2 text-sm"
-          style={{ clipPath: smallClip }}
-        />
-      </Field>
-      <label
-        className="mt-3 flex items-center justify-between gap-3 px-3 py-2"
-        style={{ background: 'rgba(var(--tj-bubble),0.62)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.62)', clipPath: smallClip }}
-      >
-        <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
-          允许剧情 / 周报联动检索
-        </span>
-        <input
-          type="checkbox"
-          checked={entry.可用于联动}
-          onChange={(e) => onUpdate({ 可用于联动: e.target.checked })}
-          disabled={!editable}
-          className="accent-[rgb(var(--tj-accent-primary))]"
-        />
-      </label>
       {characterMeta && <CharacterSoftStructurePreview entry={entry} />}
       {entry.分类 === 'character' && (
         <StructuredCharacterFields entry={entry} editable={editable} onUpdate={onUpdate} />
@@ -1880,7 +1834,7 @@ function CharacterProfileWorkspace({
     { key: 'gates', label: '门禁', available: Boolean(gates) },
     { key: 'injection', label: '注入', available: true },
   ];
-  const visibleSection = sectionTabs.some((item) => item.key === activeSection && item.available) ? activeSection : 'identity';
+  const visibleSection = activeSection;
 
   return (
     <section className="mt-4 space-y-3">
@@ -1921,8 +1875,7 @@ function CharacterProfileWorkspace({
             <button
               key={item.key}
               type="button"
-              onClick={() => item.available && setActiveSection(item.key)}
-              disabled={!item.available}
+              onClick={() => setActiveSection(item.key)}
               className="shrink-0 px-3.5 py-2.5 text-center text-[12px] font-mono font-semibold tracking-[0.16em] transition-all lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-[13px]"
               style={{
                 color: visibleSection === item.key ? 'rgb(var(--tj-bg-primary))' : item.available ? 'rgba(var(--tj-btn-primary-start), 0.9)' : 'rgba(var(--tj-text-secondary), 0.42)',
@@ -1931,7 +1884,7 @@ function CharacterProfileWorkspace({
                   ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.72), 0 0 18px rgba(var(--tj-btn-primary-start), 0.12)'
                   : 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.13)',
                 clipPath: smallClip,
-                cursor: item.available ? 'pointer' : 'not-allowed',
+                cursor: 'pointer',
               }}
             >
               {item.label}
@@ -1942,11 +1895,19 @@ function CharacterProfileWorkspace({
         <div className="min-w-0 space-y-3">
           {visibleSection === 'identity' && (
             <CharacterWorkbenchSection title="基础身份层" eyebrow="防止模型自行补完未知身份" tone="plain">
-              <div className="grid gap-2 md:grid-cols-2">
-                {identityRows.map((row) => (
-                  <CharacterIdentityCell key={row.label} {...row} />
-                ))}
-              </div>
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="基础身份层（写入档案原文）"
+                  value={identity?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /基础|身份|识别/.test(title), value, '基础身份') })}
+                />
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {identityRows.map((row) => (
+                    <CharacterIdentityCell key={row.label} {...row} />
+                  ))}
+                </div>
+              )}
             </CharacterWorkbenchSection>
           )}
 
@@ -1969,8 +1930,23 @@ function CharacterProfileWorkspace({
                 <div className="grid gap-2 xl:grid-cols-3">
                   <CharacterKeywordTile label="核心触发词" keywords={keywordBuckets.triggerTerms} emptyText="未标注" attention={!keywordBuckets.triggerTerms.length} />
                   <CharacterKeywordTile label="软结构标签" keywords={keywordBuckets.softTags} emptyText="未标注" />
-                  <CharacterKeywordTile label="补充关键词" keywords={keywordBuckets.supplementalTerms} emptyText="未标注" />
+                  {editable ? (
+                    <CharacterSectionTextarea
+                      label="补充关键词（每行一个）"
+                      value={keywordBuckets.supplementalTerms.join('\n')}
+                      onChange={(value) =>
+                        onUpdate({ 关键词: dedupeTextList([...keywordBuckets.softTags, ...splitKeywordText(value)]) })
+                      }
+                    />
+                  ) : (
+                    <CharacterKeywordTile label="补充关键词" keywords={keywordBuckets.supplementalTerms} emptyText="未标注" />
+                  )}
                 </div>
+                {editable && (
+                  <div className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+                    核心触发词在「身份」页签的基础身份层维护；软结构标签驱动角色分组与资料归类，自动维护、不在此编辑。补充关键词直接写回档案关键词区，重启后保留。
+                  </div>
+                )}
               </div>
               <div className="mt-3">
                 <div className="mb-1.5 text-[11px] font-mono tracking-[0.2em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.86), rgba(var(--tj-btn-primary-end), 0.82))' }}>
@@ -2022,13 +1998,21 @@ function CharacterProfileWorkspace({
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'facts' && facts && (
+          {visibleSection === 'facts' && (
             <CharacterWorkbenchSection title="常驻事实" eyebrow="默认可用的角色底盘" tone="plain">
-              <CharacterTextBlock body={facts.body} compact />
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="常驻事实（写入档案原文）"
+                  value={facts?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /常驻|事实/.test(title), value, '常驻事实') })}
+                />
+              ) : (
+                <CharacterTextBlock body={facts?.body || '暂无资料'} compact />
+              )}
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'story' && story && (
+          {visibleSection === 'story' && (
             <CharacterWorkbenchSection title="角色故事" eyebrow="解释动机，不得整段复读" tone="plain">
               <div
                 className="mb-3 px-3 py-3"
@@ -2046,14 +2030,20 @@ function CharacterProfileWorkspace({
                   这里直接展示结构化注入字段；下方完整故事只供人工查阅，不进入主剧情请求。
                 </div>
               </div>
-              {storyGroups.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="角色故事（写入档案原文）"
+                  value={story?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /角色故事|故事层|经历脉络/.test(title), value, '角色故事') })}
+                />
+              ) : storyGroups.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {storyGroups.map((group) => (
                     <CharacterSubsectionCard key={group.title} title={group.title} body={group.body} />
                   ))}
                 </div>
               ) : (
-                <CharacterTextBlock body={story.body} />
+                <CharacterTextBlock body={story?.body || '暂无资料'} />
               )}
             </CharacterWorkbenchSection>
           )}
@@ -2068,29 +2058,49 @@ function CharacterProfileWorkspace({
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'corpus' && corpus && (
+          {visibleSection === 'corpus' && (
             <CharacterWorkbenchSection title="语料参考" eyebrow="只学节奏，不得复读" tone="corpus">
-              {corpusGroups.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="语料参考（写入档案原文）"
+                  value={corpus?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => title.includes('语料'), value, '语料') })}
+                />
+              ) : corpusGroups.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {corpusGroups.map((group) => (
                     <CharacterSubsectionCard key={group.title} title={group.title} body={group.body} />
                   ))}
                 </div>
               ) : (
-                <CharacterTextBlock body={corpus.body} />
+                <CharacterTextBlock body={corpus?.body || '暂无语料，点 EDIT 后可直接填写。'} />
               )}
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'ability' && ability && (
+          {visibleSection === 'ability' && (
             <CharacterWorkbenchSection title="能力与职责" eyebrow="能力不能覆盖主体人格" tone="plain">
-              <CharacterTextBlock body={ability.body} />
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="能力与职责（写入档案原文）"
+                  value={ability?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /能力|职责/.test(title), value, '能力与职责') })}
+                />
+              ) : (
+                <CharacterTextBlock body={ability?.body || '暂无资料'} />
+              )}
             </CharacterWorkbenchSection>
           )}
 
           {visibleSection === 'gates' && (
             <CharacterWorkbenchSection title="门禁中心" eyebrow="门禁内容完整可见，按剧情状态注入" tone="gate">
-              {gateCards.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="门禁（写入档案原文）"
+                  value={gates?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /形态|人格|阶段|门禁|真相/.test(title), value, '门禁') })}
+                />
+              ) : gateCards.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {gateCards.map((card) => (
                     <CharacterGateCard key={card.title} card={card} />
@@ -2104,12 +2114,23 @@ function CharacterProfileWorkspace({
 
           {visibleSection === 'injection' && (
             <CharacterWorkbenchSection title="本回合注入预览" eyebrow="可见 / 可用 / 可注入分离" tone="inject">
-              <div className="grid gap-2 xl:grid-cols-3">
-                <CharacterInjectionTile label="会注入" value={buildInjectedPreview(anchorRows, scope)} tone="ok" />
-                <CharacterInjectionTile label="仅提醒" value={gateCards.filter((card) => card.locked).map((card) => card.title).join('、') || '暂无被锁门禁'} tone="gate" />
-                <CharacterInjectionTile label="不可臆造" value={identityMap.get('不可臆造') || inferForbiddenIdentityText(entry, identityMissing)} tone="warn" />
-              </div>
-              {injection && <div className="mt-3"><CharacterTextBlock body={injection.body} /></div>}
+              {editable ? (
+                <InjectionContentFields
+                  category="character"
+                  content={entry.注入内容}
+                  editable
+                  onChange={(注入内容) => onUpdate({ 注入内容 })}
+                />
+              ) : (
+                <>
+                  <div className="grid gap-2 xl:grid-cols-3">
+                    <CharacterInjectionTile label="会注入" value={buildInjectedPreview(anchorRows, scope)} tone="ok" />
+                    <CharacterInjectionTile label="仅提醒" value={gateCards.filter((card) => card.locked).map((card) => card.title).join('、') || '暂无被锁门禁'} tone="gate" />
+                    <CharacterInjectionTile label="不可臆造" value={identityMap.get('不可臆造') || inferForbiddenIdentityText(entry, identityMissing)} tone="warn" />
+                  </div>
+                  {injection && <div className="mt-3"><CharacterTextBlock body={injection.body} /></div>}
+                </>
+              )}
             </CharacterWorkbenchSection>
           )}
         </div>
@@ -2193,6 +2214,31 @@ function CharacterTextBlock({ body, compact = false }: { body: string; compact?:
     <div className={`whitespace-pre-wrap break-words text-xs leading-relaxed ${compact ? 'max-h-44 overflow-y-auto pr-1' : ''}`} style={{ color: 'rgba(var(--tj-text-primary), 0.86)' }}>
       {body.trim() || '暂无内容'}
     </div>
+  );
+}
+
+function CharacterSectionTextarea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Field label={label}>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={7}
+        className="kaituo-input w-full resize-y px-3 py-2 text-sm leading-relaxed"
+        style={{ clipPath: smallClip }}
+      />
+      <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+        修改即时写回档案原文对应「## 标题」段；没有该段时自动追加，重启后保留。
+      </div>
+    </Field>
   );
 }
 
@@ -2465,6 +2511,30 @@ function parseZhikuMarkdownSections(raw: string): Array<{ title: string; body: s
     if (current) current.body.push(line);
   }
   return sections.map((section) => ({ title: section.title, body: section.body.join('\n').trim() }));
+}
+
+function setZhikuMarkdownSectionBody(
+  raw: string,
+  matcher: (title: string) => boolean,
+  body: string,
+  fallbackTitle: string,
+): string {
+  const lines = raw.split(/\r?\n/);
+  const headings: Array<{ index: number; title: string }> = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^##\s+(.+?)\s*$/);
+    if (match) headings.push({ index, title: match[1].trim() });
+  });
+  const hit = headings.findIndex((heading) => matcher(heading.title));
+  const trimmed = body.trim();
+  if (hit === -1) {
+    const base = raw.trimEnd();
+    return trimmed ? `${base}\n\n## ${fallbackTitle}\n${trimmed}` : base;
+  }
+  const start = headings[hit].index + 1;
+  const end = hit + 1 < headings.length ? headings[hit + 1].index : lines.length;
+  const next = [...lines.slice(0, start), ...(trimmed ? trimmed.split(/\r?\n/) : []), ...lines.slice(end)].join('\n');
+  return next.replace(/\n{3,}/g, '\n\n');
 }
 
 type CharacterIdentityRow = {
@@ -2803,9 +2873,9 @@ function StructuredCharacterFields({
   editable: boolean;
   onUpdate: (patch: Partial<智库条目>) => void;
 }) {
-  const displayedUnlock = entry.运行时解锁状态 ?? entry.解锁状态;
+  const displayedUnlock = entry.解锁状态 ?? entry.运行时解锁状态;
   const updateUnlock = (status: string) => {
-    onUpdate(entry.builtin ? { 运行时解锁状态: status } : { 解锁状态: status });
+    onUpdate({ 解锁状态: status });
   };
   const updateScope = (scope: string, checked: boolean) => {
     const current = entry.使用范围 ?? [];
@@ -2827,6 +2897,118 @@ function StructuredCharacterFields({
       <div className="font-serif text-[13px] tracking-[0.22em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
         结构字段
       </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <Field label="分类">
+          <select
+            value={entry.分类}
+            onChange={(e) => onUpdate({ 分类: e.target.value as 智库分类 })}
+            disabled={!editable}
+            className="kaituo-input w-full px-3 py-2 text-sm"
+            style={{ clipPath: smallClip }}
+          >
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {ZHIKU_CATEGORY_LABELS[cat]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="重要度">
+          <input
+            type="number"
+            min={1}
+            max={5}
+            value={entry.重要度}
+            onChange={(e) => onUpdate({ 重要度: Number(e.target.value) || 3 })}
+            readOnly={!editable}
+            className="kaituo-input w-full px-3 py-2 text-sm"
+            style={{ clipPath: smallClip }}
+          />
+        </Field>
+      </div>
+      <Field label="来源">
+        <input
+          value={entry.来源 ?? ''}
+          onChange={(e) => onUpdate({ 来源: e.target.value })}
+          readOnly={!editable}
+          className="kaituo-input w-full px-3 py-2 text-sm"
+          style={{ clipPath: smallClip }}
+        />
+      </Field>
+      <Field label="资料关键词 / 标签">
+        <input
+          value={entry.关键词.join('、')}
+          onChange={(e) =>
+            onUpdate({
+              关键词: e.target.value
+                .split(/[,，、\n]/)
+                .map((k) => k.trim())
+                .filter(Boolean),
+            })
+          }
+          readOnly={!editable}
+          className="kaituo-input w-full px-3 py-2 text-sm"
+          style={{ clipPath: smallClip }}
+        />
+      </Field>
+      <Field label="触发关键词 / 别名">
+        <input
+          value={(entry.触发关键词 ?? []).join('、')}
+          onChange={(e) => onUpdate({ 触发关键词: splitKeywordText(e.target.value) })}
+          placeholder="留空时兼容读取现有核心触发词"
+          readOnly={!editable}
+          className="kaituo-input w-full px-3 py-2 text-sm"
+          style={{ clipPath: smallClip }}
+        />
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="辅助关键词">
+          <input
+            value={(entry.辅助关键词 ?? []).join('、')}
+            onChange={(e) => onUpdate({ 辅助关键词: splitKeywordText(e.target.value) })}
+            placeholder="用于形态或上下文过滤"
+            readOnly={!editable}
+            className="kaituo-input w-full px-3 py-2 text-sm"
+            style={{ clipPath: smallClip }}
+          />
+        </Field>
+        <Field label="辅助逻辑">
+          <select
+            value={entry.辅助关键词逻辑 ?? 'AND_ANY'}
+            onChange={(e) => onUpdate({ 辅助关键词逻辑: e.target.value as 智库辅助关键词逻辑 })}
+            disabled={!editable}
+            className="kaituo-input w-full px-3 py-2 text-sm"
+            style={{ clipPath: smallClip }}
+          >
+            {(['AND_ANY', 'AND_ALL', 'NOT_ANY', 'NOT_ALL'] as 智库辅助关键词逻辑[]).map((logic) => <option key={logic} value={logic}>{logic}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="多形态互斥组">
+        <input
+          value={entry.互斥组ID ?? ''}
+          onChange={(e) => onUpdate({ 互斥组ID: e.target.value })}
+          placeholder="只给同一人物或同一主体的互斥形态填写"
+          readOnly={!editable}
+          className="kaituo-input w-full px-3 py-2 text-sm"
+          style={{ clipPath: smallClip }}
+        />
+      </Field>
+      <label
+        className="mt-3 flex items-center justify-between gap-3 px-3 py-2"
+        style={{ background: 'rgba(var(--tj-bubble),0.62)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.62)', clipPath: smallClip }}
+      >
+        <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
+          允许剧情 / 周报联动检索
+        </span>
+        <input
+          type="checkbox"
+          checked={entry.可用于联动}
+          onChange={(e) => onUpdate({ 可用于联动: e.target.checked })}
+          disabled={!editable}
+          className="accent-[rgb(var(--tj-accent-primary))]"
+        />
+      </label>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <Field label="资料类型">
           <input value={entry.资料类型 ?? ''} onChange={(e) => onUpdate({ 资料类型: e.target.value })} readOnly={!editable} className="kaituo-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
@@ -2838,7 +3020,7 @@ function StructuredCharacterFields({
           <input value={entry.关联形态ID ?? ''} onChange={(e) => onUpdate({ 关联形态ID: e.target.value })} readOnly={!editable} className="kaituo-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }} />
         </Field>
         <Field label="解锁状态">
-          <select value={displayedUnlock ?? ''} onChange={(e) => updateUnlock(e.target.value)} disabled={!editable && !entry.builtin} className="kaituo-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
+          <select value={displayedUnlock ?? ''} onChange={(e) => updateUnlock(e.target.value)} disabled={!editable} className="kaituo-input w-full px-3 py-2 text-sm" style={{ clipPath: smallClip }}>
             <option value="">未标注</option>
             <option value="默认可用">默认可用</option>
             <option value="可预热">可预热</option>
@@ -2892,7 +3074,7 @@ function StructuredCharacterFields({
               key={status}
               type="button"
               onClick={() => updateUnlock(status)}
-              disabled={!editable && !entry.builtin}
+              disabled={!editable}
               className="px-3 py-2 text-xs font-mono tracking-[0.18em] transition-all disabled:opacity-45"
               style={{
                 color: displayedUnlock === status ? 'rgb(var(--tj-on-accent))' : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.92), rgba(var(--tj-btn-primary-end), 0.88))',
@@ -2906,7 +3088,7 @@ function StructuredCharacterFields({
           ))}
         </div>
         <div className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-          自制条目会修改资料字段；内置条目只写入当前本地智库的运行时解锁覆盖，不改内置原文。
+          所有条目均可修改；内置条目修改后以覆写形式保存并在重启后保留。
         </div>
       </div>
 
@@ -2916,14 +3098,6 @@ function StructuredCharacterFields({
         <StructuredFlag label="新闻使用" checked={entry.可否新闻使用} editable={editable} onChange={(checked) => onUpdate({ 可否新闻使用: checked })} />
         <StructuredFlag label="变量参考" checked={entry.可否变量参考} editable={editable} onChange={(checked) => onUpdate({ 可否变量参考: checked })} />
       </div>
-
-      <div className="mt-4">
-        <PerformanceTextarea label="角色故事摘要" value={entry.角色故事摘要 ?? ''} editable={editable} onChange={(value) => onUpdate({ 角色故事摘要: value })} />
-        <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-          这是旧资料兼容字段；实际注入只读取下方八项结构化内容。
-        </div>
-      </div>
-
 
       <div className="mt-4">
         <div className="mb-1.5 text-xs font-mono tracking-[0.24em]" style={{ color: 'rgba(var(--tj-btn-primary-start), 0.95)' }}>
@@ -2938,12 +3112,6 @@ function StructuredCharacterFields({
           <PerformanceTextarea label="禁止误写" value={entry.禁止误写 ?? ''} editable={editable} onChange={(value) => onUpdate({ 禁止误写: value })} />
         </div>
       </div>
-      <InjectionContentFields
-        category={entry.分类}
-        content={entry.注入内容}
-        editable={editable}
-        onChange={(注入内容) => onUpdate({ 注入内容 })}
-      />
     </section>
   );
 }

@@ -9,6 +9,8 @@ interface Props {
   storyWeavingSystem: 剧情编织系统;
   onZhikuSystemChange: Dispatch<SetStateAction<智库系统>>;
   settings: 智库系统设置;
+  /** 当前世界观 ID：智库持久化按世界命名空间隔离。 */
+  worldId: string;
   onClose: () => void;
 }
 
@@ -17,6 +19,7 @@ export function ZhikuManagerModal({
   storyWeavingSystem,
   onZhikuSystemChange,
   settings,
+  worldId,
   onClose,
 }: Props) {
   return (
@@ -31,6 +34,7 @@ export function ZhikuManagerModal({
         storyWeavingSystem={storyWeavingSystem}
         onZhikuSystemChange={onZhikuSystemChange}
         settings={settings}
+        worldId={worldId}
         onClose={onClose}
       />
     </div>

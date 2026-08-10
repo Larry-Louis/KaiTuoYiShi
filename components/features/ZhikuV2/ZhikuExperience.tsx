@@ -5,6 +5,7 @@ import type { 智库系统 } from '@/models/zhiku';
 import type { 智库系统设置 } from '@/models/settings';
 import { ZhikuPanel } from '@/components/features/GameSystems/ZhikuPanel';
 import { loadSetting, saveSetting } from '@/services/dbService';
+import { DEFAULT_WORLD_ID, 世界存储键 } from '@/models/worldProfile';
 import {
   ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY,
   buildPersistedZhikuSystem,
@@ -33,6 +34,8 @@ interface ZhikuExperienceProps {
   storyWeavingSystem: 剧情编织系统;
   onZhikuSystemChange: Dispatch<SetStateAction<智库系统>>;
   settings: 智库系统设置;
+  /** 当前世界观 ID：智库持久化按世界命名空间隔离。 */
+  worldId: string;
   initialCategoryId?: ZhikuDesignCategoryId;
   reducedMotion?: boolean;
   onClose?: () => void;
@@ -43,6 +46,7 @@ export function ZhikuExperience({
   storyWeavingSystem,
   onZhikuSystemChange,
   settings,
+  worldId,
   initialCategoryId,
   reducedMotion = false,
   onClose,
@@ -98,9 +102,12 @@ export function ZhikuExperience({
       if (!savedMigrationAt) {
         await saveSetting(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, migrationAt);
       }
-      const next = mergeBundledZhikuSystem(bundled, zhikuSystem, migrationAt);
+      // 自建世界不注入星穹铁道内置条目：刷新仅重写当前世界自己的智库。
+      const next = worldId === DEFAULT_WORLD_ID
+        ? mergeBundledZhikuSystem(bundled, zhikuSystem, migrationAt)
+        : zhikuSystem;
       onZhikuSystemChange(next);
-      await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next));
+      await saveSetting(世界存储键('zhikuSystem', worldId), buildPersistedZhikuSystem(next));
       setRefreshStatus('done');
       window.setTimeout(() => setRefreshStatus('idle'), 1600);
     } catch (error) {
@@ -129,6 +136,7 @@ export function ZhikuExperience({
             zhikuSystem={zhikuSystem}
             onZhikuSystemChange={onZhikuSystemChange}
             settings={settings}
+            worldId={worldId}
           />
         </main>
       </section>

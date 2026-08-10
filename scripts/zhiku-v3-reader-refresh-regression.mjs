@@ -15,7 +15,7 @@ const controlCss = read('components/features/ZhikuV2/reader-font-size-control.cs
 
 requireText(experience, "loadAllBundledZhikuPresets({ cacheBust: Date.now() })", 'cache-busted preset reload');
 requireText(experience, 'mergeBundledZhikuSystem(bundled, zhikuSystem, migrationAt)', 'runtime and custom entry preserving merge');
-requireText(experience, "saveSetting('zhikuSystem', buildPersistedZhikuSystem(next))", 'refreshed system persistence');
+requireText(experience, "saveSetting(世界存储键('zhikuSystem', worldId), buildPersistedZhikuSystem(next))", 'refreshed system persistence (world-scoped)');
 requireText(experience, 'onRefreshBundled={isDevBuild ? handleRefreshBundled : undefined}', 'development-only reader refresh command');
 requireText(experience, 'refreshStatus={refreshStatus}', 'reader refresh state forwarding');
 

@@ -52,3 +52,7 @@ THEME_ISSUES.md
 
 # Local Claude notes
 CLAUDE.md
+
+# Local persistent snapshots (browser storage mirror, per store)
+save/snapshot-*.json
+save/snapshot-*.json.tmp

@@ -29,8 +29,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: min(100cqw, calc(100cqh * 16 / 9));
-  height: min(100cqh, calc(100cqw * 9 / 16));
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
   overflow: hidden;
   container-type: size;
   isolation: isolate;
@@ -96,8 +96,8 @@
 .zhiku-v2-screen__pin {
   position: absolute;
   z-index: 9;
-  width: clamp(76px, 8.4cqw, 136px);
-  height: clamp(58px, 7cqw, 112px);
+  width: clamp(76px, 8.4vw, 136px);
+  height: clamp(58px, 7vw, 112px);
   pointer-events: none;
   filter: drop-shadow(0 0 8px rgba(var(--zhiku-blue), 0.18));
 }
@@ -319,7 +319,9 @@
   min-width: 0;
   min-height: 0;
   padding: clamp(10px, 1.3vw, 20px);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: rgba(4, 9, 12, 0.76);
   border-top: 1px solid rgba(var(--zhiku-gold), 0.32);
   border-bottom: 1px solid rgba(var(--zhiku-blue), 0.22);
@@ -396,8 +398,8 @@
   position: absolute;
   left: var(--zhiku-node-x);
   top: var(--zhiku-node-y);
-  width: clamp(104px, 10.4cqw, 192px);
-  height: clamp(128px, 12cqw, 220px);
+  width: clamp(104px, 10.4vw, 192px);
+  height: clamp(128px, 12vw, 220px);
   transform: translate(-50%, -50%) scale(var(--zhiku-node-scale, 1));
   transform-origin: center;
 }
@@ -498,7 +500,7 @@
   opacity: 0;
   color: rgba(var(--zhiku-cyan), 0.92);
   font-family: ui-monospace, 'Cascadia Mono', monospace;
-  font-size: clamp(5px, 0.46cqw, 8px);
+  font-size: clamp(5px, 0.46vw, 8px);
   font-weight: 650;
   line-height: 1.05;
   letter-spacing: 0;
@@ -537,7 +539,7 @@
 
 .zhiku-v2-node__copy strong {
   overflow: hidden;
-  font-size: clamp(11px, 1cqw, 17px);
+  font-size: clamp(11px, 1vw, 17px);
   font-weight: 560;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -547,7 +549,7 @@
 .zhiku-v2-node__copy span {
   color: rgba(var(--zhiku-gold), 0.9);
   font-family: ui-monospace, 'Cascadia Mono', monospace;
-  font-size: clamp(8px, 0.72cqw, 12px);
+  font-size: clamp(8px, 0.72vw, 12px);
 }
 
 .zhiku-v2-node:hover .zhiku-v2-node__emblem,
@@ -582,12 +584,12 @@
   gap: 10px;
   color: rgba(var(--zhiku-blue), 0.7);
   font-family: ui-monospace, 'Cascadia Mono', monospace;
-  font-size: clamp(7px, 0.62cqw, 11px);
+  font-size: clamp(7px, 0.62vw, 11px);
 }
 
 .zhiku-v2-screen__index i {
   display: block;
-  width: clamp(34px, 5cqw, 82px);
+  width: clamp(34px, 5vw, 82px);
   height: 1px;
   background: linear-gradient(90deg, rgba(var(--zhiku-blue), 0.7), transparent);
 }
@@ -726,8 +728,8 @@
   .zhiku-v2-field__slot {
     left: var(--zhiku-node-mobile-x);
     top: var(--zhiku-node-mobile-y);
-    width: clamp(80px, 23cqw, 112px);
-    height: clamp(102px, 28cqw, 132px);
+    width: clamp(80px, 23vw, 112px);
+    height: clamp(102px, 28vw, 132px);
     transform: translate(-50%, -50%) scale(var(--zhiku-node-mobile-scale, 1));
   }
 
@@ -795,8 +797,8 @@
   }
 
   .zhiku-v2-field__slot {
-    width: clamp(68px, 21cqh, 98px);
-    height: clamp(84px, 26cqh, 116px);
+    width: clamp(68px, 21vh, 98px);
+    height: clamp(84px, 26vh, 116px);
   }
 
   .zhiku-v2-header {
@@ -843,5 +845,44 @@
     opacity: 1;
     filter: none;
     transform: translate(-50%, -50%) scale(var(--zhiku-node-mobile-scale, 1));
+  }
+}
+
+/* 容器查询单位回退：老浏览器（Chromium <105 / Firefox <110）不支持 cqw/cqh，
+   上面各规则默认使用 vw/vh 近似；支持时在此恢复 stage 相对的精确定义。 */
+@supports (width: 1cqw) {
+  .zhiku-v2-screen__stage {
+    width: min(100cqw, calc(100cqh * 16 / 9));
+    height: min(100cqh, calc(100cqw * 9 / 16));
+  }
+
+  .zhiku-v2-screen__index {
+    width: clamp(76px, 8.4cqw, 136px);
+    height: clamp(58px, 7cqw, 112px);
+  }
+
+  .zhiku-v2-field__slot {
+    width: clamp(104px, 10.4cqw, 192px);
+    height: clamp(128px, 12cqw, 220px);
+  }
+
+  .zhiku-v2-node__decode { font-size: clamp(5px, 0.46cqw, 8px); }
+  .zhiku-v2-node__copy strong { font-size: clamp(11px, 1cqw, 17px); }
+  .zhiku-v2-node__copy span { font-size: clamp(8px, 0.72cqw, 12px); }
+  .zhiku-v2-screen__index span { font-size: clamp(7px, 0.62cqw, 11px); }
+  .zhiku-v2-screen__index i { width: clamp(34px, 5cqw, 82px); }
+
+  @media (max-width: 640px) and (orientation: portrait) {
+    .zhiku-v2-field__slot {
+      width: clamp(80px, 23cqw, 112px);
+      height: clamp(102px, 28cqw, 132px);
+    }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    .zhiku-v2-field__slot {
+      width: clamp(68px, 21cqh, 98px);
+      height: clamp(84px, 26cqh, 116px);
+    }
   }
 }

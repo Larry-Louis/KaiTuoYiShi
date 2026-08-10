@@ -121,6 +121,10 @@ export interface 智库条目 {
   系列序号?: number;
   章节序号?: number;
   builtin: boolean;
+  /** 内置（原著）条目被用户直接修改过：内容以本地覆写为准，重启合并时覆盖预设。 */
+  用户内容覆写?: boolean;
+  /** 内置（原著）条目被用户删除：重启合并时不再从预设恢复。 */
+  已删除?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -637,6 +641,8 @@ function normalizeEntry(entry: Partial<智库条目>): 智库条目 {
     系列序号: Number.isFinite(Number(entry.系列序号)) ? Math.max(1, Math.trunc(Number(entry.系列序号))) : undefined,
     章节序号: Number.isFinite(Number(entry.章节序号)) ? Math.max(1, Math.trunc(Number(entry.章节序号))) : undefined,
     builtin: entry.builtin === true,
+    用户内容覆写: entry.用户内容覆写 === true,
+    已删除: entry.已删除 === true,
     createdAt: Number(entry.createdAt) || now,
     updatedAt: Number(entry.updatedAt) || now,
   };
