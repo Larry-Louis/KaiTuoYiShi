@@ -3066,6 +3066,8 @@ export async function executeSendWorkflow(
       }
 
       // 10. Auto-save —— 每回合只在后台队列收尾写一次，避免正文/变量阶段重复生成多条自动存档。
+      const persistFailures: string[] = [];
+    try {
       if (state.gameSettings.enableAutoSaveEveryTurn) {
         recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { phase: 'autosave' });
         await persistWorkflowRecoveryJournal(recoveryJournal);
@@ -3101,7 +3103,19 @@ export async function executeSendWorkflow(
     await saveSetting('apiSettings', state.apiSettings);
     await saveSetting('gameSettings', state.gameSettings);
     await saveSetting('worldbooks', state.worldbooks);
-    await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
+    } catch (persistError) {
+      // 中断语义保留给外层（用户停止生成）
+      if (abortController.signal.aborted || (persistError instanceof Error && persistError.name === 'AbortError')) {
+        throw persistError;
+      }
+      persistFailures.push(persistError instanceof Error ? persistError.message : String(persistError));
+      console.warn('[persist] 回合内容已生成，但本地保存失败', persistFailures);
+      pushQueueTask(state, 'autosave', 'failed', { detail: persistFailures.join('；') });
+      state.setWorkflowHint(`回合内容已生成，但本地保存失败：${persistFailures.join('；')}`);
+    }
+    await clearWorkflowRecoveryJournal(recoveryJournal.workflowId).catch((journalError) => {
+      console.warn('[persist] 清理恢复日志失败（可忽略，下次启动仍可恢复）', journalError);
+    });
   } catch (err: unknown) {
     if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
       state.setChatHistory(rollbackHistoryOnAbort);

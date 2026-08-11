@@ -5,8 +5,11 @@ export const STATIC_ASSET_FALLBACK_AVATAR = '/assets/static-fallback/avatar-plac
 const STATIC_ASSET_LOGICAL_ID_PREFIX = 'static:';
 const STATIC_ASSET_PATH_PATTERN = /^\/static\/[0-9a-f]{64}\.webp$/;
 const STATIC_ASSET_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
+const STATIC_ASSET_SHA256_IN_PATH_PATTERN = /([0-9a-f]{64})\.webp$/i;
 const LEGACY_BUILTIN_AVATAR_PATH_PATTERN = /(?:^|\/)public\/assets\/builtin-avatars\/candidates\/([^/?#]+?)-(\d{1,2})\.png$/i;
 const BUILTIN_AVATAR_PATH_PATTERN = /(?:^|\/)assets\/builtin-avatars\/candidates\/([^/?#]+?)-(\d{1,2})\.png$/i;
+/** 本地化起始点：内置静态资产随包发布，不再从远端 K-Vault 拉取。 */
+const STATIC_ASSET_LOCAL_BASE = '/assets/builtin-avatars';
 
 interface StaticAssetManifestEntry {
   path: string;
@@ -46,6 +49,13 @@ function getStaticAssetEntry(logicalId: string): StaticAssetManifestEntry | unde
   return isValidManifestEntry(entry) ? entry : undefined;
 }
 
+/** sha256 摘要 → 逻辑 ID 反查表，用于兼容旧存档中遗留的远端 /static/<sha>.webp 引用。 */
+const shaDigestToLogicalId = new Map<string, string>(
+  Object.entries(manifest.assets)
+    .filter(([, entry]) => isValidManifestEntry(entry))
+    .map(([logicalId, entry]) => [entry.sha256, logicalId]),
+);
+
 function getLegacyBuiltinAvatarLogicalId(reference: string): string | undefined {
   const normalizedReference = reference.trim().replace(/\\/g, '/');
   let pathname = normalizedReference;
@@ -61,17 +71,25 @@ function getLegacyBuiltinAvatarLogicalId(reference: string): string | undefined 
   const cleanPath = pathname.split(/[?#]/, 1)[0];
   const match = LEGACY_BUILTIN_AVATAR_PATH_PATTERN.exec(cleanPath)
     ?? BUILTIN_AVATAR_PATH_PATTERN.exec(cleanPath);
-  if (!match) return undefined;
-
-  let owner = match[1];
-  try {
-    owner = decodeURIComponent(owner);
-  } catch {
-    return undefined;
+  if (match) {
+    let owner = match[1];
+    try {
+      owner = decodeURIComponent(owner);
+    } catch {
+      return undefined;
+    }
+    const variant = match[2].padStart(2, '0');
+    const logicalId = `avatar:${owner.toLowerCase()}:${variant}`;
+    if (getStaticAssetEntry(logicalId)) return logicalId;
   }
-  const variant = match[2].padStart(2, '0');
-  const logicalId = `avatar:${owner.toLowerCase()}:${variant}`;
-  return getStaticAssetEntry(logicalId) ? logicalId : undefined;
+
+  const digestMatch = STATIC_ASSET_SHA256_IN_PATH_PATTERN.exec(cleanPath);
+  if (digestMatch) {
+    const logicalId = shaDigestToLogicalId.get(digestMatch[1]);
+    if (logicalId && getStaticAssetEntry(logicalId)) return logicalId;
+  }
+
+  return undefined;
 }
 
 export function createStaticAssetReference(logicalId: string): string {
@@ -86,7 +104,8 @@ export function resolveStaticAssetReference(reference: string | undefined): stri
     : getLegacyBuiltinAvatarLogicalId(value) ?? value;
   const entry = getStaticAssetEntry(logicalId);
   if (!entry) return undefined;
-  return new URL(entry.path, manifest.assetBaseUrl).toString();
+  // 本地化：内置静态资产打包在 public/assets/builtin-avatars 下，不再返回远端 URL。
+  return `${STATIC_ASSET_LOCAL_BASE}${entry.path}`;
 }
 
 export function resolveStaticAssetOrLocal(

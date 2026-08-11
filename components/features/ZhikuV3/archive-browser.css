@@ -338,7 +338,6 @@
 .zhiku-v3-browser__view-tabs {
   display: inline-grid;
   width: min(238px, 100%);
-  margin-top: 17px;
   padding: 2px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
@@ -377,6 +376,42 @@
   color: #fff3ca;
   background: linear-gradient(100deg, rgba(var(--zhiku-gold), 0.17), rgba(var(--zhiku-blue), 0.08));
   box-shadow: inset 0 -1px rgba(var(--zhiku-gold), 0.58);
+}
+
+.zhiku-v3-browser__toolbar {
+  display: flex;
+  min-width: 0;
+  margin-top: 17px;
+  align-items: center;
+  gap: 10px;
+}
+
+.zhiku-v3-browser__edit-btn {
+  display: inline-flex;
+  height: 30px;
+  padding: 0 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: rgba(var(--zhiku-ivory), 0.66);
+  font-family: ui-monospace, 'Cascadia Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  background: rgba(8, 13, 16, 0.42);
+  border: 1px solid rgba(var(--zhiku-blue), 0.2);
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.zhiku-v3-browser__edit-btn:hover,
+.zhiku-v3-browser__edit-btn:focus-visible {
+  color: #fffdf2;
+  background: linear-gradient(100deg, rgba(var(--zhiku-gold), 0.15), rgba(var(--zhiku-blue), 0.06));
+  border-color: rgba(var(--zhiku-gold), 0.68);
+  outline: none;
+  box-shadow: 0 0 12px rgba(var(--zhiku-gold), 0.08);
 }
 
 .zhiku-v3-browser__document {
@@ -771,7 +806,7 @@
     margin-top: 10px;
   }
 
-  .zhiku-v3-browser__view-tabs {
+  .zhiku-v3-browser__toolbar {
     margin-top: 12px;
   }
 
@@ -933,6 +968,12 @@
   }
 
   .zhiku-v3-browser__view-tabs button { height: 40px; }
+
+  .zhiku-v3-browser__edit-btn { height: 40px; }
+
+  .zhiku-v3-browser__toolbar {
+    flex-wrap: wrap;
+  }
 
   .zhiku-v3-browser__document {
     padding:

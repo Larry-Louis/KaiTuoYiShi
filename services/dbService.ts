@@ -91,6 +91,10 @@ function openDB(): Promise<IDBDatabase> {
         db.close();
         dbPromise = null;
       };
+      db.onclose = () => {
+        // 浏览器可能在页面闲置/回收时关闭连接；重置缓存让下次 openDB 重开新连接
+        dbPromise = null;
+      };
       resolve(db);
     };
     const fail = (error: unknown) => {
@@ -135,7 +139,24 @@ export async function saveGame(data: 存档数据): Promise<number> {
   return runWithSaveMutationPriority(() => saveGameInternal(data));
 }
 
+function isClosingConnectionError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) return false;
+  return error.name === 'InvalidStateError' || /connection is closing|database connection/i.test(error.message);
+}
+
 async function saveGameInternal(data: 存档数据): Promise<number> {
+  try {
+    return await saveGameInternalOnce(data);
+  } catch (error) {
+    if (!isClosingConnectionError(error)) throw error;
+    // 连接已被浏览器关闭（闲置回收 / 页面切换）：丢弃缓存连接后重开重试一次
+    dbPromise = null;
+    console.warn('[db] save connection closed, retrying once', error);
+    return await saveGameInternalOnce(data);
+  }
+}
+
+async function saveGameInternalOnce(data: 存档数据): Promise<number> {
   data = stripCloudBackupRestoreRuntime(data);
   const db = await openDB();
   const assetRecords = materializeSaveAssetRecords(extractSaveAssetRecords(data));
@@ -816,6 +837,18 @@ export async function deleteSetting(key: string): Promise<void> {
 }
 
 async function writeIndexedSetting(key: string, value: unknown): Promise<void> {
+  try {
+    await writeIndexedSettingOnce(key, value);
+  } catch (error) {
+    if (!isClosingConnectionError(error)) throw error;
+    dbPromise = null;
+    console.warn('[db] setting write connection closed, retrying once', error);
+    await writeIndexedSettingOnce(key, value);
+  }
+  scheduleLocalSnapshotBackup();
+}
+
+async function writeIndexedSettingOnce(key: string, value: unknown): Promise<void> {
   const db = await openDB();
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const tx = db.transaction(SETTINGS_STORE, 'readwrite');
@@ -824,7 +857,6 @@ async function writeIndexedSetting(key: string, value: unknown): Promise<void> {
   tx.oncomplete = () => resolve();
   tx.onerror = () => reject(tx.error);
   await promise;
-  scheduleLocalSnapshotBackup();
 }
 
 async function deleteIndexedSetting(key: string): Promise<void> {

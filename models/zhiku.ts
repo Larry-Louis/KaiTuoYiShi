@@ -60,6 +60,13 @@ export const ZHIKU_CATEGORY_LABELS: Record<智库分类, string> = {
   enemy: '敌对生物',
 };
 
+export const RETIRED_ZHIKU_CATEGORIES = ['npc', 'item', 'system'] as const;
+const RETIRED_ZHIKU_CATEGORY_SET = new Set<string>(RETIRED_ZHIKU_CATEGORIES);
+
+export function isRetiredZhikuCategory(category: 智库分类): boolean {
+  return RETIRED_ZHIKU_CATEGORY_SET.has(category);
+}
+
 export interface 智库条目 {
   id: string;
   治理分类?: 智库治理分类;

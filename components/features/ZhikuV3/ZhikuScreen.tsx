@@ -16,6 +16,7 @@ interface ZhikuScreenProps {
   showGrid?: boolean;
   showSafeArea?: boolean;
   onSelect?: (id: ZhikuCategory['id']) => void;
+  onOpenMaintenance?: () => void;
   onClose?: () => void;
   renderNode?: (category: ZhikuCategory, placement: ZhikuNodePlacement) => ReactNode;
 }
@@ -29,6 +30,7 @@ export function ZhikuScreen({
   showGrid = false,
   showSafeArea = false,
   onSelect,
+  onOpenMaintenance,
   onClose,
   renderNode,
 }: ZhikuScreenProps) {
@@ -75,7 +77,7 @@ export function ZhikuScreen({
           <i />
         </div>
       </div>
-      <ZhikuHeader onClose={onClose} />
+      <ZhikuHeader onOpenMaintenance={onOpenMaintenance} onClose={onClose} />
     </section>
   );
 }
