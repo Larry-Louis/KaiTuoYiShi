@@ -26,7 +26,7 @@ import {
   智库分类计数,
 } from '@/models/zhiku';
 import type { 智库系统设置 } from '@/models/settings';
-import { saveSetting } from '@/services/dbService';
+import { loadSetting, saveSetting } from '@/services/dbService';
 import {
   buildPersistedZhikuSystem,
   composeZhikuSystem,
@@ -201,7 +201,9 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
       const catalogResult = await loadBundledZhikuCatalogWithFallback({ cacheBust: Date.now() });
       if (catalogResult.source === 'cache') throw catalogResult.loadError ?? new Error('新目录加载失败，已保留上一完整目录。');
       const bundle = catalogResult.system;
-      const next = composeZhikuSystem(bundle, normalized);
+      // 基于持久化数据合并，保留用户覆写与已删除标记，避免被删除的内置条目在刷新后复活。
+      const persisted = await loadSetting<智库系统>('zhikuSystem') ?? normalized;
+      const next = composeZhikuSystem(bundle, persisted);
       onZhikuSystemChange(next);
       await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next));
       setSelectedId((prev) => (prev && next.条目.some((entry) => entry.id === prev) ? prev : next.条目[0]?.id ?? null));
@@ -284,18 +286,19 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
 
   const updateSelected = async (patch: Partial<智库条目>) => {
     if (!selected) return;
-    const allowedRuntimePatch = selected.builtin
-      ? {
-          ...(patch.运行时解锁状态 !== undefined ? { 运行时解锁状态: patch.运行时解锁状态 } : {}),
-          ...(patch.运行时解锁备注 !== undefined ? { 运行时解锁备注: patch.运行时解锁备注 } : {}),
-        }
-      : patch;
-    if (selected.builtin && Object.keys(allowedRuntimePatch).length === 0) return;
     const nextEntries = normalized.条目.map((entry) =>
-      entry.id === selected.id ? { ...entry, ...allowedRuntimePatch, updatedAt: Date.now() } : entry,
+      entry.id === selected.id
+        ? {
+            ...entry,
+            ...patch,
+            // 内置（原著）条目被直接修改：标记为用户覆写，重启合并时以本地内容为准。
+            ...(selected.builtin ? { 用户内容覆写: true } : {}),
+            updatedAt: Date.now(),
+          }
+        : entry,
     );
     const candidate = nextEntries.find((entry) => entry.id === selected.id);
-    if (candidate && !candidate.builtin) {
+    if (candidate && (!candidate.builtin || candidate.用户内容覆写)) {
       const missing = 获取智库注入内容缺失字段(candidate);
       if (!candidate.原文.trim() || missing.length) {
         onZhikuSystemChange({ ...normalized, 条目: nextEntries });
@@ -312,7 +315,23 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
   };
 
   const deleteSelected = async () => {
-    if (!selected || selected.builtin) return;
+    if (!selected) return;
+    if (selected.builtin) {
+      // 内置（原著）条目：本地移除 + 落盘删除标记，重启合并时不再从预设恢复。
+      const deletedEntry: 智库条目 = {
+        ...selected,
+        已删除: true,
+        用户内容覆写: true,
+        updatedAt: Date.now(),
+      };
+      const nextEntries = normalized.条目.filter((entry) => entry.id !== selected.id);
+      onZhikuSystemChange({ ...normalized, 条目: nextEntries });
+      await saveSetting('zhikuSystem', buildPersistedZhikuSystem({ ...normalized, 条目: [...nextEntries, deletedEntry] }));
+      setSelectedId(nextEntries[0]?.id ?? null);
+      setSaveFlash(true);
+      window.setTimeout(() => setSaveFlash(false), 1200);
+      return;
+    }
     const nextEntries = normalized.条目.filter((entry) => entry.id !== selected.id);
     await persist(nextEntries);
     setSelectedId(nextEntries[0]?.id ?? null);
@@ -664,7 +683,6 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
             onSelectProfile={(entryId) => setSelectedId(entryId)}
             onUpdate={updateSelected}
             onDelete={deleteSelected}
-            onSelectCustomOnly={() => setBucket('custom')}
           />
         ) : (
           <>
@@ -679,7 +697,7 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
                   </div>
                 </div>
                 <div className="hidden text-[11px] font-mono tracking-[0.24em] md:block" style={{ color: 'rgba(160, 200, 160, 0.82)' }}>
-                  {bucket === 'builtin' ? 'READ ONLY' : bucket === 'custom' ? 'CUSTOM' : 'MIXED'}
+                  {bucket === 'builtin' ? 'BUILTIN' : bucket === 'custom' ? 'CUSTOM' : 'MIXED'}
                 </div>
               </div>
 
@@ -709,7 +727,6 @@ export function ZhikuMaintenancePanel({ zhikuSystem, onZhikuSystemChange, settin
                 entry={selected}
                 onUpdate={updateSelected}
                 onDelete={deleteSelected}
-                onSelectCustomOnly={() => setBucket('custom')}
               />
             </div>
           </>
@@ -999,7 +1016,6 @@ function CharacterWorkspace({
   onSelectProfile,
   onUpdate,
   onDelete,
-  onSelectCustomOnly,
 }: {
   groups: CharacterGroup[];
   activeProfile: CharacterProfile | null;
@@ -1011,7 +1027,6 @@ function CharacterWorkspace({
   onSelectProfile: (entryId: string) => void;
   onUpdate: (patch: Partial<智库条目>) => void;
   onDelete: () => void;
-  onSelectCustomOnly: () => void;
 }) {
   return (
     <>
@@ -1026,7 +1041,7 @@ function CharacterWorkspace({
             </div>
           </div>
           <div className="hidden shrink-0 whitespace-nowrap text-[11px] font-mono tracking-[0.14em] md:block" style={{ color: 'rgba(190, 224, 190, 0.92)' }}>
-            {bucket === 'builtin' ? 'READ ONLY' : bucket === 'custom' ? 'CUSTOM' : 'REBUILD'}
+            {bucket === 'builtin' ? 'BUILTIN' : bucket === 'custom' ? 'CUSTOM' : 'REBUILD'}
           </div>
         </div>
 
@@ -1052,7 +1067,6 @@ function CharacterWorkspace({
             entry={activeEntry}
             onUpdate={onUpdate}
             onDelete={onDelete}
-            onSelectCustomOnly={onSelectCustomOnly}
           />
         ) : (
           <CharacterRebuildDetail />
@@ -1540,15 +1554,17 @@ function DetailPanel({
   entry,
   onUpdate,
   onDelete,
-  onSelectCustomOnly,
 }: {
   entry: 智库条目 | null;
   onUpdate: (patch: Partial<智库条目>) => void;
   onDelete: () => void;
-  onSelectCustomOnly: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    setEditing(false);
+  }, [entry?.id]);
   if (!entry) return <EmptyNotice text="先录入或选择一条资料。" />;
-  const editable = !entry.builtin;
+  const editable = !entry.builtin || editing;
   const characterMeta = entry.分类 === 'character' ? 解析智库软结构标签(entry) : null;
 
   return (
@@ -1587,37 +1603,37 @@ function DetailPanel({
             style={{ color: 'rgb(var(--tj-text-primary))', opacity: editable ? 1 : 0.95 }}
           />
           <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.9)' }}>
-            {entry.builtin ? '内置条目只读，来自预设原著资料。' : '这里是自制条目编辑区，修改会即时保存到本地智库。'}
+            {entry.builtin
+              ? '内置条目来自预设原著资料，可直接修改，修改会以覆写形式保存并在重启后保留；删除后重启不再恢复。'
+              : '这里是自制条目编辑区，修改会即时保存到本地智库。'}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-          {!entry.builtin && (
-            <button
-              onClick={onDelete}
-              className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
-              style={{
-                color: 'rgba(255, 150, 150, 0.92)',
-                boxShadow: 'inset 0 0 0 1px rgba(255, 120, 120, 0.24)',
-                clipPath: smallClip,
-              }}
-            >
-              DELETE
-            </button>
-          )}
           {entry.builtin && (
             <button
-              onClick={onSelectCustomOnly}
+              onClick={() => setEditing((value) => !value)}
               className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
               style={{
-                color: 'rgba(54, 111, 74, 0.96)',
-                background: 'rgba(54, 111, 74, 0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(54, 111, 74, 0.32)',
+                color: editing ? 'rgb(var(--tj-bg-primary))' : 'rgba(135, 215, 175, 0.92)',
+                background: editing ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-amber-deep), 0.95))' : 'transparent',
+                boxShadow: editing ? 'none' : 'inset 0 0 0 1px rgba(135, 215, 175, 0.3)',
                 clipPath: smallClip,
               }}
             >
-              SWITCH CUSTOM
+              {editing ? 'SAVE' : 'EDIT'}
             </button>
           )}
+          <button
+            onClick={onDelete}
+            className="px-3 py-1.5 text-xs font-mono tracking-[0.22em] transition-all hover:opacity-90"
+            style={{
+              color: 'rgba(255, 150, 150, 0.92)',
+              boxShadow: 'inset 0 0 0 1px rgba(255, 120, 120, 0.24)',
+              clipPath: smallClip,
+            }}
+          >
+            DELETE
+          </button>
         </div>
       </div>
 
@@ -2901,7 +2917,7 @@ function StructuredCharacterFields({
           ))}
         </div>
         <div className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-          自制条目会修改资料字段；内置条目只写入当前本地智库的运行时解锁覆盖，不改内置原文。
+          门禁会写入资料字段；内置条目需先点 EDIT 进入编辑态再修改，改动以覆写形式保存，重启合并时以本地内容为准。
         </div>
       </div>
 

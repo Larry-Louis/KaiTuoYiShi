@@ -271,6 +271,40 @@ export function mergeZhikuRuntimeUnlockOverrides(
   });
 }
 
+export function mergeZhikuContentOverrides(
+  bundledEntries: 智库条目[],
+  savedEntries: 智库条目[] | undefined,
+): 智库条目[] {
+  const overridesById = new Map<string, 智库条目>();
+  const deletedById = new Set<string>();
+  for (const entry of savedEntries ?? []) {
+    if (!entry.builtin || !entry.id) continue;
+    if (entry.用户内容覆写) overridesById.set(entry.id, entry);
+    if (entry.已删除) deletedById.add(entry.id);
+  }
+  if (overridesById.size === 0 && deletedById.size === 0) return bundledEntries;
+  return bundledEntries
+    .filter((entry) => !deletedById.has(entry.id))
+    .map((entry) => {
+      const override = overridesById.get(entry.id);
+      if (!override) return entry;
+      return {
+        ...entry,
+        ...override,
+        // 身份与来源仍以预设为准，仅内容字段采用用户覆写。
+        id: entry.id,
+        治理分类: entry.治理分类,
+        资料所有者: entry.资料所有者,
+        来源预设ID: entry.来源预设ID,
+        来源文件: entry.来源文件,
+        来源序号: entry.来源序号,
+        builtin: true,
+        用户内容覆写: true,
+        createdAt: entry.createdAt,
+      };
+    });
+}
+
 export function composeZhikuSystem(
   bundledSystem: 智库系统,
   currentSystem: 智库系统 | null | undefined,
@@ -282,6 +316,10 @@ export function composeZhikuSystem(
     currentEntries.filter((entry) => !entry.builtin && ZHIKU_CUSTOM_ID_PATTERN.test(entry.id)),
     bundledEntries,
   );
+  const mergedEntries = mergeZhikuContentOverrides(
+    mergeZhikuRuntimeUnlockOverrides(bundledEntries, currentEntries),
+    currentEntries,
+  );
   return normalizeZhikuCustomSystem({
     自制资料契约版本: ZHIKU_CUSTOM_SCHEMA_VERSION,
     自制资料下一个序号: 获取下一个自制智库序号(
@@ -290,7 +328,7 @@ export function composeZhikuSystem(
     ),
     目录版本: bundledSystem.目录版本 ?? ZHIKU_BUNDLED_CATALOG_VERSION,
     目录修订: Math.max(bundledSystem.目录修订 ?? 0, currentSystem?.目录修订 ?? 0),
-    条目: [...mergeZhikuRuntimeUnlockOverrides(bundledEntries, currentEntries), ...customEntries],
+    条目: [...mergedEntries, ...customEntries],
   });
 }
 
@@ -302,9 +340,11 @@ export function buildPersistedZhikuSystem(system: 智库系统 | undefined): 智
     目录版本: source.目录版本,
     目录修订: source.目录修订,
     条目: source.条目
-      .filter((entry) => !entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注))
+      .filter((entry) => !entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注 || entry.用户内容覆写))
       .map((entry) => {
         if (!entry.builtin) return entry;
+        // 被用户直接修改过的内置条目：完整保留内容，重启合并时以本地覆写为准。
+        if (entry.用户内容覆写) return entry;
         return {
           id: entry.id,
           治理分类: entry.治理分类,

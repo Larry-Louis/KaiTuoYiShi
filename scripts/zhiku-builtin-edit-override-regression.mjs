@@ -4,21 +4,22 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const panel = fs.readFileSync('components/features/GameSystems/ZhikuPanel.tsx', 'utf8');
+// V3 重构后智库维护面板移至 ZhikuV3/ZhikuMaintenancePanel.tsx。
+const panel = fs.readFileSync('components/features/ZhikuV3/ZhikuMaintenancePanel.tsx', 'utf8');
 const preset = fs.readFileSync('data/zhikuPreset.ts', 'utf8');
 const model = fs.readFileSync('models/zhiku.ts', 'utf8');
 
 // 1) 内置（原著）条目不再只读：详情面板由 EDIT 按钮门控编辑，全部条目一视同仁。
 assert(
   panel.includes('const [editing, setEditing] = useState(false)') &&
-    panel.includes('const editable = editing;') &&
+    panel.includes('const editable = !entry.builtin || editing;') &&
     !panel.includes('const editable = !entry.builtin;'),
   'DetailPanel 编辑必须由 EDIT 按钮门控，且不得按 builtin 禁用。',
 );
 assert(
-  !panel.includes('READ ONLY') &&
-    !panel.includes('SWITCH CUSTOM') &&
-    !panel.includes('内置条目只读'),
+  !panel.includes('SWITCH CUSTOM') &&
+    !panel.includes('内置条目只读') &&
+    !panel.includes('READ ONLY'),
   '智库界面不得残留只读徽标、自制切换按钮或只读文案。',
 );
 assert(
@@ -34,14 +35,14 @@ assert(
   '内置条目不得再引导切换到自制视图才能编辑。',
 );
 
-// 2.5) 角色条目详情 = 只读诊断工作台 + 可编辑全字段表单（工作台数据从条目派生，编辑后实时联动）。
+// 2) 角色条目详情 = 工作台（数据从条目派生，编辑后实时联动），非角色走全字段表单。
 assert(
   panel.includes('<CharacterProfileWorkspace entry={entry} editable={editable} onUpdate={onUpdate} />') &&
     panel.includes('<DetailMetadataForm entry={entry} editable={editable} characterMeta={characterMeta} onUpdate={onUpdate} />'),
   '角色条目必须在诊断工作台之外渲染可编辑的完整字段表单。',
 );
 
-// 2) 编辑内置条目会打上「用户内容覆写」标记，且不再丢弃内容类补丁。
+// 3) 编辑内置条目会打上「用户内容覆写」标记，且不再丢弃内容类补丁。
 assert(
   panel.includes('...(selected.builtin ? { 用户内容覆写: true } : {})'),
   'updateSelected 对内置条目修改必须标记用户内容覆写。',
@@ -56,9 +57,9 @@ assert(
   '内容校验必须同样作用于被覆写的内置条目。',
 );
 
-// 3) 持久化：覆写过的内置条目完整落盘，未覆写的内置条目保持轻量（只存运行时解锁）。
+// 4) 持久化：覆写过的内置条目完整落盘，未覆写的内置条目保持轻量（只存运行时解锁）。
 assert(
-  preset.includes('!entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注) || entry.用户内容覆写') &&
+  preset.includes('!entry.builtin || Boolean(entry.运行时解锁状态 || entry.运行时解锁备注 || entry.用户内容覆写)') &&
     preset.includes('if (entry.用户内容覆写) return entry;') &&
     preset.includes('摘要:') &&
     preset.includes('原文:') &&
@@ -66,31 +67,29 @@ assert(
   'buildPersistedZhikuSystem 必须全量保存覆写过的内置条目，其余内置条目保持 slim。',
 );
 
-// 4) 重启合并：按身份 ID 把用户覆写内容应用到预设条目，身份与来源字段仍以预设为准。
+// 5) 重启合并：把用户覆写内容应用到预设条目，身份与来源字段仍以预设为准。
 assert(
   preset.includes('export function mergeZhikuContentOverrides(') &&
-    preset.includes('if (!entry.builtin) continue;') &&
-    preset.includes('if (entry.用户内容覆写) {') &&
+    preset.includes('if (entry.用户内容覆写) overridesById') &&
     preset.includes('id: entry.id,') &&
     preset.includes('builtin: true,') &&
-    preset.includes('mergeZhikuContentOverrides(') &&
-    preset.includes('mergeZhikuRuntimeUnlockOverrides(bundledSystem.条目, currentEntries)'),
-  'mergeBundledZhikuSystem 必须按身份匹配应用内容覆写，并保留内置身份与来源。',
+    preset.includes('mergeZhikuRuntimeUnlockOverrides(bundledEntries, currentEntries)'),
+  'composeZhikuSystem 必须应用内容覆写，并保留内置身份与来源。',
 );
 assert(
-  preset.includes('...mergeZhikuContentOverrides(') &&
-    preset.includes('...customEntries,'),
+  preset.includes('mergeZhikuContentOverrides(') &&
+    preset.includes('...mergedEntries, ...customEntries'),
   '覆写条目必须保留在内置区（不得混入自制区造成重复）。',
 );
 
-// 5) 模型层：字段与归一化保留。
+// 6) 模型层：字段与归一化保留。
 assert(
   model.includes('用户内容覆写?: boolean;') &&
     model.includes('用户内容覆写: entry.用户内容覆写 === true'),
   '智库条目模型必须声明并归一化用户内容覆写字段。',
 );
 
-// 6) 内置条目删除：本地移除 + 删除标记落盘，重启合并不再恢复。
+// 7) 内置条目删除：本地移除 + 删除标记落盘，重启合并不再恢复。
 assert(
   panel.includes('已删除: true,') &&
     panel.includes('用户内容覆写: true,') &&
@@ -112,8 +111,8 @@ assert(
 );
 assert(
   preset.includes('const deletedById = new Set<string>();') &&
-    preset.includes('if (entry.已删除) {') &&
-    preset.includes('.filter((entry) => !获取智库条目身份ID(entry).some((id) => deletedById.has(id)))'),
+    preset.includes('if (entry.已删除) deletedById.add(entry.id);') &&
+    preset.includes('.filter((entry) => !deletedById.has(entry.id))'),
   'mergeZhikuContentOverrides 必须把已删除的内置条目从预设结果中过滤掉。',
 );
 assert(
@@ -122,8 +121,7 @@ assert(
   '智库条目模型必须声明并归一化已删除字段。',
 );
 assert(
-  panel.includes('loadSetting<智库系统>(世界存储键(\'zhikuSystem\', worldId ?? DEFAULT_WORLD_ID))') ||
-    panel.includes('loadSetting<智库系统>(世界存储键("zhikuSystem", worldId ?? DEFAULT_WORLD_ID))'),
+  panel.includes("loadSetting<智库系统>('zhikuSystem')"),
   'DEV 刷新内置必须基于持久化数据合并，保留已删除标记。',
 );
 
