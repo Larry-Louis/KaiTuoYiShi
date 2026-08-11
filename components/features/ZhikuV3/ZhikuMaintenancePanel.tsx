@@ -1638,7 +1638,10 @@ function DetailPanel({
       </div>
 
       {entry.分类 === 'character' ? (
-        <CharacterProfileWorkspace entry={entry} editable={editable} onUpdate={onUpdate} />
+        <>
+          <CharacterProfileWorkspace entry={entry} editable={editable} onUpdate={onUpdate} />
+          <DetailMetadataForm entry={entry} editable={editable} characterMeta={characterMeta} onUpdate={onUpdate} />
+        </>
       ) : (
         <DetailMetadataForm entry={entry} editable={editable} characterMeta={characterMeta} onUpdate={onUpdate} />
       )}
@@ -1891,7 +1894,7 @@ function CharacterProfileWorkspace({
     { key: 'gates', label: '门禁', available: Boolean(gates) },
     { key: 'injection', label: '注入', available: true },
   ];
-  const visibleSection = sectionTabs.some((item) => item.key === activeSection && item.available) ? activeSection : 'identity';
+  const visibleSection = sectionTabs.some((item) => item.key === activeSection && (item.available || editable)) ? activeSection : 'identity';
 
   return (
     <section className="mt-4 space-y-3">
@@ -1928,36 +1931,49 @@ function CharacterProfileWorkspace({
           className="flex gap-1.5 overflow-x-auto pb-1 lg:sticky lg:top-0 lg:block lg:space-y-1.5 lg:overflow-visible lg:pb-0"
           style={{ scrollbarWidth: 'thin' }}
         >
-          {sectionTabs.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => item.available && setActiveSection(item.key)}
-              disabled={!item.available}
-              className="shrink-0 px-3.5 py-2.5 text-center text-[12px] font-mono font-semibold tracking-[0.16em] transition-all lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-[13px]"
-              style={{
-                color: visibleSection === item.key ? 'rgb(var(--tj-bg-primary))' : item.available ? 'rgba(var(--tj-btn-primary-start), 0.9)' : 'rgba(var(--tj-text-secondary), 0.42)',
-                background: visibleSection === item.key ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.86), rgba(var(--tj-btn-primary-end), 0.82))' : 'rgba(var(--tj-bg-primary), 0.2)',
-                boxShadow: visibleSection === item.key
-                  ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.72), 0 0 18px rgba(var(--tj-btn-primary-start), 0.12)'
-                  : 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.13)',
-                clipPath: smallClip,
-                cursor: item.available ? 'pointer' : 'not-allowed',
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+          {sectionTabs.map((item) => {
+            const enabled = item.available || editable;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  if (enabled) setActiveSection(item.key);
+                }}
+                disabled={!enabled}
+                className="shrink-0 px-3.5 py-2.5 text-center text-[12px] font-mono font-semibold tracking-[0.16em] transition-all lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-[13px]"
+                style={{
+                  color: visibleSection === item.key ? 'rgb(var(--tj-bg-primary))' : enabled ? 'rgba(var(--tj-btn-primary-start), 0.9)' : 'rgba(var(--tj-text-secondary), 0.42)',
+                  background: visibleSection === item.key ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.86), rgba(var(--tj-btn-primary-end), 0.82))' : 'rgba(var(--tj-bg-primary), 0.2)',
+                  boxShadow: visibleSection === item.key
+                    ? 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.72), 0 0 18px rgba(var(--tj-btn-primary-start), 0.12)'
+                    : 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.13)',
+                  clipPath: smallClip,
+                  cursor: enabled ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
         </aside>
 
         <div className="min-w-0 space-y-3">
           {visibleSection === 'identity' && (
             <CharacterWorkbenchSection title="基础身份层" eyebrow="防止模型自行补完未知身份" tone="plain">
-              <div className="grid gap-2 md:grid-cols-2">
-                {identityRows.map((row) => (
-                  <CharacterIdentityCell key={row.label} {...row} />
-                ))}
-              </div>
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="基础身份层（写入档案原文）"
+                  value={identity?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /基础|身份|识别/.test(title), value, '基础身份') })}
+                />
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {identityRows.map((row) => (
+                    <CharacterIdentityCell key={row.label} {...row} />
+                  ))}
+                </div>
+              )}
             </CharacterWorkbenchSection>
           )}
 
@@ -1980,9 +1996,24 @@ function CharacterProfileWorkspace({
                 <div className="grid gap-2 xl:grid-cols-3">
                   <CharacterKeywordTile label="核心触发词" keywords={keywordBuckets.triggerTerms} emptyText="未标注" attention={!keywordBuckets.triggerTerms.length} />
                   <CharacterKeywordTile label="软结构标签" keywords={keywordBuckets.softTags} emptyText="未标注" />
-                  <CharacterKeywordTile label="补充关键词" keywords={keywordBuckets.supplementalTerms} emptyText="未标注" />
+                  {editable ? (
+                    <CharacterSectionTextarea
+                      label="补充关键词（每行一个）"
+                      value={keywordBuckets.supplementalTerms.join('\n')}
+                      onChange={(value) =>
+                        onUpdate({ 关键词: dedupeTextList([...keywordBuckets.softTags, ...splitKeywordText(value)]) })
+                      }
+                    />
+                  ) : (
+                    <CharacterKeywordTile label="补充关键词" keywords={keywordBuckets.supplementalTerms} emptyText="未标注" />
+                  )}
                 </div>
               </div>
+              {editable && (
+                <div className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+                  核心触发词在「身份」页签的基础身份层维护；软结构标签驱动角色分组与资料归类，自动维护、不在此编辑。补充关键词直接写回档案关键词区，重启后保留。
+                </div>
+              )}
               <div className="mt-3">
                 <div className="mb-1.5 text-[11px] font-mono tracking-[0.2em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.86), rgba(var(--tj-btn-primary-end), 0.82))' }}>
                   身份缺口
@@ -2033,13 +2064,21 @@ function CharacterProfileWorkspace({
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'facts' && facts && (
+          {visibleSection === 'facts' && (editable || facts) && (
             <CharacterWorkbenchSection title="常驻事实" eyebrow="默认可用的角色底盘" tone="plain">
-              <CharacterTextBlock body={facts.body} compact />
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="常驻事实（写入档案原文）"
+                  value={facts?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /常驻|事实/.test(title), value, '常驻事实') })}
+                />
+              ) : (
+                <CharacterTextBlock body={facts?.body || '暂无资料'} compact />
+              )}
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'story' && story && (
+          {visibleSection === 'story' && (editable || story) && (
             <CharacterWorkbenchSection title="角色故事" eyebrow="解释动机，不得整段复读" tone="plain">
               <div
                 className="mb-3 px-3 py-3"
@@ -2057,14 +2096,20 @@ function CharacterProfileWorkspace({
                   这里直接展示结构化注入字段；下方完整故事只供人工查阅，不进入主剧情请求。
                 </div>
               </div>
-              {storyGroups.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="角色故事（写入档案原文）"
+                  value={story?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /角色故事|故事层|经历脉络/.test(title), value, '角色故事') })}
+                />
+              ) : storyGroups.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {storyGroups.map((group) => (
                     <CharacterSubsectionCard key={group.title} title={group.title} body={group.body} />
                   ))}
                 </div>
               ) : (
-                <CharacterTextBlock body={story.body} />
+                <CharacterTextBlock body={story?.body || '暂无资料'} />
               )}
             </CharacterWorkbenchSection>
           )}
@@ -2079,29 +2124,49 @@ function CharacterProfileWorkspace({
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'corpus' && corpus && (
+          {visibleSection === 'corpus' && (editable || corpus) && (
             <CharacterWorkbenchSection title="语料参考" eyebrow="只学节奏，不得复读" tone="corpus">
-              {corpusGroups.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="语料参考（写入档案原文）"
+                  value={corpus?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => title.includes('语料'), value, '语料') })}
+                />
+              ) : corpusGroups.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {corpusGroups.map((group) => (
                     <CharacterSubsectionCard key={group.title} title={group.title} body={group.body} />
                   ))}
                 </div>
               ) : (
-                <CharacterTextBlock body={corpus.body} />
+                <CharacterTextBlock body={corpus?.body || '暂无内容'} />
               )}
             </CharacterWorkbenchSection>
           )}
 
-          {visibleSection === 'ability' && ability && (
+          {visibleSection === 'ability' && (editable || ability) && (
             <CharacterWorkbenchSection title="能力与职责" eyebrow="能力不能覆盖主体人格" tone="plain">
-              <CharacterTextBlock body={ability.body} />
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="能力与职责（写入档案原文）"
+                  value={ability?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /能力|职责/.test(title), value, '能力与职责') })}
+                />
+              ) : (
+                <CharacterTextBlock body={ability?.body || '暂无资料'} />
+              )}
             </CharacterWorkbenchSection>
           )}
 
           {visibleSection === 'gates' && (
             <CharacterWorkbenchSection title="门禁中心" eyebrow="门禁内容完整可见，按剧情状态注入" tone="gate">
-              {gateCards.length ? (
+              {editable ? (
+                <CharacterSectionTextarea
+                  label="门禁（写入档案原文）"
+                  value={gates?.body ?? ''}
+                  onChange={(value) => onUpdate({ 原文: setZhikuMarkdownSectionBody(entry.原文, (title) => /形态|人格|阶段|门禁|真相/.test(title), value, '门禁') })}
+                />
+              ) : gateCards.length ? (
                 <div className="grid gap-2 xl:grid-cols-2">
                   {gateCards.map((card) => (
                     <CharacterGateCard key={card.title} card={card} />
@@ -2115,12 +2180,23 @@ function CharacterProfileWorkspace({
 
           {visibleSection === 'injection' && (
             <CharacterWorkbenchSection title="本回合注入预览" eyebrow="可见 / 可用 / 可注入分离" tone="inject">
-              <div className="grid gap-2 xl:grid-cols-3">
-                <CharacterInjectionTile label="会注入" value={buildInjectedPreview(anchorRows, scope)} tone="ok" />
-                <CharacterInjectionTile label="仅提醒" value={gateCards.filter((card) => card.locked).map((card) => card.title).join('、') || '暂无被锁门禁'} tone="gate" />
-                <CharacterInjectionTile label="不可臆造" value={identityMap.get('不可臆造') || inferForbiddenIdentityText(entry, identityMissing)} tone="warn" />
-              </div>
-              {injection && <div className="mt-3"><CharacterTextBlock body={injection.body} /></div>}
+              {editable ? (
+                <InjectionContentFields
+                  category="character"
+                  content={entry.注入内容}
+                  editable
+                  onChange={(注入内容) => onUpdate({ 注入内容 })}
+                />
+              ) : (
+                <>
+                  <div className="grid gap-2 xl:grid-cols-3">
+                    <CharacterInjectionTile label="会注入" value={buildInjectedPreview(anchorRows, scope)} tone="ok" />
+                    <CharacterInjectionTile label="仅提醒" value={gateCards.filter((card) => card.locked).map((card) => card.title).join('、') || '暂无被锁门禁'} tone="gate" />
+                    <CharacterInjectionTile label="不可臆造" value={identityMap.get('不可臆造') || inferForbiddenIdentityText(entry, identityMissing)} tone="warn" />
+                  </div>
+                  {injection && <div className="mt-3"><CharacterTextBlock body={injection.body} /></div>}
+                </>
+              )}
             </CharacterWorkbenchSection>
           )}
         </div>
@@ -2204,6 +2280,31 @@ function CharacterTextBlock({ body, compact = false }: { body: string; compact?:
     <div className={`whitespace-pre-wrap break-words text-xs leading-relaxed ${compact ? 'max-h-44 overflow-y-auto pr-1' : ''}`} style={{ color: 'rgba(var(--tj-text-primary), 0.86)' }}>
       {body.trim() || '暂无内容'}
     </div>
+  );
+}
+
+function CharacterSectionTextarea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Field label={label}>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={7}
+        className="kaituo-input w-full resize-y px-3 py-2 text-sm leading-relaxed"
+        style={{ clipPath: smallClip }}
+      />
+      <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+        修改即时写回档案原文对应「## 标题」段；没有该段时自动追加，重启后保留。
+      </div>
+    </Field>
   );
 }
 
@@ -2476,6 +2577,30 @@ function parseZhikuMarkdownSections(raw: string): Array<{ title: string; body: s
     if (current) current.body.push(line);
   }
   return sections.map((section) => ({ title: section.title, body: section.body.join('\n').trim() }));
+}
+
+function setZhikuMarkdownSectionBody(
+  raw: string,
+  matcher: (title: string) => boolean,
+  body: string,
+  fallbackTitle: string,
+): string {
+  const lines = raw.split(/\r?\n/);
+  const headings: Array<{ index: number; title: string }> = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^##\s+(.+?)\s*$/);
+    if (match) headings.push({ index, title: match[1].trim() });
+  });
+  const hit = headings.findIndex((heading) => matcher(heading.title));
+  const trimmed = body.trim();
+  if (hit === -1) {
+    const base = raw.trimEnd();
+    return trimmed ? `${base}\n\n## ${fallbackTitle}\n${trimmed}` : base;
+  }
+  const start = headings[hit].index + 1;
+  const end = hit + 1 < headings.length ? headings[hit + 1].index : lines.length;
+  const next = [...lines.slice(0, start), ...(trimmed ? trimmed.split(/\r?\n/) : []), ...lines.slice(end)].join('\n');
+  return next.replace(/\n{3,}/g, '\n\n');
 }
 
 type CharacterIdentityRow = {
