@@ -1,7 +1,3 @@
-// 剧情系统数据模型（v1）。
-// 主线节点图：每节点一段，状态在 pending/active/completed/failed/abandoned 之间流转。
-// AI引导 是给 AI 的下回合引导（"接下来应该让玩家遇到 X"），玩家通常不直接读。
-
 export type 剧情节点状态 = 'pending' | 'active' | 'completed' | 'failed' | 'abandoned';
 
 export const PLOT_STATUS_LABELS: Record<剧情节点状态, string> = {

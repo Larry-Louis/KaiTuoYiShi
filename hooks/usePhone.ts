@@ -59,9 +59,7 @@ export interface PhoneModalProps {
   npcRecords: NPC记录[];
   album?: 相册系统;
   onPhoneChange: React.Dispatch<React.SetStateAction<手机系统>>;
-  /** 记忆用例动作：即时追加 + 归档压缩 + NPC 台账压缩（由 App 从 useGame 门面注入）。 */
   onPhoneMemoryCommit: (input: PhoneMemoryCommitInput) => Promise<void>;
-  /** 手机 AI 回复用例动作：封装配置构建与生成，失败时返回空字符串（由 App 从 useGame 门面注入）。 */
   onGeneratePhoneReply: (apiConfig: API设置, context: 手机回复上下文) => Promise<string>;
   onClose: () => void;
 }
@@ -159,8 +157,7 @@ export function usePhone(props: PhoneModalProps) {
 
   const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-  // unreadTotal 是持久化反规范化字段，App 外壳（LeftPanel/MobileQuickMenu）直接消费
-  // state.手机.unreadTotal，必须每次写路径回填，不能只在本地派生。
+  // unreadTotal 是持久化反规范化字段，App 外壳直接消费，每次写路径都必须回填。
   const updatePhone = (updater: (prev: 手机系统) => 手机系统) => {
     onPhoneChange((prev) => {
       const next = updater(prev);

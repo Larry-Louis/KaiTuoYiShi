@@ -1,10 +1,5 @@
-// 变量修复中心批量草稿（纯域）：扫描进度的可恢复状态机。
-// 只建模形态与派生，不触碰存储与 AI；持久化形态由 services/storage/variableRepairDraft 收口，
-// 扫描动作由 hooks/useGame/variableRepairCenter 收口。
-
 import type { 变量修复计划 } from '@/models/variableRepair';
 
-/** 草稿状态：只列有生产者的值（单回合扫描失败记在项上，不是草稿状态）。 */
 export type 变量修复草稿状态 = 'scanning' | 'paused' | 'ready' | 'completed' | 'cancelled';
 
 export type 变量修复草稿项状态 = 'pending' | 'scanning' | 'ready' | 'failed';
@@ -20,10 +15,7 @@ export interface 变量修复草稿项 {
 export interface 变量修复草稿 {
   version: 1;
   state: 变量修复草稿状态;
-  /**
-   * 扫描起点的变量状态指纹，全批计划共用（计划不再各自重算，避免续扫后两者漂移）。
-   * 载入时校验，不匹配即作废；提交时由计划带进 应用变量修复计划 判 STALE_PLAN。
-   */
+  /** 扫描起点的变量状态指纹，全批计划共用；载入时校验，不匹配即作废。 */
   指纹: string;
   createdAt: number;
   updatedAt: number;
@@ -146,7 +138,6 @@ function 计划形态合法(raw: unknown): boolean {
     && Array.isArray(plan.items);
 }
 
-/** 草稿是否基于旧变量状态（载入时判定用；提交期的过期判定在 应用变量修复计划）。 */
 export function 草稿是否过期(draft: 变量修复草稿, 当前指纹: string): boolean {
   return draft.指纹 !== 当前指纹;
 }
@@ -176,7 +167,6 @@ export interface 草稿汇总 {
   pending: number;
   ready: number;
   failed: number;
-  /** ready 计划中 safe + confirm 修复项总数（可提交余量）。 */
   可提交项: number;
 }
 
@@ -200,7 +190,6 @@ export function 汇总变量修复草稿(draft: 变量修复草稿): 草稿汇�
   return { total: draft.项.length, pending, ready, failed, 可提交项 };
 }
 
-/** 扫描收敛判定：全部项已 ready / failed 且非空 → 'ready'；否则保持当前状态。 */
 export function 完成扫描状态(draft: 变量修复草稿): 变量修复草稿状态 {
   if (
     draft.项.length > 0

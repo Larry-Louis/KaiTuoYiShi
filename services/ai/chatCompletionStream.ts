@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import type { API配置项 } from '@/models/settings';
 import { devLog } from '@/utils/devLog';
 import type { ChatCompletionRequest, CompatibleStreamTextState, StreamCallbacks } from './chatCompletionTypes';
@@ -45,7 +44,7 @@ function readCompatibleTextContent(content: unknown): string {
   return '';
 }
 
-// 顺序即优先级，与原 a || b || c 链一致，不得调整。
+// 顺序即优先级，不得调整。
 const DELTA_TEXT_EXTRACTORS: Array<(parsed: Record<string, any>) => string> = [
   (p) => readCompatibleTextContent(p.choices?.[0]?.delta?.content),
   (p) => readCompatibleTextContent(p.choices?.[0]?.delta?.text),
@@ -60,7 +59,6 @@ const DELTA_TEXT_EXTRACTORS: Array<(parsed: Record<string, any>) => string> = [
 ];
 
 export function readOpenAICompatibleStreamDelta(parsed: any, state: CompatibleStreamTextState): string {
-  // 状态由 runSseStream 持有；别名规避 no-param-reassign 的属性赋值规则。
   const streamState = state;
   if (hasReasoningPayload(parsed)) streamState.sawReasoning = true;
   if (parsed?.type === 'content_block_start') {
@@ -98,12 +96,6 @@ export function readOpenAICompatibleStreamDelta(parsed: any, state: CompatibleSt
   return '';
 }
 
-/** 从 SSE chunk / 非流式 JSON 中提取 finish_reason / stop_reason / finishReason。
- *  不同 provider 字段名不同：
- *  - OpenAI 兼容: choices[0].finish_reason
- *  - Claude: message_delta.delta.stop_reason (SSE) 或顶层 stop_reason (非流式)
- *  - Gemini: candidates[0].finishReason (camelCase)
- *  返回 undefined 表示该 chunk 无 finish_reason 或无法识别。 */
 function readFinishReason(parsed: unknown): string | undefined {
   if (!parsed || typeof parsed !== 'object') return undefined;
   const data = parsed as {
@@ -113,21 +105,17 @@ function readFinishReason(parsed: unknown): string | undefined {
     stop_reason?: unknown;
     candidates?: Array<{ finishReason?: unknown }>;
   };
-  // OpenAI 兼容：choices[0].finish_reason
   const choice = data.choices?.at(0);
   if (choice && typeof choice.finish_reason === 'string' && choice.finish_reason) {
     return choice.finish_reason;
   }
-  // Claude SSE: message_delta.delta.stop_reason
   if (data.type === 'message_delta') {
     const stopReason = data.delta?.stop_reason;
     if (typeof stopReason === 'string' && stopReason) return stopReason;
   }
-  // Claude 非流式: stop_reason
   if (typeof data.stop_reason === 'string' && data.stop_reason) {
     return data.stop_reason;
   }
-  // Gemini: candidates[0].finishReason
   const candidate = data.candidates?.at(0);
   if (candidate && typeof candidate.finishReason === 'string' && candidate.finishReason) {
     return candidate.finishReason;
@@ -171,9 +159,6 @@ export function reportOpenAICompatibleDiagnostics(
   });
 }
 
-// ── 通用 SSE 流式读取骨架（7 个流式函数共用） ──
-/** 7 个流式函数的公共 SSE 解析骨架：切行、data: 过滤、[DONE] 跳过、畸形行计数、usage/delta/finishReason 采集。
- *  供应商差异只保留 extractText（delta 提取）与 provider（devLog 标签）两个点。 */
 async function readSseTextStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   options: {
@@ -210,7 +195,6 @@ async function readSseTextStream(
         try {
           parsed = JSON.parse(data);
         } catch {
-          // 仅跳过畸形 JSON 行；后续处理逻辑的异常必须上抛暴露。
           skippedMalformedLines += 1;
           continue;
         }
@@ -234,8 +218,7 @@ async function readSseTextStream(
   return fullText;
 }
 
-export /** 流式尾部统一执行器：读 reader、跨 chunk 状态、统一诊断上报（D1）、onDone。 */
-async function runSseStream(
+export async function runSseStream(
   response: Response,
   options: {
     provider: string;

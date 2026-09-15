@@ -1,13 +1,3 @@
-// ── 分区索引 ──────────────────────────────────────────────
-// 1. 类型与公共导出（StreamCallbacks / ChatCompletionRequest / ChatCompletionUsage）
-// 2. provider 探测与 URL/模型规范化（detectProvider / is*Config / normalize*BaseUrl）
-// 3. assistant prefill（withPrefixMessages 及配套）
-// 4. usage 提取（pickFirst + 字段常量组 + extractUsage 全家）
-// 5. delta/文本解析（readOpenAICompatibleStreamDelta / readFinishReason / parse*）
-// 6. SSE 骨架与 runner（readSseTextStream / runSseStream）
-// 7. OpenAI 兼容传输（请求体 / 代理路由 / fetch 与错误助手 / streamOpenAICompatible）
-// 8. 各 provider 流式与非流式（Claude / Gemini / OpenCode 差异表）
-// 9. 入口与 DeepSeek 恢复包装（chatCompletion / chatCompletionNonStream）
 import { DEEPSEEK_FINAL_CONTENT_GUARD, executeWithDeepSeekRecovery } from './deepSeekRecovery';
 import type { DeepSeekAttemptDiagnostics } from './deepSeekRecovery';
 import type { API配置项 } from '@/models/settings';
@@ -114,7 +104,6 @@ async function chatCompletionOnce(
   }
   return streamOpenAICompatible(config, msgs, request, callbacks);
 }
-// ── Non-streaming fallback ──
 export async function chatCompletionNonStream(
   config: API配置项,
   request: ChatCompletionRequest,
@@ -177,7 +166,6 @@ async function chatCompletionNonStreamOnce(
     });
   }
 
-  // mimo 与默认 OpenAI 兼容路径共用 transport（mimo 头 /v1 归一化 / 代理路由都在其中）
   const deepSeekPayload = provider === 'deepseek'
     ? withPrefixMessages(config, msgs, request)
     : { config, messages: msgs, prefix: '' };

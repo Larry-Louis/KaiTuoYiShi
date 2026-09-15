@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import { appendApiErrorReport } from './apiErrorReportService';
 import { buildArkProxyBody, normalizeArkBaseUrl } from './arkProxyCore';
 import { buildClineProxyBody, normalizeClineBaseUrl } from './clineProxyCore';
@@ -16,8 +15,7 @@ type SamplingFieldNames = {
   presencePenalty?: string;
 };
 
-export /** 采样参数装配：仅在请求/配置提供数值时写入 target[厂商字段名]。 */
-function applySamplingParams(
+export function applySamplingParams(
   target: Record<string, unknown>,
   names: SamplingFieldNames,
   request: ChatCompletionRequest,
@@ -54,14 +52,12 @@ export function buildOpenAICompatibleRequestBody(
   } else {
     body.max_tokens = request.maxTokens ?? config.maxTokens ?? 2048;
     body.temperature = request.temperature ?? config.temperature ?? 0.8;
-    // 采样参数贯通（OpenAI 兼容 / DeepSeek / Ark / Pioneer 等）
     applySamplingParams(body, {
       topP: 'top_p',
       frequencyPenalty: 'frequency_penalty',
       presencePenalty: 'presence_penalty',
       repetitionPenalty: 'repetition_penalty',
     }, request, config);
-    // max_context：OpenAI 兼容端点通常不支持显式字段，但 OpenRouter 等支持 max_context_tokens
     const maxCtx = request.maxContext ?? config.maxContext;
     if (typeof maxCtx === 'number') body.max_context_tokens = maxCtx;
   }
@@ -71,7 +67,7 @@ export function buildOpenAICompatibleRequestBody(
   return body;
 }
 
-/** Cline 对外承诺精简 OpenAI Chat Completions 形态：不透传 stream_options、惩罚参数与 max_context_tokens 等扩展字段。 */
+/** Cline 端点不接受 stream_options、惩罚参数与 max_context_tokens 等扩展字段。 */
 export function buildClineRequestBody(
   config: API配置项,
   messages: ChatMessagePayload[],
@@ -200,12 +196,11 @@ export async function fetchWithApiErrorReport(
   }
 }
 
-export /** 读取错误响应体文本（读取失败返回空串，不抛）。 */
-async function errorText(response: Response): Promise<string> {
+export async function errorText(response: Response): Promise<string> {
   return response.text().catch(() => '');
 }
 
-/** HTTP 错误统一上报 + 抛错。调用方如需先做降级判断，先 errorText 再调用。 */
+/** 调用方如需先做降级判断，先 errorText 再调用。 */
 export function throwApiError(
   config: API配置项,
   source: string,
@@ -220,14 +215,13 @@ export function throwApiError(
 }
 
 type OpenAICompatibleTransport = {
-  url: string;          // 实际请求地址（含 /api/ark 等本地代理路径）
-  upstreamUrl: string;  // 上游地址（诊断上报用）
+  url: string;
+  upstreamUrl: string;
   headers: HeadersInit;
   body: string;
 };
 
-export /** OpenAI 兼容传输构建：代理路由（ark/qianfan/pioneer）、mimo 头与 /v1 归一化、Bearer 头。 */
-function buildOpenAICompatibleTransport(
+export function buildOpenAICompatibleTransport(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
   request: ChatCompletionRequest,
@@ -242,7 +236,7 @@ function buildOpenAICompatibleTransport(
       : isCline
         ? normalizeClineBaseUrl(config.baseUrl)
         : isMimoConfig(config)
-          ? normalizeMimoBaseUrl(config.baseUrl) // D3：stream/non-stream 统一 /v1
+          ? normalizeMimoBaseUrl(config.baseUrl)
           : config.baseUrl;
   const upstreamUrl = buildOpenAICompatibleChatUrl(upstreamBaseUrl);
   const requestBody = isCline
@@ -266,8 +260,7 @@ function buildOpenAICompatibleTransport(
   };
 }
 
-export // ── OpenAI-compatible streaming (SSE) ──
-async function streamOpenAICompatible(
+export async function streamOpenAICompatible(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
   request: ChatCompletionRequest,

@@ -388,7 +388,7 @@ function BodyArchiveSection({ title, children }: { title: string; children: Reac
 }
 
 function formatNsfwAge(age: NPC_NSFW年龄确认 | undefined): string {
-  // 年龄确认已降级为纯展示信息，不再控制写入或显示。
+  // 年龄确认是纯展示字段，不参与门禁。
   if (age === 'adult') return '成人';
   if (age === 'minor_blocked') return '标注未成年';
   if (age === 'unknown') return '未标注';

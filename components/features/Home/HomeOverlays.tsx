@@ -1,8 +1,3 @@
-// 首页与开局向导之间的四个转场遮罩，以及首页的「神秘聊天」弹窗。
-//
-// 这些组件只负责把 starfield.ts 里算好的粒子数据铺成 DOM，不含任何计时逻辑：
-// 何时出现、何时消失由 hooks/useHomePage 的转场状态机决定。
-
 import type { HomeTransition } from '@/hooks/useHomePage';
 import { Modal } from '@/components/ui/Modal';
 import {
@@ -13,7 +8,6 @@ import {
 } from '@/components/features/Home/starfield';
 import { mediumClip } from '@/components/ui/clipPaths';
 
-/** 踏上旅途：进入开局向导。 */
 function JourneyLaunchOverlay() {
   return (
     <div className="kaituo-journey-launch" role="status" aria-live="polite" aria-label="星轨已接入">
@@ -51,7 +45,6 @@ function JourneyLaunchOverlay() {
   );
 }
 
-/** 首页 → 开局向导的过渡：旅途入口开启。 */
 function HomeJourneyOverlay() {
   return (
     <div className="kaituo-home-journey" role="status" aria-live="polite" aria-label="旅途入口开启中">
@@ -81,7 +74,6 @@ function HomeJourneyOverlay() {
   );
 }
 
-/** 首页 → 存档界面。 */
 function SaveLoadOverlay() {
   return (
     <div className="kaituo-save-load" role="status" aria-live="polite" aria-label="存档读取中">
@@ -113,7 +105,6 @@ function SaveLoadOverlay() {
   );
 }
 
-/** 首页 → 如我所书。 */
 function BookOpenOverlay() {
   return (
     <div className="kaituo-book-open" role="status" aria-live="polite" aria-label="书页展开中">
@@ -146,10 +137,7 @@ function BookOpenOverlay() {
   );
 }
 
-/**
- * 转场遮罩的唯一出口：按当前的转场类型渲染对应遮罩。
- * 首页与开局向导两个界面都要挂这一个节点，因为转场会跨越视图切换。
- */
+/** 首页与开局向导两个界面都要挂这一个节点，因为转场会跨越视图切换。 */
 export function HomeTransitionOverlay({ transition }: { transition: HomeTransition }) {
   if (transition === 'journeyLaunch') return <JourneyLaunchOverlay />;
   if (transition === 'homeJourney') return <HomeJourneyOverlay />;

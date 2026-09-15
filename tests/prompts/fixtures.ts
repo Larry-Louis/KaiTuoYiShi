@@ -29,10 +29,6 @@ export function createPromptFixture() {
   return { traveler, world, settings, context };
 }
 
-/**
- * 基于导出的 VARIABLE_ROOT_KEYS 构造完整最小 VariableState：
- * 根键齐全（默认 undefined，收集路径对 undefined 有守卫），按需覆盖个别根。
- */
 export function createVariableStateFixture(overrides: Partial<VariableState> = {}): VariableState {
   const base = Object.fromEntries(
     VARIABLE_ROOT_KEYS.map((root) => [root, undefined]),

@@ -170,12 +170,7 @@ export const bundledStoryWeavingPresets: BundledStoryWeavingPreset[] = [
 
 const CANON_START_SERIES_ID = 'story_canon_zhiku_herta_station_chapter1';
 
-/**
- * 开局章节锚点 → 内置原著系列/分段组。
- * 数据真源：`bundledStoryWeavingPresets` 列出的系列 + `public/data/story-weaving-canon/<内置预设ID>.json`；
- * `data/storyWeavingCanonDecomposed.json` 是历史归档快照，运行时加载器不读取（由 story-weaving-canon-integrity 测试锁定）。
- * 一个系列可承载多个锚点（同一章节的多个官方预设，或同一系列的多个开局阶段），这是有意复用，不另建重复系列。
- */
+/** 数据真源是 public/data/story-weaving-canon/<内置预设ID>.json；data/storyWeavingCanonDecomposed.json 是归档快照，运行时加载器不读取。 */
 const OPENING_STORY_WEAVING_ANCHORS: Record<string, { seriesId: string; segmentGroup: number; note: string }> = {
   herta_station_incident: {
     seriesId: 'story_canon_zhiku_herta_station_chapter1',
@@ -227,7 +222,6 @@ const OPENING_STORY_WEAVING_ANCHORS: Record<string, { seriesId: string; segmentG
     segmentGroup: 10,
     note: '匹诺康尼美梦崩塌前夜开局，前中段只作前置背景，直接从热砂会场、匹诺康尼大剧院与总摊牌前注入。',
   },
-  // 该章节锚点同时服务 official_amphoreus_falling_wood 与 official_amphoreus_refugee 两个官方预设，二者共享此系列第 1 段。
   amphoreus_falling_wood: {
     seriesId: 'story_canon_amphoreus_1_falling_wood',
     segmentGroup: 1,
@@ -259,7 +253,6 @@ const OPENING_STORY_WEAVING_ANCHORS: Record<string, { seriesId: string; segmentG
     note: '二相乐园其二开局，从鸽川区共愿帮灭门、告死魔模仿犯与公司调查线注入。',
   },
   planarcadia_academy: {
-    // 有意复用：绘世学院线属于二相乐园其一系列（第 3 段），与 planarcadia_welcome 共享同一系列，不新建重复系列。
     seriesId: 'story_canon_erxiang_paradise_1_welcome',
     segmentGroup: 3,
     note: '二相乐园其一绘世学院开局，从真珠临摹绘世遗作、模因病毒与火花大会前置注入。',
@@ -354,9 +347,6 @@ export function alignStoryWeavingToOpeningArchive(system: 剧情编织系统, ar
   });
 }
 
-/**
- * 网络段：取回全部内置原著原文（响应体读完即计数），不做解析。
- */
 export async function fetchAllBundledStoryWeavingPresetsText(
   onProgress?: ResourceProgress,
 ): Promise<string[]> {
@@ -368,9 +358,6 @@ export async function fetchAllBundledStoryWeavingPresetsText(
   });
 }
 
-/**
- * 加工段：解析 + 可信构造。无进度上报（进度只属于网络段）。
- */
 export function 加工内置原著系列(texts: readonly string[]): 剧情编织系统 {
   const series = bundledStoryWeavingPresets.map((preset, index) => 构造CanonSeries(preset, texts[index]));
   return 构造剧情编织系统({
@@ -379,10 +366,6 @@ export function 加工内置原著系列(texts: readonly string[]): 剧情编织
   });
 }
 
-/**
- * 载入全部内置原著剧情系列。真源是 `public/data/story-weaving-canon/<预设ID>.json`，
- * 缺任何一个文件即整体失败——没有「从智库条目合成」的降级版本。
- */
 export async function loadAllBundledStoryWeavingPresets(
   onProgress?: ResourceProgress,
 ): Promise<剧情编织系统> {
@@ -449,10 +432,7 @@ export function mergeBundledStoryWeavingPresets(saved: 剧情编织系统 | null
   });
 }
 
-/**
- * 持久化投影：剥掉正文与章节、只留运行态，输入必须是**可信构造结果**。
- * 不含归一化——保存链路的边界归一化由调用方在入口完成。
- */
+/** 输入必须是可信构造结果；保存边界请用 buildPersistedStoryWeavingSystem。 */
 export function 投影持久化剧情编织系统(system: 剧情编织系统): 剧情编织系统 {
   return {
     persistenceVersion: 3,
@@ -475,10 +455,6 @@ export function 投影持久化剧情编织系统(system: 剧情编织系统): �
   } as 剧情编织系统;
 }
 
-/**
- * 保存边界：运行时多个入口传入的状态可能未经归一化，先归一化再投影。
- * 启动链路已知输入可信，应直接调用 投影持久化剧情编织系统，避免 27 个系列被重建一遍。
- */
 export function buildPersistedStoryWeavingSystem(system: 剧情编织系统): 剧情编织系统 {
   return 投影持久化剧情编织系统(归一化剧情编织系统(system));
 }
@@ -516,16 +492,12 @@ function getCanonResourceUrl(presetId: string): string {
   return `/${relativePath}`;
 }
 
-/**
- * 网络段：取回单个原著文件（响应体读完才 resolve）。
- */
 async function fetchCanonSeries(preset: BundledStoryWeavingPreset): Promise<string> {
   const response = await fetch(getCanonResourceUrl(preset.id));
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-/** 加工段单文件：解析 + 可信构造，不逐字段清洗（仓内文件已是运行时形状）。 */
 function 构造CanonSeries(preset: BundledStoryWeavingPreset, text: string): 剧情编织系列 {
   const raw = JSON.parse(text) as 剧情编织系列;
   return 构造剧情编织系列({

@@ -39,8 +39,6 @@ describe('区域推断', () => {
     expect(推断系列区域ID(undefined)).toBe(未知区域ID);
   });
 
-  // 断言从 openingRegions 推导而非写死，规范地区改名/新增时这里先失败，
-  // 而不是等到连续性判定把某条剧情线永久判成「区域不一致」。
   it('每个开局地区的名称与地点提示都唯一推回自身', () => {
     for (const region of openingRegions) {
       const 推断 = 推断区域ID([region.name, region.defaultLocationHint]);

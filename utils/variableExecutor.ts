@@ -1,7 +1,3 @@
-// 变量命令执行器：把通过校验的命令落地到 state setter。
-// 输入一个命令 + 当前精简 state + setters 集合，执行后返回结果。
-//
-// 设计：每个命令都独立调用对应 setter。多条命令按顺序执行；前一条不会影响下一条的校验（因为校验是用旧 state 做的，由 sendWorkflow 决定是否每条都重校验）。
 
 import type { 变量命令, 变量命令结果 } from '@/models/variableCommand';
 import type { 角色数据结构 } from '@/models/character';
@@ -29,9 +25,6 @@ import type { VariableExecContext } from './variableExecContext';
 export type { VariableExecContext } from './variableExecContext';
 export { DEFAULT_EXEC_CTX } from './variableExecContext';
 
-/** 执行器需要的 setters 集合（与 useGameState 对齐）。
- *  @deprecated 管线已统一走 reduceVariableCommands + commitVariableState，
- *  此接口仅被 Settings 组件引用。 */
 export interface VariableSetters {
   set旅人: React.Dispatch<React.SetStateAction<角色数据结构>>;
   set世界: React.Dispatch<React.SetStateAction<世界状态>>;
@@ -44,7 +37,6 @@ export interface VariableSetters {
   set剧情: React.Dispatch<React.SetStateAction<剧情节点[]>>;
 }
 
-/** 把当前 state 拍扁成 VariableState（执行器/校验用）。 */
 export function snapshotVariableState(slices: {
   旅人: 角色数据结构;
   世界: 世界状态;
@@ -69,9 +61,7 @@ export function snapshotVariableState(slices: {
   };
 }
 
-// applyVariableCommand / applyVariableCommands 已删除（片 3 A3：无外部调用方，统一走 reduceVariableCommands + commitVariableState）。
 
-/** 把 VariableState 拆回 8 个具名切片，方便组件/工作流消费。 */
 export function unpackVariableState(state: VariableState) {
   return {
     旅人: state.旅人 as 角色数据结构,
@@ -86,10 +76,6 @@ export function unpackVariableState(state: VariableState) {
   };
 }
 
-/** 纯函数批处理：在内存里累计推进 state，不接 setter。
- *  返回最终的新 state 与每条命令的结果（含失败原因）。
- *  适合 sendWorkflow —— 一次性算完，再用 setters 一次性提交，避免连续 setState 的中间状态。
- *  @param ctx 可选执行上下文；不传则使用 DEFAULT_EXEC_CTX 默认行为（生产环境）。 */
 export function reduceVariableCommands(
   commands: 变量命令[],
   initialState: VariableState,
@@ -101,7 +87,6 @@ export function reduceVariableCommands(
   const batchTimePlan = 分析批次时间计划(normalizedCommands, initialState.世界 as 世界状态);
 
   for (const rawCmd of normalizedCommands) {
-    // A1: cmd 可被 timeGuard 修正值替换（新对象），但 rawCmd 是调用方入参引用永不修改。
     let cmd = rawCmd;
     const parsedRoot = extractRoot(cmd.key);
     const preEnsuredNpc = parsedRoot?.root === 'NPC'
@@ -147,13 +132,11 @@ export function reduceVariableCommands(
         continue;
       }
       if (timeGuard.correctedValue !== undefined) {
-        // A1: 产生新命令对象，rawCmd 原引用不变
         cmd = { ...rawCmd, value: timeGuard.correctedValue };
       }
     }
 
     if (root === '世界' && rest === '当前时间' && cmd.action === 'set') {
-      // 补齐疑似跨夜时间 需要读当前 cmd.value（可能已被 timeGuard 修正）
       cursor = 补齐疑似跨夜时间(cursor, { action: 'set', key: rawCmd.key, value: cmd.value });
     }
 
@@ -166,7 +149,6 @@ export function reduceVariableCommands(
       continue;
     }
 
-    // 背包专用通道:push 旅人.背包 → 走 获取物品(),自动堆叠同名可堆叠物品
     if (root === '旅人' && cmd.action === 'push' && rest === '背包') {
       const 旅人 = cursor['旅人'] as 角色数据结构;
       const parsed = 解析获取物品输入(cmd.value);
@@ -178,7 +160,6 @@ export function reduceVariableCommands(
       }
     }
 
-    // 命途进度专用通道:走 24h cap + 满进度 待升阶
     if (root === '旅人' && (cmd.action === 'add' || cmd.action === 'sub' || cmd.action === 'set')) {
       const 旅人 = cursor['旅人'] as 角色数据结构;
       const pathId = 解析命途进度命令(rest, 旅人);
@@ -189,7 +170,6 @@ export function reduceVariableCommands(
         } else if (cmd.action === 'sub') {
           delta = -(Number(cmd.value) || 0);
         } else {
-          // set:用差值
           const current = 读取路径值(旅人, rest);
           const oldVal = Number(current.value) || 0;
           delta = (Number(cmd.value) || 0) - oldVal;
@@ -220,7 +200,6 @@ export function reduceVariableCommands(
       continue;
     }
 
-    // 手机联系人去重：push 前检查是否已有同名/同 id 联系人
     if (root === '手机' && rest === 'contacts' && cmd.action === 'push') {
       const phone = cursor.手机 as import('@/models/phone').手机系统 | undefined;
       const incoming = cmd.value as Record<string, unknown> | undefined;
@@ -252,7 +231,6 @@ export function reduceVariableCommands(
   return { results, nextState: cursor };
 }
 
-/** 轻量 NPC 去重：合并同 canonical name 的重复记录，保留数据更丰富的那条。 */
 function 去重NPC记录(state: VariableState): VariableState {
   const records = state.NPC as NPC记录[] | undefined;
   if (!records || records.length <= 1) return state;
@@ -263,17 +241,14 @@ function 去重NPC记录(state: VariableState): VariableState {
     const key = canonical?.name ?? npc.姓名;
     const existing = seen.get(key);
     if (existing) {
-      // 保留数据更丰富的那条（字段非空数更多）
       const existingScore = NPC数据丰富度(existing);
       const currentScore = NPC数据丰富度(npc);
       if (currentScore > existingScore) {
-        // 替换：把 existing 从 deduped 中移除，用 current 替代
         const idx = deduped.indexOf(existing);
         if (idx >= 0) deduped.splice(idx, 1);
         deduped.push(npc);
         seen.set(key, npc);
       }
-      // 否则保留 existing，跳过 current
     } else {
       seen.set(key, npc);
       deduped.push(npc);
@@ -419,11 +394,7 @@ function 应用背包数量扣减命令(
   };
 }
 
-/** 把 reduceVariableCommands 的结果通过 setters 一次性提交。
- *  只对引用变化的 root 调 setter——这样:
- *  1. 变量模型没动的 root 不会 setState,避免覆盖玩家在校准期间的交互(如点击狭间邀请卡片)
- *  2. 没必要的 re-render 也省了
- *  initialState 必须是传给 reduceVariableCommands 的同一份初始 snapshot 引用。 */
+/** initialState 必须是传给 reduceVariableCommands 的同一份 snapshot；否则引用比较恒为不等，每个 setter 每回合都会触发并覆盖玩家交互。 */
 export function commitVariableState(
   state: VariableState,
   initialState: VariableState,
@@ -450,7 +421,6 @@ export function commitVariableState(
   if (state.剧情 !== initialState.剧情) setters.set剧情(state.剧情 as 剧情节点[]);
 }
 
-// A1: 校验世界时间命令不再接收 & 修改 cmd，改为接收拆解后的参数并返回 { reason, correctedValue }。
 function 校验世界时间命令(
   rest: string,
   action: 变量命令['action'],
@@ -507,7 +477,6 @@ function 校验世界时间命令(
       if (delta > 1) return { reason: null, correctedValue: 1 };
       return { reason: null };
     }
-    // action === 'set'
     {
       const next = Number(value);
       if (!Number.isFinite(next)) return { reason: '开拓天数 set 必须是数字' };
@@ -555,14 +524,12 @@ function 确保NPC目标存在(records: NPC记录[], rest: string, cmd: 变量�
   const selectorField = match[1].slice(0, eq).trim();
   const selectorValue = match[1].slice(eq + 1).trim().replace(/^["']|["']$/g, '');
   if (!selectorValue) return null;
-  // 严格匹配（id / 姓名 / 别名）
   const exists = records.some((item) =>
     item.id === selectorValue ||
     item.姓名 === selectorValue ||
     item.别名 === selectorValue,
   );
   if (exists) return null;
-  // 模糊匹配（原著角色库 canonical name），与 findNpc 保持一致
   const canonicalName = NPC选择器值转角色名(selectorValue);
   const canonical = matchCanonical(canonicalName);
   if (canonical) {
@@ -649,9 +616,6 @@ function 格式化分钟序数(minutesOfDay: number): string {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
-// ── 背包 push 入参解析 ──
-// AI 传过来的 value 是 JSON 字面量,字段大体跟 创建背包物品 入参对齐,
-// 这里只做最基本的字段挑拣与类型兜底,详细品质/堆叠默认值交给 创建背包物品 / 获取物品。
 const ITEM_CATEGORIES: 物品分类[] = ['food', 'consumable', 'lightcone', 'weapon', 'clothing', 'accessory', 'memento', 'key'];
 const ITEM_QUALITIES: 物品品质[] = ['蓝', '紫', '金'];
 
@@ -670,7 +634,6 @@ function 解析获取物品输入(raw: unknown): 获取物品输入 | null {
     out.品质 = obj.品质 as 物品品质;
   }
   if (typeof obj.可堆叠 === 'boolean') out.可堆叠 = obj.可堆叠;
-  // 玩家装备系统已退役：忽略旧模型偶尔输出的装备槽位，避免新物品继续落旧穿戴字段。
   if (Array.isArray(obj.叙事效果)) {
     const cleaned = obj.叙事效果
       .filter((item): item is string => typeof item === 'string')
@@ -678,7 +641,6 @@ function 解析获取物品输入(raw: unknown): 获取物品输入 | null {
       .filter(Boolean);
     if (cleaned.length > 0) out.叙事效果 = cleaned;
   }
-  // 旧数值装备字段已退役：即使模型夹带 属性加成，也不再写入新背包物品。
   if (Array.isArray(obj.使用效果)) {
     const cleaned = obj.使用效果.filter(
       (e): e is { 目标属性: string; 数值: number } =>
@@ -713,8 +675,6 @@ function isPlaceholderText(value: unknown): boolean {
   return text === '' || text === '...' || text === '名称' || text === '描述' || text === '物品' || text === '未知物品';
 }
 
-// ── 命途进度路径专用通道 ──
-// 当命令目标是 旅人.命途列表[索引或 id=...].进度 时,改走 推进命途进度,以走 24h 累计上限。
 function 解析命途进度命令(rest: string, 旅人: 角色数据结构): 命途ID | null {
   const tokens = 解析路径片段(rest);
   if (tokens.length < 3) return null;
@@ -905,8 +865,6 @@ function isPlaceholderValue(raw: string | undefined): boolean {
   return /\.\.\./.test(text) || /[{,]\s*(id|回合|摘要|名称|描述)\s*[,}]/.test(text);
 }
 
-/** 从 AI 文本中解析 <变量更新>...</变量更新> 块。每条命令：`<action> <path> = <json>`。
- *  支持多行 JSON / 代码块 / 全角等号；delete 可省略 = 后面的值。 */
 export function parseVariableCommands(rawText: string): { commands: 变量命令[]; parseErrors: string[] } {
   const commands: 变量命令[] = [];
   const parseErrors: string[] = [];
@@ -917,9 +875,6 @@ export function parseVariableCommands(rawText: string): { commands: 变量命令
   const lines = 拆分变量命令行(清理变量命令块(blockMatch[1]));
 
   for (const line of lines) {
-    // 形如：  push  旅人.背包 = {"名称":"面包","数量":1}
-    //        delete 剧情[id=node_002]
-    //        add   世界.开拓天数 = 1
     const parsedLine = 解析变量命令行(line);
     if (!parsedLine) {
       parseErrors.push(`无法解析：${line.slice(0, 160)}`);
@@ -939,10 +894,8 @@ export function parseVariableCommands(rawText: string): { commands: 变量命令
       continue;
     }
 
-    // 顺便确认根合法（错的也按拒绝处理，让 validateCommand 给出明确原因）
     if (!extractRoot(key)) {
       parseErrors.push(`未知根路径：${key}`);
-      // 不 continue，让 validate 阶段也吐一遍，便于在面板里看到
     }
 
     let value: unknown = null;

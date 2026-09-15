@@ -34,7 +34,6 @@ async function writeIndexedSetting(key: string, value: unknown): Promise<void> {
   });
 }
 
-/** 单点剥离（片 5a-2 D3）：gameSettings 落盘时剔除两运行态键，内存 state.gameSettings 不动。 */
 function 剥离游戏设置运行态键(key: string, value: unknown): unknown {
   if (key !== 'gameSettings') return value;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;

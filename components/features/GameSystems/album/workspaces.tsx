@@ -38,7 +38,6 @@ export function WorkspaceTabs({ activeTab, setActiveTab }: { activeTab: WorkTab;
                 className="px-3 py-2.5 text-center font-serif text-sm font-bold tracking-[0.16em] transition-all"
                 style={{
                   color: active ? 'rgb(var(--tj-ui-title))' : 'rgba(var(--tj-ui-muted),0.86)',
-                  // 底部 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），必须排在 background 第一层。
                   background: active
                     ? `linear-gradient(0deg, rgba(var(--tj-tech-cyan), var(--tj-edge-tint-strong)) 0 3px, transparent 3px), linear-gradient(90deg, rgba(var(--tj-btn-primary-start),0.13), rgba(var(--tj-tech-cyan),0.045))`
                     : panelStrongSurface,
@@ -64,7 +63,6 @@ export function WorkspaceTabs({ activeTab, setActiveTab }: { activeTab: WorkTab;
                 className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all"
                 style={{
                   color: active ? 'rgb(var(--tj-ui-title))' : 'rgba(var(--tj-ui-muted),0.86)',
-                  // 左侧 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），必须排在 background 第一层。
                   background: active
                     ? `linear-gradient(90deg, rgba(var(--tj-tech-cyan), var(--tj-edge-tint-strong)) 0 3px, transparent 3px), linear-gradient(90deg, rgba(var(--tj-btn-primary-start),0.13), rgba(var(--tj-tech-cyan),0.045))`
                     : panelStrongSurface,
@@ -371,7 +369,6 @@ export function CharacterAnchorPanel({
   const autosaveTimerRef = useRef<number | null>(null);
   const skipAutosaveRef = useRef(true);
 
-  // anchor / 回退名变化时重置表单：渲染期校正（React 官方「props 变化调整 state」模式）。
   const [prevAnchor, setPrevAnchor] = useState(anchor);
   const [prevNameFallback, setPrevNameFallback] = useState(nameFallback);
   if (prevAnchor !== anchor || prevNameFallback !== nameFallback) {
@@ -386,7 +383,6 @@ export function CharacterAnchorPanel({
     setSaveState('saved');
   }
 
-  // anchor 切换时取消挂起的自动保存（无 setState，纯 ref/timer 清理）。
   useEffect(() => {
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current);
@@ -698,8 +694,6 @@ export function DraftCanvasPreview({
         style={{
           background: draftGrid,
           backgroundSize: '24px 24px, 24px 24px, auto, auto',
-          // 第二层是 2px 的黑色内衬（0.42）。1px 描边改真 border；2px 内衬无法用单条
-          // border 表达（会变成 2px 单色边），在此去掉。
           border: '1px solid rgba(var(--tj-btn-primary-start), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}

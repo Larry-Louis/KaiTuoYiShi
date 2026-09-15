@@ -4,7 +4,6 @@ import type { 相册系统 } from '@/models/imageGeneration';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import { mediumClip, smallClip, tinyClip } from './turnStyles';
 
-/** 故事快照可折叠卡片 */
 export function NarrativeImageCard({
   image,
   album,
@@ -86,7 +85,6 @@ export function NarrativeImageCard({
         boxShadow: 'inset 0 0 0 1px rgba(var(--tj-btn-primary-start), 0.2)',
       }}
     >
-      {/* 标题栏：点击折叠/展开 */}
       <button
         onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-all hover:opacity-80"
@@ -125,7 +123,6 @@ export function NarrativeImageCard({
         </span>
       </button>
 
-      {/* 展开内容：图片 */}
       {expanded && imageSrc && (
         <div className="px-3 pb-3">
           <img

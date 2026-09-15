@@ -9,7 +9,6 @@ import { mediumClip, panelClip, smallClip, tinyClip } from '@/components/ui/clip
 
 interface LeftPanelProps {
   traveler: 角色数据结构;
-  /** 点击头像 / 名字时触发，打开旅人档案只读弹窗。 */
   onOpenProfile?: () => void;
   onOpenPhone?: () => void;
   phoneUnread?: number;
@@ -47,7 +46,6 @@ export const LeftPanel = memo(function LeftPanel({
 
   return (
     <div className="kaituo-left-panel relative hidden md:flex md:w-[16%] min-w-[200px] max-w-[240px] flex-col">
-      {/* 顶部金线装饰条 */}
       <div
         className="px-4 py-3.5 text-center"
         style={{ borderBottom: '1px solid rgba(var(--tj-border), 0.72)' }}
@@ -61,7 +59,6 @@ export const LeftPanel = memo(function LeftPanel({
       </div>
 
       <div className="flex flex-1 flex-col overflow-y-auto p-4">
-        {/* 头像 + 姓名：整块可点击，打开只读档案弹窗 */}
         <button
           type="button"
           onClick={onOpenProfile}
@@ -69,7 +66,6 @@ export const LeftPanel = memo(function LeftPanel({
           title={onOpenProfile ? '查看旅人档案' : undefined}
           className="group mt-1 flex flex-col items-center transition-all hover:opacity-95 disabled:cursor-default disabled:hover:opacity-100"
         >
-          {/* Avatar */}
           <div className="relative">
             <div
               className="flex h-[88px] w-[88px] items-center justify-center overflow-hidden font-serif text-4xl font-bold transition-all group-hover:scale-[1.03]"
@@ -104,7 +100,6 @@ export const LeftPanel = memo(function LeftPanel({
             </span>
           </div>
 
-          {/* Name */}
           <div className="mt-4 text-center">
             <div
               className="font-serif text-xl font-bold tracking-[0.2em]"
@@ -136,7 +131,6 @@ export const LeftPanel = memo(function LeftPanel({
           </div>
         </button>
 
-        {/* 旅人摘要 */}
         <div className="mt-5 space-y-3">
           <InfoLine label="身份" value={traveler.身份 || traveler.背景 || '未记录'} />
           <InfoLine label="命途" value={pathLabel} />

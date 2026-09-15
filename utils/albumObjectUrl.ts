@@ -1,11 +1,3 @@
-/**
- * Album asset binary runtime cache.
- *
- * React/album state should hold `asset:<id>` references (or remote URLs), not
- * multi-MB base64 data URLs. Binary payloads live here as Blob values; short-lived
- * object URLs are created on demand for currently displayed images.
- */
-
 const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 interface AlbumAssetCacheEntry {
@@ -80,10 +72,6 @@ export function hasAlbumAssetBlob(assetId: string): boolean {
   return assetCache.has(assetId.trim());
 }
 
-/**
- * Returns a displayable object URL for the asset without changing refcount.
- * Creates the object URL lazily. Prefer acquire/release around mounted consumers.
- */
 export function resolveAlbumAssetDisplayUrl(assetId: string): string | undefined {
   const entry = assetCache.get(assetId.trim());
   if (!entry) return undefined;
@@ -93,7 +81,6 @@ export function resolveAlbumAssetDisplayUrl(assetId: string): string | undefined
   return entry.objectUrl;
 }
 
-/** Drop blob + object URL for a deleted asset. */
 export function revokeAlbumAsset(assetId: string): void {
   const id = assetId.trim();
   const entry = assetCache.get(id);
@@ -113,7 +100,6 @@ export function pruneAlbumAssetCache(retainedAssetIds: Iterable<string>): void {
   }
 }
 
-/** Test / full teardown helper. */
 export function clearAlbumAssetObjectUrlCache(): void {
   for (const entry of assetCache.values()) {
     if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
@@ -131,10 +117,6 @@ export function getAlbumAssetCacheStats(): { size: number; objectUrls: number; t
   return { size: assetCache.size, objectUrls, totalBytes };
 }
 
-/**
- * Convert embedded base64 dataUrls into Blob cache + `asset:<id>` refs before
- * album state enters long-lived React memory. Safe to call multiple times.
- */
 export function materializeAlbumRuntimePayload<T extends { assets: Array<{ id: string; dataUrl?: string; size?: number }> }>(album: T): T {
   const assets = album.assets.map((asset) => {
     if (!asset.id) return asset;
@@ -153,10 +135,6 @@ export function materializeAlbumRuntimePayload<T extends { assets: Array<{ id: s
   return changed ? { ...album, assets } : album;
 }
 
-/**
- * Resolve a displayable URL for an album asset without re-expanding base64 into
- * long-lived state. Order: Blob object URL → asset ref cache → remote/local → legacy dataUrl.
- */
 export function pickAssetDisplayUrl(asset: {
   id?: string;
   dataUrl?: string;

@@ -151,7 +151,6 @@ describe('内置世界书同步', () => {
     expect(merged.map((book) => book.title)).toContain('玩家降级的罗盘');
   });
 
-  // 退役或从未登记的内置 id 不再享受硬编码豁免：去留只由 builtin 标志决定。
   it.each([
     'builtin_core_config',
     'builtin_cot',

@@ -1,5 +1,3 @@
-// 回合卡片动作的展示层：label / glyph / 顺序（界面模块，不进领域层）。
-
 import type { 回合动作ID } from '@/hooks/useGame/turnActionRuntime';
 
 export interface 回合动作展示 {

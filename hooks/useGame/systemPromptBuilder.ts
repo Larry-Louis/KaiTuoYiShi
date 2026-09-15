@@ -109,7 +109,6 @@ export function buildSystemPrompt(input: SystemPromptInput): BuiltSystemPrompt {
     yitingSection = hit.injection;
   }
 
-  // 忆庭命中且关闭「并存注入」时：暂停短/中期记忆注入，长期只留最近 3 条锚点，旧事承接交给剧情回忆。
   const yitingMutexActive = !input.settings.记忆系统.忆庭命中并存注入 && Boolean(yitingSection);
   const memory = input.settings.enableMemoryInjection && input.memory
     ? splitLayeredMemory(input.memory, yitingMutexActive ? { long: 3, middle: 0, short: 0 } : undefined)
@@ -132,7 +131,6 @@ export function buildSystemPrompt(input: SystemPromptInput): BuiltSystemPrompt {
   const weaving = weavingGateOpen
     ? buildStoryWeavingInjection(input.storyWeaving, input.worldbookCtx)
     : '';
-  // 推进申报契约常开：与剧情编织注入同门，有当前分段才注入，避免死指令。
   const advanceDeclaration = weavingGateOpen && input.storyWeaving
     ? buildStoryAdvanceDeclarationContract(input.storyWeaving)
     : '';

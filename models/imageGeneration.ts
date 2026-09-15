@@ -26,7 +26,6 @@ export interface 图片资源 {
   originalUrl?: string;
   dataUrl?: string;
   localRef?: string;
-  /** 图片原始字节的 SHA-256，用于跨导入和上传去重。 */
   contentHash?: string;
   mimeType?: string;
   width?: number;
@@ -61,7 +60,7 @@ export interface 相册条目 {
   nsfw: boolean;
   createdAt: number;
   note?: string;
-  /** 可同时作为这些角色的生成参考，不改变图片原有归属或槽位。 */
+  /** 不改变图片原有归属或槽位。 */
   referenceTargets: string[];
 }
 
@@ -154,7 +153,6 @@ export function defaultSizeForSlot(slot: 图片槽位): string {
   return '1024x1024';
 }
 
-/** 相册参考目标：参考图条目或显式 referenceTargets 输入。 */
 type 相册参考目标 = Pick<相册条目, 'targetType' | 'targetId' | 'slot'> & { referenceTargets?: unknown };
 
 export function 读取图片参考目标(entry: 相册参考目标): string[] {

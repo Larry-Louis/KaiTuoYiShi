@@ -71,7 +71,7 @@ export interface OpeningPresetDraft {
   selectedWorkshopTemplateId: string;
   canonicalTrailblazer: CanonicalTrailblazer;
   customStartPrompt: string;
-  /** AI 整理的开局档案（自由/创意工坊开局）。由门面 handleParseOpeningArchive 产出，null 表示跳过/失败，走本地整理兜底。 */
+  /** null 表示跳过/失败，走本地整理兜底。 */
   parsedArchive: 开局整理档案 | null;
 }
 
@@ -82,12 +82,6 @@ export interface OpeningPlayerPreset {
   draft: OpeningPresetDraft;
 }
 
-/**
- * 开局纯数据/纯函数聚合（GitHub #15 迁移自 wizardData / newGameInitialization）：
- * 不含 UI/组件逻辑，供 services、hooks 与 wizard 侧共用。
- */
-
-/** 原著主角选项表（id/title/subtitle/worldValue）。 */
 export const CANONICAL_TRAILBLAZERS: {
   id: CanonicalTrailblazer;
   title: string;
@@ -99,7 +93,6 @@ export const CANONICAL_TRAILBLAZERS: {
   { id: 'both', title: '小孩子才做选择', subtitle: '星与穹都存在', worldValue: '星穹双主角' },
 ];
 
-/** 自由开局工作台草稿 → 提示词文本（workshop 来源时并入 玩家切入说明）。 */
 export function formatFreeOpeningWorkshopDraft(draft: FreeOpeningWorkshopDraft, source: FreeOpeningPlanetSource): string {
   const npcRows = draft.customNpcs
     .map((npc, index) => {
@@ -136,18 +129,15 @@ export function formatFreeOpeningWorkshopDraft(draft: FreeOpeningWorkshopDraft, 
   return content ? `【开局工作台】\n${content}` : '';
 }
 
-/** 合并 玩家切入说明 与 自由开局工作台文本（各取去空白后的非空段，双换行拼接）。 */
 export function mergeFreeOpeningPrompt(baseText: string, workshopText: string): string {
   const parts = [baseText.trim(), workshopText.trim()].filter(Boolean);
   return parts.join('\n\n');
 }
 
-/** 按 id 取原著主角选项，未知 id 兜底第一项。 */
 export function getCanonicalTrailblazer(id: CanonicalTrailblazer) {
   return CANONICAL_TRAILBLAZERS.find((item) => item.id === id) ?? CANONICAL_TRAILBLAZERS[0];
 }
 
-/** 开局摘要行：worldState.全局事件 的 extraFacts 素材（纯派生，不含副作用）。 */
 export function buildOpeningSummary({
   scenario,
   location,
@@ -207,7 +197,6 @@ export function buildOpeningSummary({
   return lines;
 }
 
-/** 解析所选开局场景对应的官方预设：按预设/章节/起始场景的稳定身份逐级解析。 */
 export function resolveSelectedScenarioPreset(startingScenarioId: string, selectedScenario?: 起始场景): 官方开局预设 | undefined {
   const bundlePreset = getOpeningScenarioBundle(startingScenarioId).preset;
   if (bundlePreset) return bundlePreset;
@@ -218,10 +207,6 @@ export function resolveSelectedScenarioPreset(startingScenarioId: string, select
   return selectedScenario ? getOpeningScenarioBundle(selectedScenario.id).preset : undefined;
 }
 
-/**
- * 开局 draft → 全部派生值（原 NewGameWizard.handleStart 的组装前置 + openingSummaryLines memo）。
- * 纯领域派生，供 handleParseOpeningArchive 与 createInitialWorkspace(fresh) 共用，避免两处重复推导。
- */
 export function deriveOpeningDraftContext(draft: OpeningPresetDraft) {
   const storyModeDef = getStoryMode(draft.storyMode) ?? storyModes[0];
   const selectedPath = getPath(draft.pathId);
@@ -327,10 +312,8 @@ export function deriveOpeningDraftContext(draft: OpeningPresetDraft) {
   };
 }
 
-/** 开局引导输入：一次性瞬态字段的唯一合法值（kernelization §6.5）。 */
 export const OPENING_INPUT = '[系统] 开启第 0 回合';
 
-/** 开局是否已经落地：回合数推进过，或历史里已有助手回复。 */
 export function isOpeningLanded(
   turnCount: number,
   chatHistory: readonly { role: string }[],
@@ -339,18 +322,12 @@ export function isOpeningLanded(
 }
 
 export interface OpeningStartFacts {
-  /** 活跃叶子回合相位投影；awaitingLanding 且无恢复上下文 = 全新开局。 */
   turnPhase: TurnPhase | null;
-  /** 是否存在未落地的恢复上下文（重试 / 撤销优先于开局派发）。 */
   hasRecovery: boolean;
-  /** 开局是否已落地（见 isOpeningLanded）。 */
   openingLanded: boolean;
 }
 
-/**
- * 开局派发的唯一判定：活跃叶子处于 awaitingLanding、没有未落地恢复上下文、开局尚未落地。
- * 纯函数；调用方只据此派发常量输入，不从 React 状态回读文本。
- */
+/** 调用方只据此派发常量输入，不从 React 状态回读文本。 */
 export function shouldStartOpening(facts: OpeningStartFacts): boolean {
   if (facts.turnPhase !== 'awaitingLanding') return false;
   if (facts.hasRecovery) return false;

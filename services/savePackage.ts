@@ -162,7 +162,6 @@ export function sanitizeSaveForExport(save: 存档数据): 存档数据 {
   return sanitized;
 }
 
-/** Async export sanitizer that rehydrates Blob-backed album assets into portable dataUrls. */
 export async function sanitizeSaveForExportAsync(save: 存档数据): Promise<存档数据> {
   const expanded = await expandSaveAssetPayloadForExport(save);
   return sanitizeSaveForExport(expanded);

@@ -1,5 +1,3 @@
-// 主剧情思维链(CoT)提示词。
-// 仅在 currentScope='main'(turnCount > 1) 时注入。
 
 export const MAIN_COT_PROMPT = `在 <thinking> 标签内, 请像一位导演筹备开机前一样，严格按以下 Step0~Step14 连续推演。每个 Step 标题独占一行，标题下至少 3 条 "- " 具体的思考落地；请写出结合当前上下文的实质性判断，避免空泛口号，用具体的角色名代替代词。
 

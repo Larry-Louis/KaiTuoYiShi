@@ -21,7 +21,7 @@ interface SkillPanelProps {
   traveler: 角色数据结构;
   onTravelerChange: React.Dispatch<React.SetStateAction<角色数据结构>>;
   apiSettings: API设置;
-  /** 战技 AI 草稿（片 panel-p6）：由 useGame 门面接管 generateSkillDraft 直连。 */
+  /** 由 useGame 门面提供。 */
   onGenerateSkillDraft: (apiConfig: API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
 }
 
@@ -664,7 +664,7 @@ function SlotGroup({
               className="w-[112px] shrink-0 px-2 py-2 text-left transition-all md:w-full md:px-3"
               onClick={() => onSelect(slot)}
               style={{
-                // 左侧 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），排在 background 第一层。
+                // 垫片会丢弃内阴影，强调条只能画成背景条纹，且必须排在第一层。
                 background: active
                   ? `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge-strong)) 0 3px, transparent 3px), linear-gradient(135deg, rgba(var(--tj-accent-primary),0.13), rgba(var(--tj-tech-cyan), 0.06))`
                   : 'rgba(var(--tj-bg-primary),0.45)',
@@ -804,7 +804,6 @@ function EmptyNotice({ text }: { text: string }) {
 function panelStyle(background = 'linear-gradient(180deg, rgba(var(--tj-bg-secondary),0.96), rgba(var(--tj-bg-primary),0.98))') {
   return {
     background,
-    // 同 InventoryPanel：投影被切角裁掉了，删掉，顺带消掉一个 layer 模式触发条件。
     border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
     clipPath: cardClip,
   };

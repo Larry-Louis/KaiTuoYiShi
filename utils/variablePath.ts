@@ -1,14 +1,3 @@
-// 路径解析与按路径修改 state 的工具。
-// 设计参考：墨色项目 utils/stateHelpers.ts 的 应用路径命令 / 解析路径片段。
-// 关键不同：我们不区分 "gameState." 前缀（前端协议直接用根名），路径使用当前中文 schema 根名。
-//
-// 支持的路径语法：
-//   foo                       根字段
-//   foo.bar                   对象字段
-//   foo.bar.baz               嵌套对象
-//   foo[0]                    数组索引
-//   foo[0].bar                数组元素的字段
-//   foo[id=abc].bar           按 id 字段匹配数组元素的字段（语法糖；解析时转成具体 index）
 
 import type { 变量命令动作 } from '@/models/variableCommand';
 
@@ -29,10 +18,8 @@ const 深合并对象 = (left: unknown, right: unknown): unknown => {
   return seed;
 };
 
-/** 把路径字符串拆成片段。`foo.bar[0].baz` → ['foo','bar',0,'baz'] */
 export function 解析路径片段(rawPath: string): PathToken[] {
   const tokens: PathToken[] = [];
-  // 匹配三种：纯字段名、[数字]、[key=value] 语法糖（保留原样为字符串）
   const regex = /([^.[\]]+)|\[(\d+)\]|\[([^\]]+)\]/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(rawPath || ''))) {
@@ -41,21 +28,20 @@ export function 解析路径片段(rawPath: string): PathToken[] {
     const matcher = match[3] as string | undefined;
     if (field) tokens.push(field);
     else if (index !== undefined) tokens.push(Number(index));
-    else if (matcher !== undefined) tokens.push(`[${matcher}]`); // 包一层 [] 留给后续 resolveByMatcher
+    else if (matcher !== undefined) tokens.push(`[${matcher}]`);
   }
   return tokens;
 }
 
-/** 把 `[id=abc]` 这种匹配语法糖在 rootValue 上转成具体 index。失败返回 null。 */
 function 解析数组匹配语法糖(tokens: PathToken[], rootValue: unknown): PathToken[] | null {
-  if (rootValue === null || rootValue === undefined) return tokens; // 没有数据，原样返回，让后续报路径未登记
+  if (rootValue === null || rootValue === undefined) return tokens;
   const result: PathToken[] = [];
   let cursor: unknown = rootValue;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (typeof t === 'string' && t.startsWith('[') && t.endsWith(']')) {
       if (!Array.isArray(cursor)) return null;
-      const inner = t.slice(1, -1); // 形如 "id=abc"
+      const inner = t.slice(1, -1);
       const eq = inner.indexOf('=');
       if (eq < 0) return null;
       const field = inner.slice(0, eq).trim();
@@ -107,8 +93,6 @@ export interface 应用结果 {
   reason?: string;
 }
 
-/** 在 rootValue 上按 path 应用 action+value，返回新 root（不修改原对象）。
- *  rootValue 可以是 object / array / undefined。tokens 为空时直接对 rootValue 做整段操作。 */
 export function 应用路径命令(
   rootValue: unknown,
   rawPath: string,
@@ -121,7 +105,6 @@ export function 应用路径命令(
     return { ok: false, nextRootValue: rootValue, reason: '数组匹配语法 [id=xxx] 未找到对应元素' };
   }
 
-  // 空路径：直接对根做整段操作
   if (tokens.length === 0) {
     if (action === 'delete') return { ok: true, nextRootValue: undefined };
     if (action === 'push') {
@@ -137,7 +120,6 @@ export function 应用路径命令(
     return { ok: true, nextRootValue: 深拷贝(nextValue) };
   }
 
-  // 有路径：克隆根，定位到倒数第二级，再操作最后一级
   const draft: unknown =
     rootValue === undefined
       ? typeof tokens[0] === 'number'
@@ -165,7 +147,6 @@ export function 应用路径命令(
 
   const last = tokens[tokens.length - 1];
 
-  // 处理 number last（数组索引）
   if (typeof last === 'number') {
     if (!Array.isArray(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 末端 [${last}] 不是数组` };
     if (action === 'delete') {
@@ -190,7 +171,6 @@ export function 应用路径命令(
     return { ok: true, nextRootValue: draft };
   }
 
-  // 处理 string last（对象字段）
   if (!是对象(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 末端父节点不是对象` };
   const obj = cursor;
   if (action === 'delete') {
@@ -219,7 +199,6 @@ export function 应用路径命令(
   return { ok: true, nextRootValue: draft };
 }
 
-/** 只读取路径上的值（用于校验路径是否存在）。 */
 export function 读取路径值(rootValue: unknown, rawPath: string): { exists: boolean; value: unknown } {
   const rawTokens = 解析路径片段(rawPath);
   const tokens = 解析数组匹配语法糖(rawTokens, rootValue);

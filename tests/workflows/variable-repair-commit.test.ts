@@ -41,7 +41,6 @@ async function scanPlan(harness: GameStateHarness) {
   });
 }
 
-/** 两回合工作区 + 固定的背包命令响应 → 已扫描的修复计划。 */
 async function setupRepairCase() {
   const harness = await seedDefaultWorkspace({
     turnCount: 2,

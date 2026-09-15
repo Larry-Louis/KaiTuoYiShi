@@ -99,7 +99,6 @@ export function App() {
   const [showPhone, setShowPhone] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('api');
   const [activeSystem, setActiveSystem] = useState<GameSystemId | null>(null);
-  // 撤销未落地回合后交还输入区的文本（一次性的输入草稿，不进入存档）。
   const [undoDraft, setUndoDraft] = useState<{ id: string; text: string } | null>(null);
 
   const handleMenuSelect = useCallback((id: GameSystemId) => {
@@ -127,15 +126,11 @@ export function App() {
     setShowZhikuManager(false);
   }, []);
   const loadSaveIntoGame = useCallback(async (id: number) => {
-    // 片 panel-p7：按 ID 读档收敛到门面 handleLoadSave（复用 handleLoadById 的 enterSession 路径），
-    // App 不再持有 UseGameStateReturn 直接参与读档，只负责成功后的 UI 关闭。
     const ok = await actions.handleLoadSave(id);
     if (ok) closeTransientUi();
     return ok;
   }, [actions, closeTransientUi]);
   const branchSaveIntoGame = useCallback(async (id: number) => {
-    // 回档（分支）：独立动词名收敛到门面 handleBranch（复用 handleBranchFromSave 的
-    // enterSession 检查点分叉路径），App 只负责成功后的 UI 关闭。
     const ok = await actions.handleBranch(id);
     if (ok) closeTransientUi();
     return ok;
@@ -163,23 +158,16 @@ export function App() {
       ),
     );
   }, [state]);
-  // 队列任务取消收敛到 useGame.handleCancelTask（单一取消通道）；
-  // App 不再持有 abort / 队列项 / 瞬时态的私有清理副本。
   const handlePathAwakeningTrigger = useCallback(() => {
     void actions.handleSend('[系统] 踏入命途狭间');
   }, [actions]);
   const handleAwakenedNewPath = useCallback((id: 命途ID) => {
-    // TODO: 这里以后接入命途狭间剧情触发。当前只 console。
     console.info('[path] 命途狭间触发:', id);
   }, []);
 
-  // 首页入口：转场计时、重叠保护、减少动效降级都在 useHomePage 里。
-  // 钩子只负责编排，落点是什么界面由这里注入，它自己不认识任何一个界面。
-  // 依赖内置预置数据（原著正文 + 智库目录）的入口门禁。fail-fail：失败不解除门禁，
-  // 只显示「哪一路失败 + 重试」——AI 本就需要联网，残缺世界没有意义，所以「两路都 ready」是唯一放行条件。
+  // boot 门禁：预置数据（原著正文 + 智库目录）两路都 ready 才放行，失败不解除门禁。
   const presetDataReady = state.presetDataReady;
   const zhikuCatalogStatus = state.zhikuCatalogStatus;
-  // 首页与开局向导各挂一次，属性完全相同：进度条不属于任何单一视图，它属于 boot 门禁本身。
   const presetBar = (
     <PresetLoadBar loader={state.presetLoader} onRetry={state.retryPresetLoad} />
   );
@@ -243,10 +231,6 @@ export function App() {
       .find((m) => m.role === 'assistant')?.parsedResponse?.actionOptions ?? []
   ), [state.chatHistory]);
 
-  // reroll 可用性 = 已有可滚动的 assistant 回复 && 当前叶子存在可回退的父检查点。
-  // canRerollWithTree 由 useGame 依据 useGameState 的响应式 activeTreeMeta 计算
-  // （读档水合 / 封版晋升 / 新局初始化 / 整树删除时联动，触发 React 重渲染）；
-  // 导入无根单独切片存档或根叶子无父检查点时，UI 直接禁用 reroll 按钮。
   const canReroll = useMemo(
     () => state.chatHistory.some((m) => m.role === 'assistant') && canRerollWithTree,
     [state.chatHistory, canRerollWithTree],
@@ -260,11 +244,8 @@ export function App() {
 
   const narrativeImageManualEnabled = 正文生图手动模式(gameSettings.文生图系统.正文生图);
 
-  // 回合忙碌门：主流程或变量结算任一在跑，就禁止变更类操作（发送/编辑/触发）。
-  // loading 与 pendingVariable 是管线的两条独立轨道，这里只在 UI 层合成展示用谓词。
   const turnBusy = state.activeWorkflow.loading || state.activeWorkflow.pendingVariable;
 
-  // 回合卡片动作的调用期快照（账本 + 忙态 + 设置）：账本变化时刷新，界面据此重算动作视图。
   const turnActionContext = useMemo(() => ({
     queueTasks: state.queueTasks,
     busy: turnBusy,
@@ -274,10 +255,7 @@ export function App() {
   const recoveryPhase = state.turnPhase;
   const hasRecovery = Boolean(state.activeWorkflow.recovery);
 
-  // 开局引导派发：唯一判定是 shouldStartOpening（水合边界写入叶子相位投影，派发常量由模型给出）。
-  // 界面不回读字段文本，也不依赖「先清空再 send」的批次时序。
-  // openingLanded 单独 memo 成布尔值：chatHistory 换引用不进入效果依赖，只有开局落地事实
-  // 或相位 / 恢复态变化才会重新判定，避免无关更新反复触发派发。
+  // openingLanded 单独 memo 成布尔值，否则无关更新会反复触发开局派发。
   const openingLanded = useMemo(
     () => isOpeningLanded(state.turnCount, state.chatHistory),
     [state.turnCount, state.chatHistory],
@@ -292,16 +270,12 @@ export function App() {
     void actions.handleStartOpening();
   }, [state.view, state.turnPhase, openingLanded, hasRecovery, actions]);
 
-  // 懒加载界面的预热统一交给钩子排程：boot 落定后点亮首页可达界面，
-  // 进入游戏且模型请求让出带宽后再补游戏内界面。此前是三个点击时预热加一个 idle 预热，
-  // 分散在四处且各自决定时机，现在只在这里声明「按什么条件放开多大的范围」。
   useSurfaceWarmup({
     bootSettled: state.bootSettled,
     view: state.view,
     busy: state.activeWorkflow.loading,
   });
 
-  // ── Game shell slots ──
   const topBar = (
     <TopBar
       worldState={state.世界}
@@ -463,7 +437,6 @@ export function App() {
     </>
   );
 
-  // ── Home ──
   if (state.view === 'home') {
     return (
       <>
@@ -618,7 +591,6 @@ export function App() {
     );
   }
 
-  // ── New Game Wizard ──
   if (state.view === 'new_game') {
     const getActiveApiConfig = () => {
       if (apiSettings.activeConfigId) {
@@ -637,7 +609,6 @@ export function App() {
         <LazySurface label="开局档案载入中">
           <NewGameWizard
             onStart={async (draft) => {
-              // 预检失败（无 API 配置）时 handlePrepareNewGame 返回 false，不切 view，玩家留在开局页。
               const ok = await actions.handlePrepareNewGame(draft);
               if (!ok) return;
               home.commands.launchJourney();
@@ -656,7 +627,6 @@ export function App() {
     );
   }
 
-  // ── Game ──
   return (
     <>
       <GameView
@@ -667,7 +637,6 @@ export function App() {
         chatArea={chatArea}
       />
 
-      {/* Mobile bottom menu */}
       {!activeSystem && !showSettings && !showWorldbookManager && !showZhikuManager && !showSaveLoad && !showCharacter && !showPhone && (
         <MobileQuickMenu
           onHome={handleGoHomeClick}
@@ -680,7 +649,6 @@ export function App() {
         />
       )}
 
-      {/* Modals */}
       {showSettings && (
         <LazySurface label="设置载入中">
           <SettingsModal
@@ -860,8 +828,6 @@ export function App() {
   );
 }
 
-// ── Inline character editor ──
-
 function renderSystemPanel(
   id: GameSystemId | null,
   ctx: {
@@ -876,17 +842,13 @@ function renderSystemPanel(
     onPhoneChange: React.Dispatch<React.SetStateAction<import('@/models/phone').手机系统>>;
     memorySystem: 记忆系统;
     onMemorySystemChange: React.Dispatch<React.SetStateAction<记忆系统>>;
-    /** 记忆失败草稿重试：走 hook 的独立工作流事务（S4b）。 */
     onRetryMemoryDraft: (draftId: string) => Promise<void>;
-    /** 记忆失败草稿忽略：仅置 ignored，不消费原始批次（S4b）。 */
     onIgnoreMemoryDraft: (draftId: string) => Promise<void>;
     yitingSystem: 忆庭系统;
     zhikuSystem: 智库系统;
     onZhikuSystemChange: React.Dispatch<React.SetStateAction<智库系统>>;
     zhikuSettings: import('@/models/settings').智库系统设置;
-    /** 智库保存（片 panel-p8）：ZhikuPanel 的 saveSetting('zhikuSystem') 直连收敛到门面。 */
     onSaveZhikuSystem: (system: 智库系统) => Promise<void>;
-    /** 智库目录刷新：全成或全败地重载内置目录并合并当前系统。 */
     onZhikuMigration: (current: 智库系统) => Promise<智库系统>;
     memorySettings: import('@/models/settings').记忆系统设置;
     news: 新闻条目[];
@@ -901,16 +863,12 @@ function renderSystemPanel(
     apiSettings: import('@/models/settings').API设置;
     turnCount: number;
     mainChatHistory: import('@/models/chat').聊天消息[];
-    /** AI 探测用例动作（片 panel-p3）：AlbumPanel 内嵌 ImageGenerationSettingsTab 所需（取自 App 的 useAiTools）。 */
     fetchModels: AiToolsActions['fetchModels'];
     testImageGenerationConnection: AiToolsActions['testImageGenerationConnection'];
     fetchImageGenerationModels: AiToolsActions['fetchImageGenerationModels'];
     fetchComfyWorkflowCandidates: AiToolsActions['fetchComfyWorkflowCandidates'];
-    /** 剧情编织持久化（片 panel-p6）：PlotPanel 的存储层直连收敛到门面。 */
     onSaveStoryWeaving: (system: 剧情编织系统) => Promise<void>;
-    /** 战技 AI 草稿（片 panel-p6）：SkillPanel 的 generateSkillDraft 直连收敛到门面。 */
     onGenerateSkillDraft: (apiConfig: import('@/models/settings').API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
-    /** 文生图请求（片 panel-p10）：AlbumPanel 的 generateImage + runImageGenerationWithRetry 直连收敛到门面，重试回调经参数传入。 */
     onGenerateAlbumImage: (
       config: import('@/models/settings').文生图API配置,
       request: ImageGenerationRequest,
@@ -920,24 +878,20 @@ function renderSystemPanel(
         onRetry?: (attempt: number, total: number, errorMessage: string) => void;
       },
     ) => Promise<ImageGenerationResult>;
-    /** 场景图解析（片 panel-p10）：AlbumPanel 的 parseSceneImagePrompt 直连收敛到门面，配置缺失返回 null（面板切本地 fallback）。 */
     onParseSceneImagePrompt: (
       settings: import('@/models/settings').游戏设置,
       apiSettings: import('@/models/settings').API设置,
       context: 解析上下文,
     ) => Promise<场景图解析结果 | null>;
-    /** 故事快照解析（片 panel-p10）：AlbumPanel 的 parseStorySnapshotPrompt 直连收敛到门面，配置缺失返回 null（面板切本地 fallback）。 */
     onParseStorySnapshotPrompt: (
       settings: import('@/models/settings').游戏设置,
       apiSettings: import('@/models/settings').API设置,
       context: 解析上下文,
     ) => Promise<故事快照解析结果 | null>;
-    /** 角色锚点提取（片 panel-p10）：AlbumPanel 的 extractCharacterAnchorWithAI 直连收敛到门面，NPC/旅人保存仍由面板 setter 完成。 */
     onExtractCharacterAnchor: (
       config: import('@/models/settings').API配置项,
       input: CharacterAnchorExtractInput,
     ) => Promise<NPC角色锚点档案>;
-    /** 词组转化器（片 panel-p10）：AlbumPanel 的 tokenizer 配置/system prompt/tokenize 三步直连收敛到门面，配置缺失返回 null。 */
     onTokenizeImagePrompt: (
       settings: import('@/models/settings').游戏设置,
       apiSettings: import('@/models/settings').API设置,

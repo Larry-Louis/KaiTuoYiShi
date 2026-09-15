@@ -44,8 +44,7 @@ export function ImageRuleTemplateEditor({ rules, onChange }: Props) {
   const section = ruleSections.find((item) => item.id === activeSection) ?? ruleSections[0];
   const presets = useMemo(() => 获取规则模板列表(normalizedRules, activeSection), [normalizedRules, activeSection]);
   const activeId = getActiveId(normalizedRules, activeSection);
-  // 编辑器 id 采用「读时校验」：存储值失效（预设被外部删除/替换）时回退到当前启用项或首个预设，
-  // 与旧版的 effect 回写校正稳态等价，但无需在副作用里同步 setState。
+  // 读时校验：存储的编辑器 id 失效（预设被外部删除/替换）时回退到当前启用项或首个预设。
   const editorId = presets.some((preset) => preset.id === editorIds[activeSection])
     ? editorIds[activeSection]
     : (activeId || presets.at(0)?.id || '');

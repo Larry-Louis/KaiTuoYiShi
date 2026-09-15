@@ -1,10 +1,7 @@
-// 智库召回上限常量（单数据源：zhikuRetrieval.ts 和提示词模块均从此 import）
 export const CHARACTER_KEYWORD_RECALL_LIMIT = 15;
 export const AI_SUPPLEMENT_ENTRY_LIMIT = 8;
 export const NORMAL_KEYWORD_RECALL_LIMIT = 5;
 
-// 智库输出与筛选硬规则（静态部分，剔除 sceneHints 动态行；sceneHints 由函数运行时尾部追加）
-// 单数据源：zhikuRetrieval.ts (legacy 回退) 与 builtinPromptModules.ts (模块化) 均从此 import
 export const ZHIKU_OUTPUT_FORMAT_PROMPT = `## 输出与筛选硬规则
 关键词层场景锚点若为空，不得自行把当前地点、组织名或世界名扩写成关键词召回；地点、即时剧情回顾、在场角色分析只可作为 AI 查缺补漏线索。
 

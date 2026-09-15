@@ -1,8 +1,4 @@
-﻿// 背包系统面板(v4)。
-// 左侧概览 + 分类切换，右侧方格网格 + 详情浮层。
-// 所有写入走 utils/inventoryActions 服务层，避免直接戳数组遗漏堆叠合并等副作用。
-
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 物品分类, 背包物品 } from '@/models/inventory';
 import {
@@ -41,9 +37,6 @@ const CATEGORY_GLYPHS: Record<物品分类, string> = {
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-tech-cyan), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-  // 原先还带一个 `0 14px 32px` 投影。本元素带 clipPath（切角），外阴影会被整条裁掉，
-  // 写了也画不出来——删掉它，顺带消掉一个触发「layer 模式」的条件。
-  // 真要投影得套一层不裁切的父元素。
   border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
   clipPath: cardClip,
 };
@@ -298,10 +291,8 @@ function ItemCell({
         background: selected
           ? 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.05))'
           : 'rgba(20, 16, 22, 0.62)',
-        // 选中分支的颜色是个 `linear-gradient(...)`——不是合法的 <color>，整条 box-shadow
-        // 在选中时会被浏览器丢弃，所以「选中」的格子今天其实没有描边。此处保持既有渲染
-        // （选中 = 透明边），顺带把宽度定死为 1px：改成真边框后 `2px` 会让选中时内容框位移。
-        // 「选中该有强调边」是个独立缺陷，另行处理。
+        // 选中分支的 box-shadow 颜色不是合法 <color>，会被浏览器整条丢弃，选中态因此没有描边；
+        // 保持透明边并把宽度定死 1px：改成真边框后 2px 会让选中时的内容框位移。
         border: `1px solid ${selected ? 'transparent' : qualityStroke}`,
         clipPath: cellClip,
       }}

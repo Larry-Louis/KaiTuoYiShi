@@ -22,7 +22,6 @@ interface PathPanelProps {
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-tech-cyan), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-  // 同 InventoryPanel：投影被切角裁掉了，删掉，顺带消掉一个 layer 模式触发条件。
   border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
   clipPath: cardClip,
 };

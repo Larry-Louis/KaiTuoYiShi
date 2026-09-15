@@ -19,7 +19,7 @@ interface NewGameWizardProps {
   onSaveOpeningPresets: (presets: OpeningPlayerPreset[]) => Promise<OpeningPlayerPreset[]>;
   onParseOpeningArchive: (draft: OpeningPresetDraft) => Promise<开局整理档案 | null>;
   onGenerateTravelerTemplate?: (context: TravelerTemplateContext) => Promise<TravelerTemplateDraft>;
-  /** 内置原著预置数据是否已就绪。未就绪时最终「踏上旅途」不可点。 */
+  /** 未就绪时最终「踏上旅途」不可点。 */
   presetReady?: boolean;
 }
 
@@ -280,7 +280,6 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
       if (!customStartPrompt.trim()) setCustomStartPrompt(template.playerEntryTemplate);
       return;
     }
-    // 卡片身份随来源切换：官方预设收敛到预设 ID，自由开局收敛到章节锚点 ID。
     const bundle = getOpeningScenarioBundle(startingScenarioId);
     const regionId = bundle.region?.id ?? selectedRegionId;
     if (source === 'official_preset') {

@@ -1,11 +1,5 @@
-// 命途系统 —— 旅人可同时承载多条命途，每条命途有阶段与进度。
-// 命途影响通过阶段、特质回响与战技槽位进入正文叙事，不再承担独立战斗系统的数值职责。
-// 后续变量系统会通过 命途增量 + applyPathDeltas 接口来推进进度（见 services/pathService.ts）。
-
 import type { 命途ID, 命途定义 } from './journey';
 
-// ── 阶段 ──
-// 五阶段:浅涉 → 践行 → 深诣 → 伪令使 → 令使
 // 自然推进最高只能到 stage 3(伪令使),stage 4(令使)需要剧情触发"星神亲自授力"。
 export type 命途阶段 = 0 | 1 | 2 | 3 | 4;
 
@@ -44,25 +38,19 @@ export const PATH_STAGE_DEFS: { stage: 命途阶段; name: string; title: string
 
 export const STAGE_PROGRESS_MAX = 100;
 
-/** 单条命途单个游戏日(in-fiction)可累积的命途进度上限。
- *  超过此值的 add 会被 variableExecutor 截断,并向玩家显示"今天已经在这方面有所感悟了"。 */
+/** 超过此值的 add 会被 variableExecutor 截断,并向玩家提示今天已有所感悟。 */
 export const DAILY_PROGRESS_CAP = 10;
 
-// ── 一条命途的进度记录 ──
 export interface 命途进度 {
   id: 命途ID;
   阶段: 命途阶段;
-  进度: number;       // 0..STAGE_PROGRESS_MAX，当前阶段内的进度
-  是否主命途: boolean;     // 主命途（开局选的那条；之后可被显式切换）
-  觉醒于: string;     // in-fiction 时间戳，用于「命途狭间」回溯
-  备注: string;          // 触发由来 / 玩家备注
-  /** 今日已累计进度(0..DAILY_PROGRESS_CAP),用于 24h 上限。
-   *  在 今日日期 与当前世界日期不同时归零。 */
+  进度: number;
+  是否主命途: boolean;
+  觉醒于: string;
+  备注: string;
   今日累计?: number;
-  /** 上次累计对应的世界日期(in-fiction)。日期跳变时 今日累计 归零。 */
   今日日期?: string;
-  /** 是否处于"满进度待升阶"状态。当 进度 达到 100 时由系统标记 true,
-   *  等待命途狭间问答事件触发后才真升阶。stage 3→4 永远不会进入此状态(走星神授力路径)。 */
+  /** stage 3→4 永远不会进入此状态(走星神授力路径)。 */
   待升阶?: boolean;
 }
 
@@ -85,16 +73,12 @@ export function 创建命途进度(
   };
 }
 
-// ── 变量系统的接入点 ──
-// 未来回合结束后，「变量分析器」会读取本回合 AI 输出 → 产出 命途增量[]
-// → applyPathDeltas 把它们应用到 TravelerProfile.paths 上。
-// 这里只定义协议，分析器本身是另一阶段的事。
 export interface 命途增量 {
   pathId: 命途ID;
-  progressDelta?: number;  // 累加到当前阶段进度；溢出会自动进阶
-  newPath?: boolean;       // 是否首次踏上（true → 触发命途狭间）
-  setPrimary?: boolean;    // 是否同时设为主命途
-  reason?: string;         // 来源说明，用于面板上显示
+  progressDelta?: number;
+  newPath?: boolean;
+  setPrimary?: boolean;
+  reason?: string;
 }
 
 export interface 命途特质 {
@@ -118,10 +102,7 @@ export {
   获取命途特质,
 } from '@/data/pathCatalog';
 
-// ── 忘却命途机制 ──
-// 当某条命途进入「深诣」(stage >= 2) 后继续推进，会以下表比率衰减其它「非主」命途的进度。
-// 即：你越专注一条路，其它命途越容易被淡忘。
-// 主命途 (isPrimary) 不受忘却影响。
+/** stage >= 2 起按比率衰减其它非主命途进度；主命途 (isPrimary) 不受影响。 */
 export const FORGET_RATE_BY_STAGE: Record<命途阶段, number> = {
   0: 0,
   1: 0,

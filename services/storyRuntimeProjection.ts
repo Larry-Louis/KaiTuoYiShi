@@ -1,6 +1,3 @@
-// 世界演变排期投影（lean）：为激活系列的下一未开始分段生成一条到期事件，
-// dueAt = 分段时间线起点锚定的游戏日（解析失败回退下一游戏日）；
-// 已有实例（无论终态）不重建，保证重投影幂等。
 import type { 剧情编织系统, 剧情编织运行时, 世界事件实例 } from '@/models/storyWeaving';
 import { 世界事件上限 } from '@/models/storyWeaving';
 import { 获取激活剧情系列 } from '@/services/storyProgressService';

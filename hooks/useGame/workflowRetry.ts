@@ -135,7 +135,6 @@ async function retryNewsQueueTask(
       terminalStatus = { kind: 'failed', text: '星际和平周报重试失败。', failCount: 1 };
       return;
     }
-    // 账本随结果同 patch 落叶子；叶子写入成功后才投影，保证可见 = 已保存。
     tx.pushTask('news', 'success', {
       detail: result.changed
         ? `星际和平周报已${mode === 'reroll' ? '重生成' : '重试更新'}，当前共 ${result.news.length} 条新闻记录。`
@@ -231,8 +230,6 @@ async function retryVariableQueueTask(
     return;
   }
 
-  // 事务快照：deferProjection 下叶子写入成功前不得有任何领域投影；
-  // 写入失败 / 中止时按本快照还原（防御性，正常路径下快照未被触碰）。
   const snapshot = captureVariableProjectionSnapshot(state);
   const batchesAtStart = state.variableBatches;
   let projected = false;
@@ -372,9 +369,8 @@ export function findRetryableVariableBatch(batches: 变量命令批次[], target
   const candidates = targetBatchId
     ? batches.filter((batch) => batch.id === targetBatchId)
     : [...batches].reverse();
-  // 全失败批：可证明无落地，可安全补结算。
-  // 部分成功批：仅当全部成功结果带命令指纹时才可补——重跑时按指纹跳过已落地命令。
-  // legacy（无指纹）的部分成功批不可安全重放。
+  // 全失败批可证明无落地，可安全补结算；部分成功批须全部成功结果带命令指纹才可补
+  // （legacy 无指纹的批次重放会重复落地）。
   return candidates.find((batch) => {
     if (batch.results.length === 0) return false;
     if (batch.results.every((result) => !result.ok)) return true;

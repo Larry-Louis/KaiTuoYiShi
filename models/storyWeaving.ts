@@ -123,7 +123,6 @@ export interface 剧情编织系列 {
   id: string;
   标题: string;
   作品名: string;
-  /** 结构化剧情区域；仅由显式写入（确认转场/保持轨道）或导入资产提供，缺省时按标题与索引保守推断。 */
   区域ID?: string;
   来源类型: 剧情编织来源类型;
   来源智库条目ID: string[];
@@ -181,19 +180,16 @@ export interface 剧情编织系统 {
   系列列表: 剧情编织系列[];
   当前系列ID?: string;
   当前进度?: 剧情编织进度锚点;
-  /** 世界演变运行时（插件自有字段）：事件排期与事实账本随普通存档保存，上限有界。 */
   运行时?: 剧情编织运行时;
 }
 
-/** 世界事件实例状态：到期领取用 resolution_pending，终态不重建（幂等重跑）。 */
+/** 到期领取用 resolution_pending；终态不重建（幂等重跑）。 */
 export type 世界事件状态 = 'scheduled' | 'resolution_pending' | 'resolved' | 'missed' | 'superseded';
 
-/** 排期世界事件：由激活系列的下一未开始分段投影生成。 */
 export interface 世界事件实例 {
   eventInstanceId: string;
   segmentId: string;
   标题: string;
-  /** 到期游戏日序（世界.开拓天数）：dueAt <= 当前天数 视为到期。 */
   dueAt: number;
   status: 世界事件状态;
   /** 到期领取标记 due:<revision>:<id>：有值表示已被某次结算领取，防止同 revision 重复领取。 */
@@ -203,22 +199,18 @@ export interface 世界事件实例 {
   updatedAt: number;
 }
 
-/** 已提交世界事实：身份内容寻址，消费者（新闻等）只读这一份。 */
 export interface 世界事实 {
   factId: string;
   factType: string;
   payload: Record<string, unknown>;
   sourceEventInstanceId: string;
-  /** 玩家是否知晓：决定能否进入 世界.全局事件 展示文本。 */
   playerKnown: boolean;
   committedAt: number;
-  /** 事实来源：到期结算为 world_evolution，玩家提前解决未来事件为 player_early（旧档缺省前者）。 */
+  /** 旧档缺省 world_evolution。 */
   origin?: 'world_evolution' | 'player_early';
-  /** 参与者姓名（AI 显式给出）：NPC 记忆消费据此匹配，不做文本反推。 */
   participants?: string[];
 }
 
-/** 剧情编织运行时切片：schemaVersion 固定 1，列表超限保留最近记录。 */
 export interface 剧情编织运行时 {
   schemaVersion: 1;
   runtimeRevision: number;
@@ -446,7 +438,6 @@ const 聚合剧情编织系列信息 = (series: 剧情编织系列): 剧情编�
   };
 };
 
-/** 归一化信息可见性：文本列表清洗 + 默认兜底（undefined → 空可见）。约束条目与事件共用同一契约。 */
 function 归一化信息可见性(value?: Partial<剧情编织可见性>): 剧情编织可见性 {
   return {
     谁知道: 文本列表(value?.谁知道),
@@ -497,10 +488,7 @@ function 归一化世界事件实例(raw: Partial<世界事件实例> | null | u
   };
 }
 
-/**
- * 参与者名单的**唯一**规范形：非数组给 undefined（字段缺席），数组则去非字符串、去重、封顶 8 条。
- * AI 候选、事实裁决、存档归一化三处都过这一个口子——各写一份的后果是裁剪规则各自漂移。
- */
+/** 参与者名单的唯一规范形；AI 候选、事实裁决、存档归一化三处都必须走这里（各写一份会让裁剪规则漂移）。 */
 export function 归一化参与者名单(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const list = 去重文本列表(文本列表(raw), 8);
@@ -537,14 +525,9 @@ export function 归一化剧情编织运行时(input?: Partial<剧情编织运�
   };
 }
 
-/**
- * **边界归一化**：把不可信输入（IDB 旧档、导入文本、外部载荷）修复成合法系统——唯一允许清洗、
- * 补默认、生成 ID 的入口。可信产物（内置 canon、构建期生成物）走 构造剧情编织系统：它们已由
- * 契约测试定型，运行时不需要重新证明自己合法。返回值不提供私有副本：调用方不得原地修改。
- */
+/** 不可信输入（IDB 旧档、导入文本、外部载荷）的唯一清洗入口。返回值不提供私有副本：调用方不得原地修改。 */
 export function 归一化剧情编织系统(input?: Partial<剧情编织系统> | null): 剧情编织系统 {
   if (!input) return 创建空剧情编织系统();
-  // 只负责清洗；当前系列/进度锚点的派生规则与可信构造共用一份，避免两处规则漂移。
   return 构造剧情编织系统({
     系列列表: Array.isArray(input.系列列表) ? input.系列列表.map(归一化剧情编织系列) : [],
     当前系列ID: input.当前系列ID,
@@ -553,13 +536,7 @@ export function 归一化剧情编织系统(input?: Partial<剧情编织系统> 
   });
 }
 
-/**
- * **可信构造**：输入是构建期/测试期已定型的系统资产（内置 canon、构建期生成物）。不逐字段清洗、
- * 不补默认、不生成 ID——缺字段即契约被破坏，由契约测试拦截而非运行时悄悄修复；只做允许的派生
- * （进度锚点、运行时默认），系列级聚合由 构造剧情编织系列 负责。
- * 引用稳定性是明确契约：内容未改变时调用方应沿用原引用，只有 IDB 覆盖或真实变更才创建新对象；
- * 返回值不提供私有副本，调用方不得原地修改。
- */
+/** 可信构造：输入为已定型资产，缺字段即契约破坏（由契约测试拦截，不在此悄悄修复）。引用稳定性是契约：内容未变时调用方沿用原引用；返回值不提供私有副本，调用方不得原地修改。 */
 export function 构造剧情编织系统(input: {
   系列列表: 剧情编织系列[];
   当前系列ID?: string;
@@ -574,10 +551,6 @@ export function 构造剧情编织系统(input: {
   return { 系列列表, 当前系列ID, 当前进度, 运行时: input.运行时 ?? 归一化剧情编织运行时(undefined) };
 }
 
-/**
- * **可信构造单个系列**：输入是已定型产物。只重算派生聚合（核心角色/地点/派系/阶段概括）——它们
- * 跟随运行态（处理状态/运行状态/启用注入）变化，属于运行时必须的派生，不属于清洗。
- */
 export function 构造剧情编织系列(raw: 剧情编织系列): 剧情编织系列 {
   return 聚合剧情编织系列信息(raw);
 }

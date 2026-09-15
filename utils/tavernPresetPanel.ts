@@ -1,5 +1,3 @@
-// 酒馆预设配置面板的纯派生逻辑：顺序项视图模型、统计、扫描提示与本地审查文本。
-// 不触碰 React state、onChange 或 DOM。
 import type { STPresetOrderSlot, STPresetPrompt } from '@/models/stTypes';
 import type { TavernRegexScriptSafety } from '@/contracts/ai';
 import { detectTavernMacroInfo, type TavernMacroLevel } from '@/utils/tavernMacroDetect';

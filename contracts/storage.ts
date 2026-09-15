@@ -1,13 +1,12 @@
 import type { 存档类型 } from '@/models/settings';
 import type { 存档树元信息 } from '@/utils/saveTree';
 
-// ── 存档目录（原 services/storage/saveCatalog.ts）──
 export interface SaveListItemSummary {
   id: number;
   type: 存档类型;
   timestamp: number;
   saveTree?: 存档树元信息;
-  /** true 表示未封版草稿行：不得作为 delta 基准，也不得参与自动滚动删除。 */
+  /** 不得作为 delta 基准，也不得参与自动滚动删除。 */
   unsealedHead?: boolean;
   travelerName: string;
   turnCount: number;
@@ -30,7 +29,6 @@ export interface SaveCatalogSnapshot {
   catalogComplete: boolean;
 }
 
-// ── 存档目录修复（原 services/storage/saveCatalogRepair.ts）──
 export type SaveCatalogRepairScope = 'missing-only' | 'full-validation';
 
 export type SaveCatalogRepairPhase =

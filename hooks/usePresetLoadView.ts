@@ -1,13 +1,7 @@
-// 预置载入进度的**展示模型**：何时出现、如何退场、百分比与文案都在这里，组件只做投影。
-// 进度条**只投影网络段**——网络完成之后的解析/归一化/合并/落盘属于加工段，不驱动进度显示。
-// 走秒计时放在这里而不是 loader：每秒跳一次会让很重的 App 整树重渲染，而这里只影响一个叶子。
-
 import { useEffect, useState } from 'react';
 import type { PresetSnapshot } from '@/services/presetLoader';
 
-/** 走秒间隔：只用于显示「已用 Ns」。 */
 const TICK_MS = 1000;
-/** 网络段持续超过这个时长才出现：网络在首帧前完成时，进度条根本不渲染，避免 0→100 闪现。 */
 const NETWORK_APPEAR_MS = 300;
 const FINISH_MS = 100;
 const HOLD_MS = 300;
@@ -15,7 +9,6 @@ const FADE_MS = 300;
 
 type DisplayState = 'idle' | 'showing' | 'finishing' | 'holding' | 'fading' | 'gone';
 
-/** 网络完成后的退场时序：finishDownload 0.1s → stay 0.3s → fade 0.3s。 */
 const EXIT_STEP: Partial<Record<DisplayState, { to: DisplayState; ms: number }>> = {
   showing: { to: 'finishing', ms: 0 },
   finishing: { to: 'holding', ms: FINISH_MS },
@@ -24,20 +17,15 @@ const EXIT_STEP: Partial<Record<DisplayState, { to: DisplayState; ms: number }>>
 };
 
 export interface PresetLoadView {
-  /** 是否渲染。 */
   visible: boolean;
-  /** 正在淡出（供组件加淡出类名）。 */
   fading: boolean;
   tone: 'pending' | 'finishing' | 'failed';
   title: string;
-  /** 「12 / 50 · 已用 8s」 */
   counter: string;
   done: number;
   total: number;
   percent: number;
-  /** 终局为失败。 */
   showRetry: boolean;
-  /** 失败时指名哪一路、为什么。 */
   detail: string | null;
 }
 
@@ -51,7 +39,7 @@ function describeFailure(load: PresetSnapshot): string {
 export function usePresetLoadView(load: PresetSnapshot): PresetLoadView {
   const [now, setNow] = useState(() => Date.now());
   // 显示状态与运行号绑定：retry 换了 startedAt 时自动回到 idle，无需在 effect 里重置。
-  // 初值用哨兵运行号：首次渲染发生在 start() 之前，绑定当时的 startedAt 会与 start() 后的值错配。
+  // 初值用哨兵 -1：首次渲染发生在 start() 之前，绑定当时的 startedAt 会与 start() 后的值错配。
   const [progress, setProgress] = useState<{ run: number; state: DisplayState }>(
     () => ({ run: -1, state: 'idle' }),
   );
@@ -60,7 +48,6 @@ export function usePresetLoadView(load: PresetSnapshot): PresetLoadView {
   const failed = load.story.status === 'failed' || load.zhiku.status === 'failed';
   const networkActive = load.phase === 'network';
 
-  // 网络段持续够久才出现。
   useEffect(() => {
     if (!networkActive || displayState !== 'idle') return;
     const run = load.startedAt;
@@ -70,7 +57,6 @@ export function usePresetLoadView(load: PresetSnapshot): PresetLoadView {
     return () => { window.clearTimeout(timer); };
   }, [networkActive, displayState, load.startedAt]);
 
-  // 网络完成后退场：showing → finishing → holding → fading → gone。
   useEffect(() => {
     if (networkActive) return;
     const run = load.startedAt;
@@ -83,7 +69,6 @@ export function usePresetLoadView(load: PresetSnapshot): PresetLoadView {
     return () => { window.clearTimeout(timer); };
   }, [networkActive, displayState, load.startedAt]);
 
-  // 只在「正在显示的网络段」走秒。
   useEffect(() => {
     if (!networkActive || displayState !== 'showing') return;
     const timer = window.setInterval(() => { setNow(Date.now()); }, TICK_MS);

@@ -1,5 +1,3 @@
-// 类型层契约：钉住 TurnDeltas 各阶段产出字段的真实形状。
-// 本文件由全仓 `tsc --noEmit` 检查（tsconfig include 覆盖 tests/），不参与 vitest 运行时收集。
 import { expectTypeOf } from 'vitest';
 import type { TurnAfterReply, TurnDeltas } from '@/hooks/useGame/turnTypes';
 import type { 忆庭召回结果 } from '@/services/yitingRetrieval';

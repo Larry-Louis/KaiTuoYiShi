@@ -74,7 +74,6 @@ export const DEFAULT_FREE_OPENING_WORKSHOP: FreeOpeningWorkshopDraft = {
   tone: '',
 };
 
-// 开局向导历来取 14px / 9px / 10px，按刻度的邻近档位固定为 panelClip / mediumClip / cardClip。
 export { panelClip as cardClip, mediumClip as smallClip, cardClip as tightClip } from '@/components/ui/clipPaths';
 
 export const openingPageBackground =
@@ -91,11 +90,7 @@ export const openingSoftPanelBackground = 'rgba(var(--tj-surface), 0.58)';
 export const openingGlowLine =
   'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 0.25), transparent 18% 82%, rgba(var(--tj-btn-primary-end), 0.18))';
 
-/* 以下四条原本是 box-shadow（用内阴影伪装描边）。内阴影会被 corner-shape 垫片丢弃，
-   所以全部改成真 border，调用处同步从 `boxShadow:` 改为 `border:`。
-   原先夹带的外投影本来就被切角整条裁掉、不可见，一并删除。
-   Strong 版那条 `inset 3px 0 0` 左侧强调条无法用单条 border 表达，已经挪到
-   调用处的 background 第一层（见 NewGameWizard）。 */
+/* 内阴影会被 corner-shape 垫片丢弃，这几条只能是真 border。 */
 export const openingPanelShadow = '1px solid rgba(var(--tj-btn-primary-end), var(--tj-edge-tint))';
 
 export const openingPanelShadowStrong = '1px solid rgba(var(--tj-btn-primary-end), var(--tj-edge-tint))';
@@ -106,8 +101,7 @@ export const openingCardBackground =
 export const openingActiveCardBackground =
   'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.18), rgba(var(--tj-btn-primary-end), 0.10)), rgba(var(--tj-surface-bg-end), 0.9)';
 
-/* 面板左侧那条 3px 强调条原本写在 openingPanelShadowStrong 的 `inset 3px 0 0` 里。
-   内阴影会被垫片丢弃，故改为背景条纹——必须排在 background 的第一层（背景自上而下叠加）。 */
+/* 垫片会丢弃内阴影，强调条只能画成背景条纹，且必须排在第一层。 */
 export const openingPanelRail =
   'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge-tint-strong)) 0 3px, transparent 3px)';
 
@@ -127,15 +121,11 @@ export function getOpeningRegionDisplayName(regionName?: string): string {
 
 export type OpeningCardKind = 'official_preset' | 'workshop_template' | 'chapter';
 
-/**
- * 开局锚点卡片：身份必须来自领域实体 ID（官方预设 / 工坊模板 / 章节锚点），
- * 不使用标题、数组下标或章节归属，避免同章节多预设时卡片塌缩或选错。
- */
+/** 身份必须来自领域实体 ID，不用标题或数组下标——否则同章节多预设时卡片会塌缩或选错。 */
 export interface OpeningScenarioCard {
   id: string;
   kind: OpeningCardKind;
   regionId: string;
-  /** 卡片主标题：官方预设与工坊模板用各自 title，自由开局用章节名。 */
   title: string;
   summary: string;
   chapterId: string;
@@ -206,7 +196,6 @@ export function buildChapterCards(chapters: 开局章节锚点[]): OpeningScenar
   }));
 }
 
-/** 按开局来源构建当前地区的卡片集合；每种来源只返回该来源自己的领域实体。 */
 export function buildOpeningScenarioCards(openingSource: OpeningSource, regionId: string): OpeningScenarioCard[] {
   if (openingSource === 'official_preset') {
     return buildOfficialPresetCards(getOfficialOpeningPresetsByRegion(regionId));
@@ -217,7 +206,6 @@ export function buildOpeningScenarioCards(openingSource: OpeningSource, regionId
   return buildChapterCards(openingChapterAnchors.filter((chapter) => chapter.regionId === regionId));
 }
 
-/** 当前应高亮的卡片 ID：工坊来源以模板 ID 为准，其余来源以开局身份 ID 为准。 */
 export function getActiveOpeningCardId(
   openingSource: OpeningSource,
   startingScenarioId: string,
@@ -243,11 +231,6 @@ export function getOpeningCardPriorStoryState(card: OpeningScenarioCard): string
   return card.priorStoryState || '该锚点之前的原作章节仅作既成背景，不进入正文转跳推进。';
 }
 
-/**
- * 选中卡片时写回稳定身份：
- *  - 官方预设 / 自由开局：写回卡片自身 ID（预设 ID / 章节锚点 ID）；
- *  - 创意工坊：模板 ID 写回工坊模板，章节锚点 ID 写回开局身份（开局档案仍按章节落档）。
- */
 export function selectOpeningScenario(
   card: OpeningScenarioCard,
   openingSource: OpeningSource,
@@ -404,7 +387,7 @@ export function createOpeningPresetId(): string {
   return `opening-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 按预设自身 ID 覆盖保存；标题只影响展示，不参与身份判定，避免同名预设互相覆盖。 */
+/** 身份是预设 ID 而非标题——否则同名预设会互相覆盖。 */
 export function upsertOpeningPlayerPreset(presets: OpeningPlayerPreset[], preset: OpeningPlayerPreset): OpeningPlayerPreset[] {
   return [preset, ...presets.filter((item) => item.id !== preset.id)].slice(0, MAX_OPENING_PLAYER_PRESETS);
 }
@@ -447,7 +430,6 @@ export function normalizeOpeningPresets(value: unknown): OpeningPlayerPreset[] {
     })
     .filter((item): item is OpeningPlayerPreset => Boolean(item))
     .sort((a, b) => b.updatedAt - a.updatedAt);
-  // 身份是预设 ID：同 ID 记录只保留最新一条，但不同 ID 的同名预设必须同时保留。
   const seen = new Set<string>();
   return sorted
     .filter((item) => {
@@ -503,7 +485,6 @@ export function sanitizeOpeningPresetDraft(value: unknown): OpeningPresetDraft {
     selectedWorkshopTemplateId,
     canonicalTrailblazer: isCanonicalTrailblazer(raw.canonicalTrailblazer) ? raw.canonicalTrailblazer : 'stelle',
     customStartPrompt: sanitizeText(raw.customStartPrompt),
-    // parsedArchive 是瞬态解析结果，不随预设持久化；恢复预设时统一置 null，由开局流程重新整理。
     parsedArchive: null,
   };
 }

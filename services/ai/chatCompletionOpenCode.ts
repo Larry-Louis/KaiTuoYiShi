@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import type { API配置项 } from '@/models/settings';
 import { buildClaudeRequestBody } from './chatCompletionClaude';
 import { buildGeminiRequestBody } from './chatCompletionGemini';
@@ -90,7 +89,6 @@ function formatOpenCodeError(config: API配置项, endpoint: OpenCodeEndpoint, s
   return new Error(`OpenCode Zen API Error ${status}: ${hint}\n${text}`);
 }
 
-// ── OpenCode Zen (model-family routed) ──
 function buildOpenCodeResponsesBody(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
@@ -118,7 +116,6 @@ function buildOpenCodeResponsesBody(
     temperature: request.temperature ?? config.temperature ?? 0.8,
     stream,
   };
-  // OpenCode GPT 系列支持 top_p / frequency_penalty / presence_penalty
   applySamplingParams(bodyObj, {
     topP: 'top_p',
     frequencyPenalty: 'frequency_penalty',
@@ -149,10 +146,9 @@ type StreamEndpointHandler = {
   provider: string;
   构建URL: (config: API配置项, stream: boolean) => string;
   构建请求体: (config: API配置项, messages: Array<{ role: string; content: string }>, request: ChatCompletionRequest, stream: boolean, includeUsage: boolean) => string;
-  usageRetry?: boolean; // D5：仅 chat 端点支持 include_usage 降级重试
+  usageRetry?: boolean;
 };
 
-/** 流式 4 端点差异表：仅 URL/标签/请求体 不同，其余收敛到 streamOpenCodeEndpoint 单执行路径。 */
 const streamEndpointHandlers: Record<OpenCodeEndpoint, StreamEndpointHandler> = {
   chat: {
     来源标签: 'OpenCode Zen Chat 补全',
@@ -224,7 +220,6 @@ type NonStreamEndpointHandler = {
   解析: (json: unknown) => string;
 };
 
-/** 非流式补全 4 端点差异表：仅 URL/标签/请求体/解析 不同，其余骨架收敛到 completionOpenCodeNonStream 单执行路径。 */
 const nonStreamEndpointHandlers: Record<OpenCodeEndpoint, NonStreamEndpointHandler> = {
   chat: {
     来源标签: 'OpenCode Zen Chat 非流式补全',

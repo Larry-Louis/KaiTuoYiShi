@@ -938,7 +938,6 @@ function buildZhikuInjection(groups: 智库召回分组, sceneHints: string[] = 
   ].filter((line, index, lines) => line.trim() || lines[index - 1]?.trim()).join('\n').trim();
 }
 
-/** 结构化静态注入：机器目录的正式载荷，与档案预览共用同一渲染。 */
 export function renderZhikuEntryStaticInjection(entry: 智库条目): string {
   if (!智库条目注入内容完整(entry) || !entry.注入内容) return '';
   const content = entry.注入内容;
@@ -964,7 +963,6 @@ export function renderZhikuEntryStaticInjection(entry: 智库条目): string {
   ].join('\n');
 }
 
-/** 单条资料的注入预览：结构完整时复用正式静态注入，否则回退到旧版格式化。 */
 export function buildZhikuEntryInjectionPreview(entry: 智库条目): string {
   if (智库条目注入内容完整(entry)) return renderZhikuEntryStaticInjection(entry);
   return formatZhikuInjectionEntry(entry, 0);

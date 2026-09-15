@@ -275,7 +275,6 @@ export async function mergeLegacyCloudBackup(
         assetPlan.originalIdToTargetId.set(record.id, targetId);
       }
 
-      // 进入暂存前按节点类型剥离 queueTasks（旧版云存档是检查点恢复点，不得只依赖 sanitizeSaveForExport）。
       const portable = 剥离检查点队列任务(sanitizeSaveForExport(stripPortableAssetPayload(loaded)));
       const fingerprint = await fingerprintCloudBackupNode(portable);
       const tree = getSaveTree(portable);
@@ -482,7 +481,6 @@ function remapCloudSaveNode(
     };
   }
   const runtime = readSaveRuntime(rewritten);
-  // 云端节点均经 sanitizeSaveForExport（移除 saveRuntime/unsealedHead）→ 视为检查点，剥离 queueTasks。
   return 剥离检查点队列任务({
     ...rewritten,
     id: 0,

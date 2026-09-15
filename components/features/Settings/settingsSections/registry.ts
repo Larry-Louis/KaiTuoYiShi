@@ -29,7 +29,6 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
   { id: 'private', label: '私密' },
 ];
 
-/** 唯一的页签 → section 映射；SettingsModal 只消费它，不再自带 switch。 */
 export const settingsSections: SettingsSectionDefinition[] = [
   visualSection,
   themeSection,

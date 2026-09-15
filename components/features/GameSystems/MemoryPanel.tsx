@@ -1,7 +1,4 @@
-﻿// 记忆系统面板（v2）。
-// 左侧切换 即时 / 短期 / 中期 / 长期，右侧显示条目与整理动作。
-
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import {
   MEMORY_DRAFT_ITEM_CHAR_LIMIT,
   MEMORY_DRAFT_MAX_PENDING,
@@ -28,21 +25,19 @@ interface MemoryPanelProps {
   onMemorySystemChange: React.Dispatch<React.SetStateAction<记忆系统>>;
   turnCount: number;
   settings: 记忆系统设置;
-  /** 重试失败的总结批次：走独立工作流事务（S4b）。 */
+  /** 走独立工作流事务。 */
   onRetryFailedDraft?: (draftId: string) => void | Promise<void>;
-  /** 忽略失败草稿：仅归档草稿，不消费原始批次（S4b）。 */
+  /** 仅归档草稿，不消费原始批次。 */
   onIgnoreFailedDraft?: (draftId: string) => void | Promise<void>;
 }
 
 type MemoryLayer = 'immediate' | 'short' | 'middle' | 'long' | 'failed';
-/** 文本记忆层：失败草稿层承载的是草稿对象而非文本，不计入文本层。 */
 type TextMemoryLayer = Exclude<MemoryLayer, 'failed'>;
 
 
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-tech-cyan), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-  // 同 InventoryPanel：投影被切角裁掉了，删掉，顺带消掉一个 layer 模式触发条件。
   border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
   clipPath: cardClip,
 };

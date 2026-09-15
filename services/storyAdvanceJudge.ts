@@ -1,5 +1,3 @@
-// 剧情推进 AI 语义判定（独立开关默认关闭）：用独立 AI 判断本分段是否完成与实际进度分段，
-// 比关键词匹配更准；失败只留诊断，不改动 autoAlignCanonStoryProgress 的确定性阈值。
 import type { API配置项 } from '@/models/settings';
 import type { 剧情编织分段 } from '@/models/storyWeaving';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';

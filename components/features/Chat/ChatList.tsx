@@ -58,7 +58,6 @@ interface ChatHistoryListProps {
   devMode?: boolean;
 }
 
-/** Isolated history list: scroll chrome (nearBottom / FAB) must not remap TurnItems. */
 const ChatHistoryList = memo(function ChatHistoryList({
   messages,
   neighborMeta,
@@ -107,7 +106,6 @@ const ChatHistoryList = memo(function ChatHistoryList({
   );
 });
 
-/** One forward pass for previous-user / path-fallback neighbor metadata. */
 function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   let lastUserContent: string | undefined;
   let lastPathId: string | undefined;
@@ -150,7 +148,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
   const scrollRafRef = useRef<number | null>(null);
   const scrollStateRafRef = useRef<number | null>(null);
   const pendingHistoryAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-  // 读档/分支导致的消息数组整体替换检测：按 React 推荐模式在渲染期校正状态（非副作用）。
   if (messages !== previousMessages) {
     const wasReplaced = historyIdentity.length > 0
       && (messages.length < historyIdentity.length
@@ -171,7 +168,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
     return el.scrollHeight - el.scrollTop - el.clientHeight < 140;
   }, [scrollRef]);
 
-  // Instant/throttled stick-to-bottom: avoid per-chunk smooth scroll storms during stream.
   useEffect(() => {
     if (!nearBottom && streamingMessage) return;
     if (!nearBottom && messages.length > 0) return;
@@ -216,7 +212,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
     setNearBottom(true);
   }, []);
 
-  // 隐藏 [系统] 触发消息——chatHistory 中仍存在便于调试，但 UI 不渲染。
   const visibleMessages = useMemo(
     () => messages.filter((message) => !(message.role === 'user' && message.content.startsWith('[系统]'))),
     [messages],
@@ -282,7 +277,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
         </div>
       )}
 
-      {/* Empty state */}
       {visibleMessages.length === 0 && !loading && (
         <div className="flex h-full flex-col items-center justify-center text-center">
           <div
@@ -306,7 +300,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
         </div>
       )}
 
-      {/* Historical messages — isolated from nearBottom / FAB re-renders */}
       <ChatHistoryList
         messages={renderedMessages}
         neighborMeta={neighborMeta}
@@ -322,7 +315,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
         devMode={devMode}
       />
 
-      {/* Streaming preview — lives in parent so stream text does not remap history */}
       {streamingMessage && (
         <TurnItem
           message={{
@@ -341,7 +333,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
         />
       )}
 
-      {/* Loading indicator (no stream yet) */}
       {loading && !streamingMessage && (
         <div className="flex items-center gap-2 py-4">
           <div className="flex gap-1">

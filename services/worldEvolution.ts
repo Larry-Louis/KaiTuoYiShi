@@ -1,5 +1,3 @@
-// 世界演变 AI 步骤：只在「有到期事件 或 本回合有 <动态世界> 线索」时调用模型；
-// 只返回候选，不写任何状态；失败/解析失败一律非阻断（正式世界不变，到期事件保持待结算）。
 import type { API配置项 } from '@/models/settings';
 import { 归一化参与者名单, type 世界事件实例 } from '@/models/storyWeaving';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
@@ -24,7 +22,6 @@ export type 世界演变步骤结果 =
 export function buildWorldEvolutionPrompt(input: {
   当前游戏日: number;
   dueEvents: 世界事件实例[];
-  /** 已排期未到期事件：线索/正文已提前解决时可用 resolve 落 superseded（必须有 outcome）。 */
   futureEvents?: 世界事件实例[];
   clues: string[];
 }): string {
@@ -47,11 +44,9 @@ export function buildWorldEvolutionPrompt(input: {
   ].filter(Boolean).join('\n');
 }
 
-/** 解析世界演变响应：支持裸数组或 {candidates:[...]}；结构非法返回 null（整体拒绝）。 */
 export function parseWorldEvolutionResponse(raw: string): 世界演变候选[] | null {
   if (!raw) return null;
   try {
-    // 顶层可能是数组，交由 'any' 提取后自行判定形状。
     const parsed = parseJsonWithRepair(extractJsonLikeText(raw, 'any'), 'any');
     const list = Array.isArray(parsed) ? parsed : (parsed as { candidates?: unknown }).candidates;
     if (!Array.isArray(list)) return null;
@@ -89,7 +84,6 @@ export function parseWorldEvolutionResponse(raw: string): 世界演变候选[] |
 export async function runWorldEvolutionStep(params: 世界演变步骤输入): Promise<世界演变步骤结果> {
   const dueIds = new Set(params.dueInstanceIds);
   const dueEvents = params.events.filter((event) => dueIds.has(event.eventInstanceId));
-  // 可提前解决的未来事件：scheduled 且未被本次领取（投影只产下一分段一条，天然有界）。
   const futureEvents = params.events.filter(
     (event) => event.status === 'scheduled' && !dueIds.has(event.eventInstanceId),
   );

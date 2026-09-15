@@ -72,7 +72,6 @@ export function VariableManagerTab(props: Props) {
   const [jsonDraft, setJsonDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  // 数组型系统（伙伴/周报）的二级导航状态。
   const [activeArrayIndex, setActiveArrayIndex] = useState(0);
   const [arraySearch, setArraySearch] = useState('');
 
@@ -87,13 +86,12 @@ export function VariableManagerTab(props: Props) {
   if (prevSyncValue !== visibleValue) {
     setPrevSyncValue(visibleValue);
     let nextDraft = deepClone(visibleValue);
-    // 确保「当前天气」紧跟「当前地点」
     if (activeSystem.key === 'world' && isRecord(nextDraft)) {
       const rec = nextDraft;
       const weather = '当前天气' in rec ? rec['当前天气'] : '';
       const ordered: Record<string, unknown> = {};
       for (const key of Object.keys(rec)) {
-        if (key === '当前天气') continue; // 跳过，后面手动插入
+        if (key === '当前天气') continue;
         ordered[key] = rec[key];
         if (key === '当前地点') {
           ordered['当前天气'] = weather;
@@ -150,7 +148,6 @@ export function VariableManagerTab(props: Props) {
 
   const stats = buildQuickStats(activeSystem, originalValue);
   const isArraySystem = activeSystem.key === 'npc' || activeSystem.key === 'news';
-  // 数组型系统的当前草稿数组（用于二级导航）。
   const arrayDraft = isArraySystem && Array.isArray(draft) ? draft as unknown[] : [];
 
   const updateArrayItem = (index: number, next: unknown) => {
@@ -160,7 +157,6 @@ export function VariableManagerTab(props: Props) {
     updateDraft(arr);
   };
 
-  // 切换系统时重置数组导航状态。
   const [prevActiveKey, setPrevActiveKey] = useState(activeKey);
   if (prevActiveKey !== activeKey) {
     setPrevActiveKey(activeKey);

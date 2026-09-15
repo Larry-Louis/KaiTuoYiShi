@@ -16,8 +16,6 @@ import { NEWS_WORLD_BOOK_PROMPT as NEWS_LEGACY_WORLD_BOOK_PROMPT } from '@/data/
 import { NEWS_COT_PROMPT as NEWS_LEGACY_COT_PROMPT } from '@/prompts/cot/newsCot';
 import { stringifyPromptPayload } from '@/utils/promptPayloadSanitizer';
 
-/** 旧调用兼容回退：当未传入 promptModules 时使用的硬编码 JSON 输出格式。
- *  正常路径下不会走这里，仅用于 contextSnapshot 等老调用点。 */
 const NEWS_LEGACY_OUTPUT_FORMAT = `# 结构化输出格式
 只输出 JSON，对象字段固定为：
 {
@@ -41,7 +39,6 @@ export interface NewsModelRequest {
   userInput: string;
   body: string;
   recentTurns?: string[];
-  /** 已提交世界事实的只读文本行；有值时优先于 recentTurns 窗口。 */
   worldFacts?: string[];
   traveler: 角色数据结构;
   world: 世界状态;
@@ -117,9 +114,6 @@ export function buildNewsModelPrompt(request: Pick<NewsModelRequest, 'turnCount'
   ].join('\n');
 }
 
-/** 从 settings.promptModules 中过滤出新闻系统的提示词模块（scope=calibration 且 enabled），
- *  按 order 升序拼接 content。若未传入 promptModules（旧调用兼容），回退到原始的
- *  世界书 + CoT + 硬编码 JSON 格式三段拼接。 */
 function buildNewsPromptModulesSection(promptModules?: 提示词模块[]): string {
   if (!promptModules || promptModules.length === 0) {
     return [
@@ -142,7 +136,6 @@ export function buildNewsUserMessage(request: NewsModelRequest): string {
     })
     .slice(0, 20);
 
-  // 世界事实优先于近期回合窗口；两者都没有时明说只用本回合正文。
   const windowSection = request.worldFacts?.length
     ? ['## 本回合已提交的世界事实（只读，不得改写）', request.worldFacts.join('\n')]
     : ['## 本次新闻窗口内的近期回合', request.recentTurns?.length

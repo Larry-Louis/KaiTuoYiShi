@@ -1,7 +1,3 @@
-//  ============================== Tavern Message Chain Builder ==============================
-//  核心功能：按 ST 预设的 prompt_order 构建消息链，识别内置 identifier 并注入项目内容
-//  参考实现：MoRanJiangHu-main/hooks/useGame/promptRuntime.ts 构建酒馆预设消息链函数 (L612-773)
-
 import type { STMessageRole, STPreset, STPresetOrder, STWorldInfoEntry, TavernMessage, TavernInternalMessage, TavernPostProcessMode } from '@/models/stTypes';
 import type { 提示词模块 } from '@/models/prompts';
 import type { 角色数据结构 } from '@/models/character';
@@ -16,7 +12,6 @@ export const TAVERN_CHAR_COMPAT_PROMPT =
 const TAVERN_CHAR_FALLBACK_PROMPT =
   '你将扮演当前剧情中所有由 AI 控制的崩坏：星穹铁道同人角色、NPC、同伴、敌人和旁白，不代替玩家角色做决定。';
 
-//  ---------- 辅助类型 ----------
 export interface TavernChainParams {
   settings: 游戏设置;
   preset: STPreset;
@@ -44,19 +39,15 @@ interface TavernContextPieces {
   writingStylePrompt: string;
 }
 
-//  ---------- 主函数 ----------
 export function buildTavernMessageChain(params: TavernChainParams): TavernMessage[] {
-  // 1. 取预设与选中顺序
   const selectedOrder = getSTPresetOrder(params.preset, params.characterId);
   if (!selectedOrder) return [];
-  
-  // 2. 建立 identifier → prompt 索引
+
   const promptMap = new Map(
     (Array.isArray(params.preset.prompts) ? params.preset.prompts : [])
       .map((item) => [item.identifier, item] as const)
   );
 
-  // 3. 过滤启用的 slot：enabled !== false
   const enabledOrderSlots = (Array.isArray(selectedOrder.order) ? selectedOrder.order : [])
     .filter((slot) => Boolean(slot) && slot.enabled);
 
@@ -68,7 +59,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
   const cotCompatReference = buildTavernCotCompatReference(scope);
   const formatCompatReference = buildTavernFormatCompatReference();
 
-  // 6. 构建嫁接文本 combinedWorldbookText
   const worldbookText = params.includeNativeContextInWorldbook === false
     ? ''
     : buildWorldbookText(contextPieces, presetHasNoControl, presetHasPlayerSpeechExpansion);
@@ -84,7 +74,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     .join('\n\n')
     .trim();
 
-  // 7. 构建历史消息
   const historyMessages = buildTavernChatHistory(params.chatHistory);
   const personaProfile = buildTavernPersonaProfile(params.playerRole);
   const charRuntimeProfile = buildTavernCharRuntimeProfile(params);
@@ -98,7 +87,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     turnCount: params.chatHistory.length,
   });
 
-  // 8. 遍历启用的 slot，按 identifier 分派
   const messages: TavernInternalMessage[] = [];
   let worldbookInjected = false;
   let historyInjected = false;
@@ -109,7 +97,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     const prompt = promptMap.get(identifier);
     if (!prompt) continue;
 
-    // 特殊 identifier 处理（内置槽位 -> 运行时注入）
     if (identifier === 'worldInfoBefore' || identifier === 'worldInfoAfter') {
       if (!worldbookInjected && combinedWorldbookText) {
         messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
@@ -142,7 +129,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
       continue;
     }
 
-    // 其他普通 prompt 项：变量替换 + 按 role 推送
     const rawContent = typeof prompt.content === 'string' ? prompt.content : '';
     const resolved = replaceTavernVariables({
       content: rawContent,
@@ -161,7 +147,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     messages.push({ role, content, source: 'preset' });
   }
 
-  // 9. 兜底注入（若预设缺失关键槽位）
   if (!worldbookInjected && combinedWorldbookText) {
     messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
   }
@@ -180,25 +165,21 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     source: 'compat_guard',
   });
 
-  // 11. 后处理
   return applyTavernPostProcess(messages, params.settings.stPostProcessMode || '未选择');
 }
 
-//  ---------- 辅助函数 ----------
 export function getSTPresetOrder(preset: STPreset, characterId: number | null): STPresetOrder | null {
   if (preset.prompt_order.length === 0) return null;
-  
-  // 优先使用指定的 characterId
+
   if (characterId !== null) {
     const found = preset.prompt_order.find((order) => order.character_id === characterId);
     if (found) return found;
   }
   
-  // 回退到默认 100001（ST 通用默认）
+  // 100001 为 ST 通用默认档。
   const defaultOrder = preset.prompt_order.find((order) => order.character_id === 100001);
   if (defaultOrder) return defaultOrder;
-  
-  // 最后回退到第一项
+
   return preset.prompt_order[0];
 }
 
@@ -533,7 +514,6 @@ function replaceTavernVariables(params: {
     });
   }
 
-  // 其他占位符
   if (params.playerName) {
     resolved = resolved.replace(/\{\{\s*user\s*\}\}/gi, params.playerName);
   }
@@ -583,7 +563,6 @@ function presetContainsPlayerSpeechExpansion(preset: STPreset, selectedOrder: ST
 }
 
 function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernPostProcessMode): TavernMessage[] {
-  // 角色重写
   const mapped: TavernMessage[] = messages.map((item) => {
     if (mode === '严格') {
       if (item.source === 'history' || item.source === 'latest_input') {
@@ -609,11 +588,9 @@ function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernP
         content: item.content
       };
     }
-    // 未选择或其他：保持原 role
     return item;
   });
 
-  // 相邻同角色合并 + 空内容过滤
   const merged: TavernMessage[] = [];
   mapped.forEach((item) => {
     const trimmed = item.content.trim();

@@ -35,10 +35,6 @@ function createCell<T>(initial: T): StateCell<T> {
   };
 }
 
-/**
- * 把 StateCell 表绑定为对象上的 React 风格访问器（get/set 直连 cell）。
- * 方法字段（setXxx / 动作函数）由调用方显式装配，不在此推断命名。
- */
 function bindCells(target: object, bindings: Record<string, StateCell<unknown>>): void {
   for (const [key, cell] of Object.entries(bindings)) {
     Object.defineProperty(target, key, {
@@ -50,10 +46,6 @@ function bindCells(target: object, bindings: Record<string, StateCell<unknown>>)
   }
 }
 
-/**
- * 行为测试用最小 UseGameStateReturn：同步 React 风格 cell（读取即最新值），
- * 只实现工作流事务实际消费的字段；其余字段不会被测试路径触碰。
- */
 export interface GameStateHarness {
   state: UseGameStateReturn;
   activeWorkflow: ActiveWorkflowStore;

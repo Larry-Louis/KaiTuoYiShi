@@ -128,7 +128,6 @@ describe('人物条目归组', () => {
       原文: '独行正文文本',
     });
     const [item] = buildZhikuArchiveItems(归一化智库系统({ 条目: [single] })).character;
-    // 人物档案标题优先取关联角色ID。
     expect(item.title).toBe('独行');
     expect(item.variants).toBeUndefined();
   });
@@ -149,7 +148,6 @@ describe('资料正文与关键词兜底', () => {
       关键词: ['列车'],
       原文: '基础资料。\n核心触发词：毁灭、火种、列车。',
     });
-    // 新契约：显式触发词在前（来自原文核心触发词），普通关键词随后。
     expect(getZhikuArchiveEntryKeywords(entry)).toEqual(['毁灭', '火种', '列车']);
   });
 });

@@ -1,6 +1,3 @@
-// 变量历史重解析（V2）：读取历史回合正文 → 变量模型 → 解析 → NSFW 策略 →
-// 分类 → 修复计划。全程只读：不写叶子、不投影、不落账（提交由 variableRepairWorkflow 负责）。
-
 import type { 聊天消息 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
 import type { API配置项 } from '@/models/settings';
@@ -22,15 +19,9 @@ import {
 export interface 变量重解析参数 {
   message: 聊天消息;
   turn: number;
-  /** 归约输入投影（当前变量切片）。 */
   stateSnapshot: VariableState;
-  /**
-   * 计划基态指纹：提交前据此判过期。
-   * 批量扫描传入扫描起点的一次性指纹（同批所有计划同值，避免逐项重算与漂移）；
-   * 单条重解析传入本次快照的指纹。由调用方决定口径，本函数不自己算。
-   */
+  /** 提交前据此判过期；由调用方决定取哪个时点的指纹，本函数不自己算。 */
   baseStateFingerprint: string;
-  /** 当前批次账本；只用于收集本条消息已落地指纹。 */
   batches: readonly 变量命令批次[];
   mainApiConfig: API配置项;
   userInput: string;
@@ -41,7 +32,6 @@ export interface 变量重解析参数 {
   signal?: AbortSignal;
 }
 
-/** 重解析一条历史回合并生成修复计划；调用方负责队列账本与界面草稿。 */
 export async function 重新解析变量计划(params: 变量重解析参数): Promise<变量修复计划> {
   const body = params.message.parsedResponse?.body.trim() || params.message.content.trim();
   if (!body) throw new Error('该回合正文为空，无法重新解析变量。');
@@ -69,7 +59,6 @@ export async function 重新解析变量计划(params: 变量重解析参数): P
     maxPhoneSeedsPerTurn: 0,
   });
   const parsedLegacy = parseVariableCommands(rawText);
-  // 玩家手写旅人路径不在服务层静默过滤：交给分类器展示为 unsupported（透明优先）。
   const commands = [...factCommands.commands, ...parsedLegacy.commands];
 
   const { allowedCommands, rejectedCommands } = applyNsfwVariablePolicy(commands, {

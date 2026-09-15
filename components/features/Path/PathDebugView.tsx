@@ -1,9 +1,4 @@
-﻿// 变量管理器·命途分区
-//
-// 把分散在 旅人.命途列表 / 世界.待触发狭间 / 世界.进行中狭间 的命途数据
-// 集中在一个面板里,方便手动调试整套命途+狭间流程,不必钻进通用 JSON 树。
-
-import type { 角色数据结构 } from '@/models/character';
+﻿import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import type { 命途ID } from '@/models/journey';
 import type { 命途阶段, 命途进度 } from '@/models/path';
@@ -26,7 +21,6 @@ interface Props {
 }
 
 
-// 不让玩家在调试里新增「无命途」
 const SELECTABLE_PATHS = PATH_DEFS.filter((p) => p.id !== 'none');
 
 function 中文名(id: 命途ID): string {
@@ -42,7 +36,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
   const 已踏ID集合 = new Set(命途列表.map((p) => p.id));
   const 未踏命途 = SELECTABLE_PATHS.filter((p) => !已踏ID集合.has(p.id));
 
-  // 更新指定 id 的命途条目;merge 字段
   const 更新命途 = (id: 命途ID, patch: Partial<命途进度>) => {
     set旅人((prev) => {
       const list = prev.命途列表.map((p) =>
@@ -56,7 +49,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
     if (!confirm(`确认删除命途「${中文名(id)}」?这会清空它的全部进度与阶段。`)) return;
     set旅人((prev) => {
       const list = prev.命途列表.filter((p) => p.id !== id);
-      // 若删的是主命途,把 主命途 字段也清掉
       const nextPrimary = prev.主命途 === id ? '' : prev.主命途;
       return { ...prev, 命途列表: list, 主命途: nextPrimary };
     });
@@ -70,7 +62,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
     set旅人((prev) => setPrimaryPath(prev, id));
   };
 
-  // 狭间状态操作
   const 设置待触发 = (id: 命途ID | '') => {
     set世界((prev) => ({ ...prev, 待触发狭间: id || undefined }));
   };
@@ -89,14 +80,12 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
     set世界((prev) => ({ ...prev, 进行中狭间: undefined }));
   };
 
-  // 一键调试:把目标命途调到 99 + 待升阶 = true(模拟自然达标,准备触发邀请)
   const 调到待升阶 = (id: 命途ID) => {
     更新命途(id, { 进度: STAGE_PROGRESS_MAX - 1, 待升阶: true });
   };
 
   return (
     <div className="space-y-3">
-      {/* 狭间状态 */}
       <div
         className="p-3 space-y-3"
         style={{
@@ -112,7 +101,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           ◆ 狭间状态
         </div>
 
-        {/* 待触发狭间 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', minWidth: 80 }}>
             待触发狭间
@@ -159,7 +147,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           )}
         </div>
 
-        {/* 进行中狭间 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', minWidth: 80 }}>
             进行中狭间
@@ -201,7 +188,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
         </div>
       </div>
 
-      {/* 命途列表 */}
       <div
         className="p-3 space-y-2"
         style={{
@@ -234,7 +220,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                     clipPath: smallClip,
                   }}
                 >
-                  {/* 标题行:命途名 + 主命途 + 删除 */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
                       className="font-serif text-sm font-bold"
@@ -296,7 +281,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                     </div>
                   </div>
 
-                  {/* 字段行:阶段 / 进度 / 待升阶开关 / 今日累计 / 觉醒于 */}
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
                     <label className="flex flex-col gap-0.5">
                       <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>阶段</span>
@@ -389,7 +373,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                     </label>
                   </div>
 
-                  {/* 阶段说明 */}
                   <div className="text-[11px] leading-relaxed" style={{ color: 'rgba(190, 178, 145, 0.75)' }}>
                     {阶段名(p.阶段)} · {PATH_STAGE_DEFS[p.阶段]?.title ?? ''} —
                     {PATH_STAGE_DEFS[p.阶段]?.blurb ?? ''}
@@ -400,7 +383,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           </div>
         )}
 
-        {/* 添加新命途 */}
         {未踏命途.length > 0 && (
           <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'rgba(var(--tj-accent-primary), 0.12)' }}>
             <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)' }}>踏上新命途</span>
@@ -428,7 +410,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
         )}
       </div>
 
-      {/* 字段速查 */}
       <div
         className="p-3 text-[11px] space-y-1"
         style={{

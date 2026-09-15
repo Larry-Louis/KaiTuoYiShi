@@ -1,16 +1,9 @@
-// 首页与转场遮罩共用的星场粒子数据。
-//
-// 全部在模块加载时按固定公式算好并把格式化（百分比、秒、rgba）一并做完：
-// 渲染结果可复现，StrictMode 的双渲染与组件重挂载都不会产出第二套星空。
-// 界面组件因此不需要任何状态或 useMemo，只做 map。
-
 export interface TwinkleStar {
   id: number;
   left: string;
   top: string;
   size: number;
   color: string;
-  /** 大星的光晕；小星为 null，由窗口尺寸决定不画。 */
   glow: string | null;
 }
 
@@ -23,10 +16,6 @@ export interface OverlayParticle {
   drift: number;
 }
 
-/**
- * mulberry32：无外部状态的 32 位种子 PRNG。
- * 用于替代渲染期的 Math.random——星空是装饰而非随机事件，同一次构建里应当长得一样。
- */
 function createRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
@@ -63,9 +52,7 @@ function buildTwinkleStars(count: number, seed: number): TwinkleStar[] {
   });
 }
 
-/**
- * 转场遮罩的粒子沿固定步长铺开（斜向扫描），步长与跨度互质即可铺满整个画面。
- */
+/** 步长与跨度互质才能铺满整个画面。 */
 interface ParticleFieldSpec {
   count: number;
   xStart: number;
@@ -74,7 +61,6 @@ interface ParticleFieldSpec {
   yStart: number;
   yStep: number;
   ySpan: number;
-  /** 尺寸按序号循环取用，制造疏密层次。 */
   sizes: readonly number[];
   delayCycle: number;
   delayStep: number;
@@ -93,10 +79,8 @@ function buildParticleField(spec: ParticleFieldSpec): OverlayParticle[] {
   }));
 }
 
-/** 首页背景的微光星点。 */
 export const LANDING_STARS: readonly TwinkleStar[] = buildTwinkleStars(26, 0x5eed);
 
-/** 踏入旅途：星轨接入。 */
 export const JOURNEY_LAUNCH_PARTICLES: readonly OverlayParticle[] = buildParticleField({
   count: 34,
   xStart: 8,
@@ -110,7 +94,6 @@ export const JOURNEY_LAUNCH_PARTICLES: readonly OverlayParticle[] = buildParticl
   delayStep: 0.045,
 });
 
-/** 旅途入口：开门。 */
 export const HOME_JOURNEY_PARTICLES: readonly OverlayParticle[] = buildParticleField({
   count: 18,
   xStart: 10,
@@ -124,7 +107,6 @@ export const HOME_JOURNEY_PARTICLES: readonly OverlayParticle[] = buildParticleF
   delayStep: 0.055,
 });
 
-/** 读取光锥：存档索引。 */
 export const SAVE_LOAD_PARTICLES: readonly OverlayParticle[] = buildParticleField({
   count: 24,
   xStart: 8,
@@ -138,7 +120,6 @@ export const SAVE_LOAD_PARTICLES: readonly OverlayParticle[] = buildParticleFiel
   delayStep: 0.045,
 });
 
-/** 如我所书：书页展开。 */
 export const BOOK_OPEN_PARTICLES: readonly OverlayParticle[] = buildParticleField({
   count: 22,
   xStart: 12,

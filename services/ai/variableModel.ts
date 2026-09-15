@@ -1,10 +1,3 @@
-// 变量模型 service：用独立 API config 把「正文」喂给一个轻量模型。
-//
-// 新协议：
-// - 主输出是 <变量事实> JSON：AI 只提取事实，不直接猜路径、顺序和对象下标。
-// - 前端把事实确定性转换成内部变量命令，再复用旧执行器校验/归一化/落库。
-// - <变量更新> 继续保留为空块或少量兼容命令，避免旧存档/复杂字段立刻断链。
-
 import type { API配置项 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { buildVariableRegistryPrompt, type VariableState } from '@/utils/variableRegistry';
@@ -18,7 +11,6 @@ import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
 import { 获取地点可用天气, 天气列表, 天气名映射 } from '@/data/weatherRules';
 
-/** NSFW 基线候选：开启 NSFW 后，传给变量模型让它为缺少基线的 NPC 生成完整档案。 */
 export interface NsfwBaselineCandidate {
   npcId: string;
   npcName: string;
@@ -28,35 +20,22 @@ export interface NsfwBaselineCandidate {
   intro?: string;
   existingNsfwArchive?: Record<string, unknown>;
 }
-/** NSFW 基线结果：从变量模型返回中解析出的基线档案。 */
 export interface NsfwBaselineResult {
   npcId: string;
-  /** 模型返回的 NSFW 档案对象（已解析为 JSON）；失败时为 null。 */
   archive: Record<string, unknown> | null;
 }
 
 export interface VariableModelRequest {
-  /** 主模型刚写完的正文（已抽出 <正文> 块，不带其他标签）。 */
   body: string;
-  /** 主剧情模型输出的 <变量草稿>，只作为候选线索，不直接落库。 */
   variableDraft?: string;
-  /** 玩家本回合的输入（提供上下文，便于 AI 理解状态变化的来由）。 */
   userInput: string;
-  /** 当前游戏回合数。 */
   turnCount: number;
-  /** 当前变量状态快照（用来生成登记表）。 */
   state: VariableState;
-  /** NSFW 总开关：关闭时不得写 NSFW档案。 */
+  /** 关闭时不得写 NSFW 档案。 */
   nsfwEnabled?: boolean;
-  /** 男性 NSFW 档案开关：默认 false，关闭时不得写男性身体档案。 */
+  /** 关闭时不得写男性身体档案。 */
   maleNsfwArchiveEnabled?: boolean;
-  /** NSFW 开启时，缺少基线档案的 NPC 候选；变量模型会在同一轮为它们输出 nsfw_archive 事实。 */
   nsfwBaselineCandidates?: NsfwBaselineCandidate[];
-  /**
-   * 阶段1新增：recall 召回的历史通讯回忆（拼接文本）。
-   * variableModel 可从中提取玩家与 NPC 在手机里建立的约定，写入 NPC记录.约定[]（来源='通讯'）。
-   * 执行顺序约束：recall 必须先于 variableModel 执行，recallContext 依赖 recall 结果拼接。
-   */
   recallContext?: string;
   signal?: AbortSignal;
   retryCount?: number;
@@ -64,7 +43,6 @@ export interface VariableModelRequest {
 }
 
 export interface VariableModelResult {
-  /** 模型的完整原始返回（含 <变量事实> 与兼容 <变量更新> 块）。 */
   rawText: string;
 }
 
@@ -77,12 +55,10 @@ interface EmptyFactsReview {
   shouldRetry: boolean;
   npcNames: string[];
   cueSummary: string;
-  /** 触发的是 NSFW 空档案复审（复审提示需要指向 nsfw_archive）。 */
   nsfwCue?: boolean;
 }
 
 const LIGHT_MEMORY_CUE_RE = /(一起|共同|同时|同桌|围坐|招呼|邀请|递给|递来|端出|分享|品尝|尝了|吃|喝|点心|糕点|奶酥|茶|咖啡|料理|手艺|食谱|评价|反馈|称赞|夸|吐槽|玩笑|闲聊|聊天|回应|看向|问|答|陪|安慰|训练|复盘|合照)/;
-/** NSFW 开启时用于空档案复审的成人互动线索（只用于提示模型检查是否应写 nsfw_archive，不构成露骨正文）。 */
 const NSFW_INTERACTION_CUE_RE = /(亲密|亲吻|拥抱|拥吻|肌肤|裸|褪去|解开|触碰|抚摸|喘息|呻吟|交缠|侵入|进入|结合|高潮|温存|事后|床|睡在|同床|赤裸|敏感|欲望|情欲|性|做爱|缠绵)/;
 
 function readObjectString(value: unknown, key: string): string {
@@ -160,8 +136,6 @@ function reviewVariableModelContent(rawText: string, request: VariableModelReque
     request.userInput,
   ].join('\n');
 
-  // NSFW 空档案复审：NSFW 开启、facts 为空、正文命中成人互动线索时，
-  // 提示模型检查是否应写 nsfw_archive（与日常轻记忆复审互相独立）。
   if (request.nsfwEnabled && NSFW_INTERACTION_CUE_RE.test(sourceText)) {
     const npcNames = collectImportantNpcNames(request.state)
       .filter((name) => nameAppearsInText(sourceText, name))
@@ -229,7 +203,6 @@ function buildVariableContentReviewPrompt(review: EmptyFactsReview): string {
   ].join('\n');
 }
 
-/** 变量模型的 system prompt：事实协议 + 登记表 + 兼容命令协议。 */
 export function buildVariableModelPrompt(
   state: VariableState,
   nsfwPolicy?: { enabled?: boolean; maleArchiveEnabled?: boolean; baselineCandidates?: NsfwBaselineCandidate[] },
@@ -240,7 +213,6 @@ export function buildVariableModelPrompt(
   const maleArchiveEnabled = Boolean(nsfwPolicy?.maleArchiveEnabled);
   const baselineCandidates = nsfwPolicy?.baselineCandidates?.filter((c) => c.npcName) ?? [];
 
-  // 天气判断所需上下文：当前地点、当前天气、可用天气列表
   const worldState = (state.世界 ?? {}) as { 当前地点?: string; 当前天气?: string };
   const currentLocation = worldState.当前地点?.trim() || '未知';
   const currentWeatherId = worldState.当前天气?.trim() || 'clear';
@@ -465,7 +437,6 @@ export function buildVariablePromptModulesSection(
   return base;
 }
 
-/** 调用变量模型，返回原始文本（待 parseVariableFacts / parseVariableCommands 解析）。 */
 export async function callVariableModel(
   config: API配置项,
   request: VariableModelRequest,
@@ -501,9 +472,7 @@ export async function callVariableModel(
       messages,
       systemPrompt,
       signal: request.signal,
-      // 变量模型需要保留可检查的 thinking + facts + 少量兼容命令。
       maxTokens: config.maxTokens ?? 2200,
-      // 较低温度，减少幻觉。
       temperature: config.temperature ?? 0.25,
     });
 

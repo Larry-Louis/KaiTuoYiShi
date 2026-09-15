@@ -1,10 +1,7 @@
-// 酒馆预设（V2）的纯状态转换：编辑 preset 对象、创建 builtin override、删除预设。
-// 不触碰 settings 全量、onChange、DOM 或 React state；时间戳由调用方传入。
 import type { STPreset, STPresetEntryV2, STWorldInfoEntry } from '@/models/stTypes';
 
 export interface PatchV2PresetResult {
   nextPresets: STPresetEntryV2[];
-  /** 仅 builtin override 场景会切换当前预设 id 与角色 id；普通编辑不返回这两项。 */
   currentStPresetIdV2?: string | null;
   currentStCharacterId?: number | null;
 }

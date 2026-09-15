@@ -1,9 +1,3 @@
-// 内置预置资源的载入进度条（纯渲染，只在首页与开局向导渲染）。
-//
-// 存在的理由：首页出现后还要拉 50 个文件、约 7.3 MB gzip 的原著正文与智库目录（是整个 JS 包的
-// 七倍多），而这段时间依赖它们的入口是禁用的——必须让玩家看见「在等什么、等了多久、还有多少」，
-// 否则禁用就只是莫名其妙的点不动。全部判断都在 usePresetLoadView，这里只把展示模型铺成 DOM。
-
 import { useSyncExternalStore } from 'react';
 import type { PresetLoader } from '@/services/presetLoader';
 import { usePresetLoadView } from '@/hooks/usePresetLoadView';
@@ -15,7 +9,6 @@ interface PresetLoadBarProps {
 }
 
 export function PresetLoadBar({ loader, onRetry }: PresetLoadBarProps) {
-  // 进度订阅落在本组件：进度变化只重渲染这条进度条，不牵动 App。
   const load = useSyncExternalStore(loader.subscribe, loader.getSnapshot);
   const view = usePresetLoadView(load);
 
@@ -32,9 +25,7 @@ export function PresetLoadBar({ loader, onRetry }: PresetLoadBarProps) {
         className="px-3.5 py-3"
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-bg-secondary),0.94), rgba(var(--tj-bg-primary),0.96))',
-          // 这里原本有个投影，但本元素带 clipPath（切角），外阴影会被整条裁掉——
-          // 写了等于没写。删掉它同时消掉一个触发「layer 模式」的条件。
-          // 若确实想要投影，要套一层不裁切的父元素。
+          // 本元素带 clipPath（切角），外阴影会被整条裁掉；要投影需套一层不裁切的父元素。
           clipPath: cardClip,
         }}
       >

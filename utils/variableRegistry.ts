@@ -1,25 +1,18 @@
-// 变量登记表 + 命令校验。
-// 设计参考：墨色项目 utils/variableRegistry.ts。
-//
-// 用途：
-// 1. 构建登记表 → 注入 system prompt 末尾，告诉 AI "只能写入这些路径"。
-// 2. 校验命令 → AI 输出后逐条比对，路径不在白名单的直接拒绝（防止 AI 瞎编字段）。
 
 import type { 变量命令 } from '@/models/variableCommand';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { 解析路径片段, 读取路径值 } from './variablePath';
 
-/** 变量命令允许操作的根路径，全部对应 useGameState 的一个 setter。 */
 export const VARIABLE_ROOT_KEYS = [
-  '旅人',   // 旅人档案（含 命途列表/背包/状态效果；装备系统已退役）
-  '世界',   // 世界状态
-  '记忆',   // 记忆系统
-  '忆庭',   // 忆庭回忆档案
-  '智库',   // 原著资料库
-  '手机',   // 手机通讯系统
-  'NPC',    // 伙伴档案库（含 companion / extra / 图像预留 / NSFW 预留）
-  '新闻',   // 新闻档案
-  '剧情',   // 旧剧情节点兼容
+  '旅人',
+  '世界',
+  '记忆',
+  '忆庭',
+  '智库',
+  '手机',
+  'NPC',
+  '新闻',
+  '剧情',
 ] as const;
 
 const NPC_ARRAY_ITEM_FIELDS = new Set([
@@ -272,24 +265,19 @@ const ARRAY_SCHEMA_TEMPLATES: ArraySchemaTemplate[] = [
   },
 ];
 
-/** 一份精简版游戏 state，用于变量系统读写（不包含 UI/loading 等 transient state）。 */
 export type VariableState = Record<VariableRootKey, unknown>;
 
 export interface RegistryOptions {
-  /** 最大递归深度，避免对象层级太深炸栈 */
   maxDepth?: number;
-  /** 最大行数，超出截断；避免 prompt 膨胀 */
   maxLines?: number;
 }
 
-/** 把单个值的可达路径递归收集到 result 里。 */
 function 收集路径(value: unknown, prefix: string, result: string[], depth: number) {
   result.push(prefix);
   if (depth <= 0 || value === null || value === undefined || typeof value !== 'object') return;
 
   if (Array.isArray(value)) {
     if (value.length > 0) {
-      // 数组用 [] 表示"任意 index 都合法"，并展开第一个元素的字段（作为同类元素的字段模板）
       result.push(`${prefix}[]`);
       收集路径(value[0], `${prefix}[0]`, result, depth - 1);
     }
@@ -340,7 +328,6 @@ function buildArraySchemaPrompt(): string[] {
   ];
 }
 
-/** 扫存档生成路径清单，作为 AI 命令白名单。 */
 export function buildVariableRegistry(state: Partial<VariableState>, options?: RegistryOptions): string[] {
   const maxDepth = Math.max(1, options?.maxDepth ?? 4);
   const maxLines = Math.max(20, options?.maxLines ?? 300);
@@ -362,7 +349,6 @@ function isPromptBinaryImagePath(path: string): boolean {
   return PROMPT_BINARY_IMAGE_PATH_RE.test(path);
 }
 
-/** 把登记表格式化成 prompt 注入文本。 */
 export function buildVariableRegistryPrompt(state: Partial<VariableState>): string {
   const paths = buildVariableRegistry(state);
   if (paths.length === 0) return '';
@@ -388,13 +374,10 @@ export function buildVariableRegistryPrompt(state: Partial<VariableState>): stri
 export interface CommandValidation {
   allowed: boolean;
   reason?: string;
-  /** 解析出的根路径，便于执行器路由 */
   root?: VariableRootKey;
-  /** 去掉根的剩余路径 */
   rest?: string;
 }
 
-/** 提取根路径：从 "旅人.属性.力量" 中取出 "旅人" + ".属性.力量"。 */
 export function extractRoot(rawKey: string): { root: VariableRootKey; rest: string } | null {
   const key = (rawKey || '').trim();
   if (!key) return null;
@@ -406,7 +389,6 @@ export function extractRoot(rawKey: string): { root: VariableRootKey; rest: stri
   return null;
 }
 
-/** 判断同数组其它对象里是否存在该字段（用于允许 set/add 给数组对象新增字段）。 */
 function 同数组其它对象存在字段(rootValue: unknown, rawPath: string): boolean {
   const tokens = 解析路径片段(rawPath);
   const lastToken = tokens[tokens.length - 1];
@@ -622,31 +604,21 @@ function validateSchemaPushValue(root: VariableRootKey, rest: string, value: unk
   return null;
 }
 
-// 命途狭间状态机硬只读名单:这些字段只能由 服务层(踏入命途狭间 / 应用狭间结果 / 推进命途进度)写,
-// 变量模型一旦碰到必须拒绝——否则 AI 误判「踏入虚境」当成「狭间完成」,会清掉 进行中狭间,
-// 下一回合就退回主剧情 scope,AI 不知道是评判回合,直接卡死虚境。
+// 只能由服务层写：AI 误判「踏入虚境」为「狭间完成」会清掉 进行中狭间，下一回合卡死虚境。
 function isAwakeningProtectedPath(rawKey: string): boolean {
   const k = rawKey.trim();
-  // 世界·狭间状态机字段:任何 action 都拒
   if (k === '世界.进行中狭间' || k === '世界.待触发狭间') return true;
   if (k.startsWith('世界.进行中狭间.') || k.startsWith('世界.待触发狭间.')) return true;
 
-  // 旅人.命途列表:整个数组只读(新命途条目只能由 踏上命途 服务层创建,
-  // 否则变量模型会凭空造 id=path_xxx 的伪条目,导致升阶找不到正确的命途)。
+  // 新命途条目只能由 踏上命途 服务层创建，否则变量模型会造出 id=path_xxx 伪条目，升阶找不到正确命途。
   if (k === '旅人.命途列表') {
     return true;
   }
-  // 命途列表[i] / 命途列表[id=xxx] 整条目:也禁止 push/delete/set,避免覆盖整条
   if (/^旅人\.命途列表\[[^\]]+\]$/.test(k)) return true;
-  // 命途列表[i].阶段:阶段变化只能走 升阶 / 星神授力 服务层
   if (/^旅人\.命途列表\[[^\]]+\]\.阶段$/.test(k)) return true;
-  // 命途列表[i].待升阶:状态机字段,只能由 推进命途进度 / 应用狭间结果 写
   if (/^旅人\.命途列表\[[^\]]+\]\.待升阶$/.test(k)) return true;
-  // 命途列表[i].是否主命途 / 主命途:主命途选择是玩家行为,不允许 AI 改
   if (/^旅人\.命途列表\[[^\]]+\]\.是否主命途$/.test(k)) return true;
   if (k === '旅人.主命途') return true;
-  // 进度由 reduceVariableCommands 的专用通道处理(走 24h cap),这里不拦,直通专用通道。
-  // 备注 / 觉醒于 等叙事字段允许 AI 写。
   return false;
 }
 
@@ -681,7 +653,6 @@ export function isTravelerPlayerAuthoredVariablePath(rawKey: string): boolean {
   return key === '旅人' || key === '旅人.穿着' || isTravelerPlayerAuthoredPath(key);
 }
 
-/** 校验一条命令是否符合登记表。 */
 export function validateCommand(cmd: 变量命令, state: Partial<VariableState>): CommandValidation {
   if (typeof cmd.key !== 'string') {
     return { allowed: false, reason: '命令格式错误：缺少 key' };
@@ -695,7 +666,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
       reason: `旅人核心档案 ${cmd.key} 由玩家手写维护，变量模型不得 ${cmd.action}。请改写为 NPC 记忆、世界事件、物品或剧情正文承接。`,
     };
   }
-  // 狭间状态机 + 命途结构字段:变量模型只能读不能写,违者直接拒
   if (isAwakeningProtectedPath(cmd.key)) {
     return {
       allowed: false,
@@ -719,7 +689,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: false, reason: `根 ${parsed.root} 在当前存档中不存在` };
   }
 
-  // 整段根：始终允许（push/set/delete 根本身）
   if (parsed.rest.length === 0) {
     if (parsed.root === '旅人') {
       return {
@@ -745,7 +714,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: true, root: parsed.root, rest: parsed.rest };
   }
 
-  // 有子路径：先看路径是否已存在
   const { exists, value: targetValue } = 读取路径值(rootValue, parsed.rest);
   if (exists) {
     if (cmd.action === 'push' && !Array.isArray(targetValue)) {
@@ -759,7 +727,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: false, reason: selectorMissingReason };
   }
 
-  // 路径不存在：仅在 set/add/sub 给「同数组其它对象已有字段」时允许（让 AI 可以补全可选字段）
   if ((cmd.action === 'set' || cmd.action === 'add' || cmd.action === 'sub') && 同数组其它对象存在字段(rootValue, parsed.rest)) {
     return { allowed: true, root: parsed.root, rest: parsed.rest };
   }

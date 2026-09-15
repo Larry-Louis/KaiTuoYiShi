@@ -6,7 +6,6 @@ import { BodyBlock } from './MessageRenderers';
 import { 解析狭间问答 } from '@/utils/awakening';
 import { badgeClip, cardClip, mediumClip } from './turnStyles';
 
-// 出题回合:把 AI 输出的 <狭间问答> 块拆出来,以紧凑的三题列表呈现,方便玩家对照思考。
 export function AwakeningQuestionsBlock({ raw }: { raw: string }) {
   const { 命途名: pathName, 问题: items } = 解析狭间问答(raw);
   if (items.length === 0) return null;
@@ -49,7 +48,6 @@ export function AwakeningQuestionsBlock({ raw }: { raw: string }) {
   );
 }
 
-// 评判回合:当前版本只呈现升阶徽章；旧消息若带其他值,也会退回中性样式。
 export function AwakeningJudgementBadge({ judgement }: { judgement: string }) {
   const j = judgement.trim();
   const isPromote = j.includes('升阶') || /promote/i.test(j);
@@ -73,8 +71,6 @@ export function AwakeningJudgementBadge({ judgement }: { judgement: string }) {
         style={{
           color,
           background: bg,
-          // 原本还带一个 20px 的彩色外发光；本元素带切角，外阴影被整条裁掉，写了也画不出来，
-          // 故连它的 `glow` 变量一并删除。
           border: `1px solid ${stroke}`,
           clipPath: badgeClip,
         }}
@@ -85,8 +81,6 @@ export function AwakeningJudgementBadge({ judgement }: { judgement: string }) {
   );
 }
 
-// 狭间正文外壳:套一层「命途意志·低语/评语」紫色边框,正文本身交给 BodyBlock,
-// 这样【旁白】【角色名】【心声】行格式照常美化,头像也能正常显示。
 export function AwakeningOracleBlock({
   content,
   pathName,
@@ -116,7 +110,6 @@ export function AwakeningOracleBlock({
       style={{
         background:
           'linear-gradient(180deg, rgba(var(--tj-panel-bg-end),0.45) 0%, rgba(var(--tj-panel-bg-start),0.45) 100%)',
-        // 1px 描边改真 border；32px 内发光只有 0.08 透明度，等同于无，去掉。
         border: '1px solid rgba(var(--tj-btn-primary-end), var(--tj-edge-tint))',
         clipPath: mediumClip,
       }}
@@ -135,7 +128,6 @@ export function AwakeningOracleBlock({
   );
 }
 
-// 评判结果落地后的「行进感言」:当前版本只显示升阶确认。
 export function AwakeningAftermathLine({
   pathName,
 }: {

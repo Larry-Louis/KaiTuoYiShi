@@ -19,7 +19,6 @@ import { cardClip, shellClip, smallClip } from './saveLoadStyles';
 
 interface Props {
   model: SaveManagerModel;
-  /** 导出当前工作区叶子节点：手动存档已移除，「导出当前节点」指活跃叶子。 */
   onExportActiveLeafPackage: () => Promise<number | null>;
   onClose: () => void;
 }
@@ -82,8 +81,7 @@ export function SaveManagerModalShell({ model, onExportActiveLeafPackage, onClos
             background:
               'radial-gradient(circle at 15% 10%, rgba(var(--tj-tech-blue), 0.18), transparent 31%), radial-gradient(circle at 85% 20%, rgba(var(--tj-accent-primary), 0.10), transparent 28%), linear-gradient(90deg, rgba(var(--tj-tech-blue), 0.055) 1px, transparent 1px), linear-gradient(180deg, rgba(var(--tj-tech-blue), 0.045) 1px, transparent 1px), linear-gradient(135deg, rgb(var(--tj-bg-primary)), rgb(var(--tj-bg-secondary)) 44%, rgb(var(--tj-bg-primary)))',
             backgroundSize: 'auto, auto, 44px 44px, 44px 44px, auto',
-            // `0 24px 70px` 外投影被切角整条裁掉（不可见）；`inset 0 0 0 2px` 只有 0.04
-            // 透明度，等同于无。只把 1px 描边留成真 border（垫片会丢弃内阴影）。
+            // 垫片会丢弃内阴影，只保留 1px 真 border 作描边。
             border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
             clipPath: shellClip,
           }}

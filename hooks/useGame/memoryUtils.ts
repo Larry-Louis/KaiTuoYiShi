@@ -17,11 +17,7 @@ import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 
 const MEMORY_SNIPPET_LIMIT = 84;
 const NPC_MEMORY_SUMMARY_LIMIT = 160;
-/**
- * 记忆链噪声模式：剧情编织进度一类由系统生成的元数据。
- * 与忆庭归档侧 isArchiveNoiseLine（yitingArchive.ts）各自独立：那份含「行动选项/系统提示」
- * 等内容型模式，而本分支 stage6 会把整段对话回合写入记忆链，合并会把正常回合当噪声吞掉。
- */
+/** 与忆庭归档侧 isArchiveNoiseLine 各自独立：合并会把正常对话回合当噪声吞掉。 */
 const MEMORY_SYSTEM_NOISE_PATTERNS = [
   /剧情编织进度/,
   /当前进入第\s*\d+\s*段/,
@@ -52,8 +48,7 @@ function normalizeMemorySnippet(text: string): string {
 }
 
 /**
- * 有效摘要行：非空且非进度元数据。压缩路径的入口过滤，摘要正文与 fallback 共用同一份判定，
- * 否则「整批都是噪声」时 fallback 会把噪声原样拼回摘要。
+ * 摘要正文与 fallback 共用同一份判定：否则「整批都是噪声」时 fallback 会把噪声原样拼回摘要。
  */
 function 去噪声(items: string[]): string[] {
   return items.filter((item) => {
@@ -80,7 +75,7 @@ function isNpcMemorySystemNoise(text: string): boolean {
   return NPC_MEMORY_SYSTEM_NOISE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-/** 记忆链噪声检测（主链用，与 NPC 侧同模式）。不接进 addImmediateMemory，见下方说明。 */
+/** 不得接进 addImmediateMemory，理由见其上方说明。 */
 export function isMemorySystemNoise(text: string): boolean {
   return MEMORY_SYSTEM_NOISE_PATTERNS.some((pattern) => pattern.test(text));
 }
@@ -159,10 +154,8 @@ function dedupeLines(lines: string[]): string[] {
 }
 
 /**
- * 注意：main（2c640ef）在此处加了 isMemorySystemNoise 过滤，本分支**刻意不接**。
- * 本分支 stage6 会把整段「玩家输入+剧情回应」经此写入即时记忆，而 noise pattern 里的
- * 「行动选项/系统提示/判定：」等在 AI 正文里很常见——接上去会静默吞掉正常回合的记忆。
- * main 不受影响，是因为它从不让对话回合走这条路径。
+ * 刻意不接 isMemorySystemNoise 过滤：stage6 会把整段「玩家输入+剧情回应」写入即时记忆，
+ * 而噪声模式里的「判定：」等在 AI 正文里很常见，接上去会静默吞掉正常回合的记忆。
  */
 export function addImmediateMemory(system: 记忆系统, memory: string, _turn: number): 记忆系统 {
   void _turn;
@@ -278,13 +271,9 @@ export function upsertRecallEntry(system: { 回忆档案: 回忆条目[] }, entr
 export interface MemoryCompressionOutcome {
   memory: 记忆系统;
   archives: 回忆条目[];
-  /** 至少一批因失败回退本地摘要。 */
   usedFallback: boolean;
-  /** 至少一批由总结 API 完成。 */
   usedModel: boolean;
-  /** 因失败停批留下的阻塞草稿（新建或已存在的 pending）。 */
   failedDraft?: 记忆失败草稿;
-  /** 失败批次材料超界、未建草稿而以本地摘要继续。 */
   draftSkipped: boolean;
 }
 
@@ -294,11 +283,6 @@ interface MemoryCompressionStage {
   buildArchive: (items: string[], turn: number, summary: string) => 回忆条目;
 }
 
-/**
- * 记忆压缩管线：按层级顺序消化达标批次。
- * 失败即停批并把原始批次固化为草稿；同 kind 的 pending 草稿会阻塞该层自动压缩，
- * 保证「同一批材料最多一个草稿」。本函数不关心调用槽位的生命周期。
- */
 export async function autoCompressMemorySystemWithArchivesAsync(
   system: 记忆系统,
   turn: number,

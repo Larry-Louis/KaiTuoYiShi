@@ -11,7 +11,6 @@ export function MiniStat({ label, value }: { label: string; value: string }) {
       className="p-[10px_12px] text-left"
       style={{
         background: openingSoftPanelBackground,
-        // 2px 那层只有 0.08 透明度，等同于无；只保留 1px 描边并改成真 border。
         border: '1px solid rgba(var(--tj-btn-primary-start), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
@@ -153,8 +152,7 @@ export function ProgressBar({ step }: { step: Step }) {
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.95))'
                     : 'rgba(var(--tj-panel-bg-end),0.7)',
                   color: reached ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.65)',
-                  // reached 分支原本是个外发光，被切角整条裁掉、本就不可见，所以这里保持
-                  // 「无可见描边」；用透明边而不是 `none`，避免 1px 的边框宽度变化带动布局。
+                  // 用透明边而不是 `none`，避免 1px 的边框宽度变化带动布局。
                   border: reached
                     ? '1px solid transparent'
                     : '1px solid rgba(var(--tj-btn-primary-start), var(--tj-edge-tint-weak))',
@@ -442,7 +440,6 @@ background: done || active
   ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.98), rgba(var(--tj-btn-primary-end), 0.9))'
   : 'rgba(var(--tj-surface-strong), 0.74)',
                   color: done || active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.72)',
-                  // done 分支原本是外发光（被裁掉、不可见），保持无可见描边。
                   border: done
                     ? '1px solid transparent'
                     : active

@@ -5,7 +5,7 @@ import { smallClip } from '@/components/ui/clipPaths';
 
 
 interface Props {
-  /** AI 错误报告用例动作（片 panel-p3）：加载 / 清空，取代直连 services/ai。 */
+  /** 勿直连 services/ai。 */
   loadApiErrorReports: () => Promise<ApiErrorReport[]>;
   clearApiErrorReports: () => Promise<void>;
 }

@@ -6,7 +6,6 @@ import { badgeClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clip
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘，取代直连 saveSetting。 */
   onPersistSettings: (s: 游戏设置) => Promise<void>;
 }
 

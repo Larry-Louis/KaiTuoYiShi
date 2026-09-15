@@ -21,12 +21,9 @@ import { cardClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   onClose: () => void;
-  /** GitHub 云存档配置读写动作（片 panel-p9）：经 useDeviceSettings 收敛，不直连 dbService。 */
   onLoadCloudConfig: () => Promise<GitHubCloudSaveConfig | null>;
   onPersistCloudConfig: (next: GitHubCloudSaveConfig) => Promise<void>;
-  /** 存档目录快照用例动作（片 panel-p7）：由 App 从 useGame 门面注入，上传打包前读取本地目录。 */
   onGetSaveCatalogSnapshot: () => Promise<SaveCatalogSnapshot>;
-  /** 云存档传输读取用例动作（片 panel-p7）：存档 + 关联资源记录一并读出（useGame 门面收口）。 */
   onLoadSaveForCloudTransfer: (id: number) => Promise<CloudTransferSaveBundle | null>;
 }
 

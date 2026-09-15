@@ -1,6 +1,3 @@
-// 变量修复预览共用原子组件（Modal 弹窗与设置中心共用）：分类文案 + 单条修复项行渲染。
-// 无未引用导出：只导出两个消费方实际用到的组件与记录。
-
 import type { 修复项分类, 变量修复项 } from '@/models/variableRepair';
 import { smallClip } from '@/components/features/Chat/turnStyles';
 
@@ -29,7 +26,6 @@ function 格式化值(value: unknown): string {
   return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }
 
-/** 单条修复项行：勾选框只由 onToggle 决定渲染；checked 控制勾选与否。 */
 export function 修复项行({
   item,
   category,

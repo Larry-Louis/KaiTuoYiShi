@@ -1,11 +1,5 @@
-﻿// 「命途狭间之引」邀请卡片。
-//
-// AI 发出 <触发狭间>命途ID</触发狭间> → sendWorkflow 写入 世界.待触发狭间 → 本组件渲染。
-// 玩家点「踏入」→ App 调用 actions.handleSend('[系统] 踏入命途狭间')。
-//   sendWorkflow 内部统一处理:① 把 待触发狭间 转成 进行中狭间 ② 发请求让 AI 出第一道诘问。
-//   不让组件内部直接 setWorld + 外部再 handleSend——React 异步 setState 会让 handleSend
-//   闭包里读到的还是旧的 state.世界,scope 切不到 pathAwakening,prompt 走错。
-// 玩家点「暂缓」→ 纯前端 setWorld 清空 待触发狭间(命途进度仍满,等待下次邀请),不发请求。
+﻿// 踏入必须经 App 的 actions.handleSend('[系统] 踏入命途狭间') 发出，不能在组件内 setWorld 后再由外部 handleSend：
+// React 异步 setState 会让 handleSend 闭包里读到的还是旧的 state.世界，scope 切不到 pathAwakening，prompt 走错。
 
 import type { 世界状态 } from '@/models/world';
 import { 拒绝命途狭间 } from '@/services/pathService';
@@ -16,7 +10,6 @@ import { cardClip as btnClip, panelClip as cardClip } from '@/components/ui/clip
 interface Props {
   world: 世界状态;
   setWorld: React.Dispatch<React.SetStateAction<世界状态>>;
-  /** 玩家点「踏入」时调用。App 那一层接 actions.handleSend('[系统] 踏入命途狭间')。 */
   onTrigger: () => void;
   disabled?: boolean;
 }

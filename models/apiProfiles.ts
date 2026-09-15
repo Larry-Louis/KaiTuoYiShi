@@ -2,10 +2,6 @@ import * as z from 'zod';
 import { AI提供商列表, 文生图后端列表 } from '@/models/settings';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 
-/**
- * API 配置包：主 API 与各子功能独立接口的快照，用于本机方案槽位与导入导出。
- * 原定义在 ApiSettings.tsx 组件内（片 panel-p9 提升为共享模型，供 useDeviceSettings 强类型使用）。
- */
 export interface API配置包 {
   app: 'KaiTuoYiShi';
   kind: 'api-profile';
@@ -31,10 +27,7 @@ export interface API配置包 {
   };
 }
 
-/**
- * 导入边界校验包标识、版本和各配置项的持久化形状。
- * 路由只声明 resolveApiOverrideFields 实际消费的覆盖字段；高级采样参数属于主配置。
- */
+/** 路由只声明 resolveApiOverrideFields 实际消费的覆盖字段；高级采样参数属于主配置。 */
 const AI提供商Schema = z.enum(AI提供商列表);
 const API覆盖Schema = z.object({
   provider: AI提供商Schema,
@@ -122,7 +115,6 @@ export const API配置包信封Schema = z.object({
 
 export type API配置包信封 = z.infer<typeof API配置包信封Schema>;
 
-/** 本机 API 方案槽位：保存整套 API 配置的本地快照，最多 12 个。原定义在 ApiSettings.tsx 组件内（片 panel-p9 提升共享）。 */
 export interface API方案槽位 {
   id: string;
   name: string;
@@ -130,7 +122,6 @@ export interface API方案槽位 {
   profile: API配置包;
 }
 
-/** 辅助 API 配置：其他文本 API 批量套用形态。原定义在 ApiSettings.tsx 组件内（片 panel-p9 提升共享）。 */
 export interface AuxApiProfileState {
   provider: AI提供商;
   baseUrl: string;

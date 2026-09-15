@@ -4,7 +4,6 @@ import { API配置包信封Schema } from '@/models/apiProfiles';
 import type { API配置包, AuxApiProfileState } from '@/models/apiProfiles';
 import { providerOptions } from '@/components/features/Settings/settingsShared';
 
-/** 辅助 API 配置默认形态：provider 不存在时回落到目录第一项。 */
 export function createDefaultAuxApiProfileState(provider: AI提供商 = 'gemini'): AuxApiProfileState {
   const meta = providerOptions.find((p) => p.value === provider) ?? providerOptions[0];
   return {
@@ -15,7 +14,6 @@ export function createDefaultAuxApiProfileState(provider: AI提供商 = 'gemini'
   };
 }
 
-/** 归一化历史持久化的辅助 API 配置：provider 非法时回落，缺失字段补默认值。 */
 export function normalizeAuxApiProfileState(input?: Partial<AuxApiProfileState>): AuxApiProfileState {
   const provider = providerOptions.find((p) => p.value === input?.provider) ?? providerOptions[0];
   return {
@@ -26,7 +24,6 @@ export function normalizeAuxApiProfileState(input?: Partial<AuxApiProfileState>)
   };
 }
 
-/** 新建主 API 配置项：id 用时间戳，默认值取自供应商目录。 */
 export function makeNewConfig(provider: AI提供商): API配置项 {
   const meta = providerOptions.find((p) => p.value === provider) ?? providerOptions[0];
   return {
@@ -59,7 +56,6 @@ function cloneWithoutKeys<T>(value: T, includeApiKeys: boolean): T {
   return cloned;
 }
 
-/** 把当前主 API 设置与各子功能独立接口打包为可迁移快照。 */
 export function buildApiProfile(settings: API设置, gameSettings: 游戏设置, includeApiKeys: boolean): API配置包 {
   return cloneWithoutKeys({
     app: 'KaiTuoYiShi',
@@ -87,7 +83,6 @@ export function buildApiProfile(settings: API设置, gameSettings: 游戏设置,
   }, includeApiKeys);
 }
 
-/** 把 envelope 的校验失败映射回原有的中文提示（用户可见文案不变）。 */
 function 配置包错误文案(error: z.ZodError): string {
   const paths = new Set(error.issues.map((issue) => issue.path[0]));
   if (paths.has('version')) return 'API 配置包版本不兼容，请更新客户端后再导入。';
@@ -95,7 +90,6 @@ function 配置包错误文案(error: z.ZodError): string {
   return '不是有效的开拓轶事 API 配置包。';
 }
 
-/** 校验导入的配置包：应用标识、包类型、版本与必要结构。 */
 export function validateApiProfile(input: unknown): API配置包 {
   const result = API配置包信封Schema.safeParse(input);
   if (!result.success) {
@@ -104,7 +98,6 @@ export function validateApiProfile(input: unknown): API配置包 {
   return result.data;
 }
 
-/** 触发浏览器下载配置包 JSON 文件。 */
 export function downloadApiProfile(profile: API配置包): void {
   const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

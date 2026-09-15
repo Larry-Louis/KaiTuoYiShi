@@ -6,10 +6,6 @@ import { isBuiltinBook } from '@/utils/worldbookPredicates';
 
 export type WorldbookTab = 'builtin' | 'user';
 
-/**
- * 世界书管理弹窗的全部状态与动作：草稿维护、标签页切换、选中同步、
- * 条目增删改、导入导出与保存。宿主仅负责布局与事件接线。
- */
 export function useWorldbookManager(props: {
   worldbooks: 世界书[];
   onSave: (books: 世界书[]) => void;

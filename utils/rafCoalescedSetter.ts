@@ -1,13 +1,6 @@
-/**
- * Coalesce high-frequency text updates to at most one React commit per animation frame.
- * Final/empty values can be flushed immediately so terminal state is not delayed.
- */
 export interface RafCoalescedSetter {
-  /** Schedule a commit for the next animation frame (latest value wins). */
   set: (value: string) => void;
-  /** Commit immediately (cancels any pending rAF). Use for clear/final states. */
   flush: (value: string) => void;
-  /** Cancel pending rAF without committing. */
   cancel: () => void;
 }
 

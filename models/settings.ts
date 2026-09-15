@@ -1,6 +1,5 @@
 import * as z from 'zod';
 
-/** AI 提供商的单一数据源：类型、schema 校验、UI 选项都从这里取（与 文生图后端列表 同例）。 */
 export const AI提供商列表 = [
   'openai', 'gemini', 'claude', 'claude_compatible', 'deepseek',
   'baidu', 'opencode', 'mimo', 'ark', 'cline', 'openai_compatible',
@@ -22,21 +21,20 @@ export interface API配置项 {
   model: string;
   maxTokens?: number;
   temperature?: number;
-  /** 核采样概率阈值（0-1）。仅 OpenAI 兼容 / DeepSeek / Claude / Gemini 支持。 */
+  /** 仅 OpenAI 兼容 / DeepSeek / Claude / Gemini 支持。 */
   topP?: number;
-  /** 保留概率最高的前 K 个候选词。仅 Gemini 原生支持。 */
+  /** 仅 Gemini 原生支持。 */
   topK?: number;
-  /** 动态阈值采样（基于相对概率）。当前无 provider 实际消费，预留字段。 */
+  /** 当前无 provider 实际消费，预留字段。 */
   topA?: number;
-  /** 丢弃概率低于「最高概率 × min_p」的词（0-1）。当前无 provider 实际消费，预留字段。 */
+  /** 当前无 provider 实际消费，预留字段。 */
   minP?: number;
-  /** 重复惩罚系数（1=不生效，>1 惩罚）。OpenAI 兼容 / DeepSeek / Gemini 支持。 */
+  /** OpenAI 兼容 / DeepSeek / Gemini 支持。 */
   repetitionPenalty?: number;
-  /** 按 token 出现次数线性惩罚（-2 到 2）。OpenAI 兼容 / DeepSeek / Gemini 支持。 */
+  /** OpenAI 兼容 / DeepSeek / Gemini 支持。 */
   frequencyPenalty?: number;
-  /** 只要出现过就惩罚（-2 到 2）。OpenAI 兼容 / DeepSeek / Gemini 支持。 */
+  /** OpenAI 兼容 / DeepSeek / Gemini 支持。 */
   presencePenalty?: number;
-  /** 最大上下文窗口（tokens）。各 provider 均支持。 */
   maxContext?: number;
   retryCount?: number;
   enableClaudeMode?: boolean;
@@ -53,7 +51,7 @@ export function 创建空API设置(): API设置 {
   return { activeConfigId: null, configs: [] };
 }
 
-/** 独立系统 API 覆盖字段：留空字段回退主 API。与各覆盖接口（忆庭/智库/剧情编织/手机/文生图词组转化器）同构。 */
+/** 留空字段回退主 API。 */
 export type API覆盖字段 = {
   provider: AI提供商 | '';
   baseUrl: string;
@@ -64,7 +62,7 @@ export type API覆盖字段 = {
   retryCount?: number;
 };
 
-/** 覆盖字段解析：留空回退主 API。main 为 null 时仅取覆盖字段（调用方自行判空）。 */
+/** 留空回退主 API；main 为 null 时仅取覆盖字段（调用方自行判空）。 */
 export function resolveApiOverrideFields(
   override: API覆盖字段,
   main: API配置项 | null,
@@ -80,7 +78,6 @@ export function resolveApiOverrideFields(
   };
 }
 
-/** 归一化时的覆盖字段合并：retryCount 额外做非负整数校正，其余字段直接以 input 覆盖 defaults。 */
 function normalizeApiOverride<T extends { retryCount?: number }>(input: Partial<T> | undefined, defaults: T): T {
   return {
     ...defaults,
@@ -89,7 +86,6 @@ function normalizeApiOverride<T extends { retryCount?: number }>(input: Partial<
   };
 }
 
-/** 独立系统 API 完整合并：以主 API 为基底叠加覆盖字段与附加字段（extra 最后叠加）。 */
 export function mergeApiOverride(
   mainConfig: API配置项,
   override: API覆盖字段,
@@ -98,13 +94,12 @@ export function mergeApiOverride(
   return {
     ...mainConfig,
     ...resolveApiOverrideFields(override, mainConfig),
-    // mainConfig 非空 ⇒ fields.provider 必非空（'' 仅当 main 为 null）；显式收敛回 AI提供商。
     provider: override.provider || mainConfig.provider,
     ...extra,
   };
 }
 
-/** 独立系统 API 覆盖的通用形状：provider 不可空，留空字段回退主 API 的同名字段。 */
+/** 留空字段回退主 API 的同名字段。 */
 interface 通用API覆盖 {
   provider: AI提供商;
   baseUrl: string;
@@ -125,32 +120,23 @@ function 创建空通用API覆盖(): 通用API覆盖 {
   };
 }
 
-/** 变量模型独立 API 覆盖：任一字段留空都会回退到当前主 API 的同名字段。 */
 export type 变量API覆盖 = 通用API覆盖;
 export const 创建空变量API覆盖 = 创建空通用API覆盖;
 
-/** 新闻系统独立 API 覆盖：与变量系统完全分离。 */
 export type 新闻API覆盖 = 通用API覆盖;
 export const 创建空新闻API覆盖 = 创建空通用API覆盖;
 
-/** 手机系统独立 API 覆盖：用于私聊、群聊、主动来信生成，留空字段回退主 API。 */
 export type 手机API覆盖 = 通用API覆盖;
 export const 创建空手机API覆盖 = 创建空通用API覆盖;
 
-/** 智库系统独立 API 覆盖：用于原著资料整理、条目匹配、摘要压缩，不与主剧情模型绑定。 */
 export type 智库API覆盖 = 通用API覆盖;
 export const 创建空智库API覆盖 = 创建空通用API覆盖;
 
 export type 剧情编织API覆盖设置 = 剧情编织API覆盖;
 export const 创建空剧情编织API覆盖 = 创建空通用API覆盖;
 
-/** 忆庭独立 API 覆盖：用于回忆库检索或精炼，留空字段回退主 API。 */
 const AI提供商Schema = z.enum(AI提供商列表);
 
-/**
- * 按默认 provider 生成 API 覆盖 schema：形状唯一，只有缺省值不同。
- * 内层逐字段 catch（对象存在时只坏哪个修哪个），外层再 catch 一次（整个对象缺失或不是对象时整体回默认）。
- */
 const 建忆庭API覆盖Schema = (默认Provider: AI提供商 | '') =>
   z
     .object({
@@ -176,7 +162,6 @@ export function 创建空忆庭API覆盖(): 忆庭API覆盖 {
   return 建忆庭API覆盖Schema('openai_compatible').parse({});
 }
 
-/** 文生图词组转化器 API 覆盖：用于角色锚点/档案到图片 prompt 的文本整理，留空字段回退主 API。 */
 export interface 文生图词组转化器API覆盖 {
   provider: AI提供商 | '';
   baseUrl: string;
@@ -219,78 +204,47 @@ export interface 游戏设置 {
   enableWorldbookInjection: boolean;
   enableInnerVoice: boolean;
   enableStreaming: boolean;
-  /** 开发者模式：开启后向 AI 注入提示词，AI 会把玩家消息视作开发者测试指令并尽量配合。 */
   devMode: boolean;
   enableClaudeMode: boolean;
-  /** DeepSeek 主剧情专用模式：只在主 API 是 DeepSeek 时生效，用于降低续聊污染、reasoning 泄漏和格式漂移。 */
+  /** 只在主 API 是 DeepSeek 时生效。 */
   deepSeekMainMode: DeepSeek主剧情模式;
-  /** 后台任务执行模式：主剧情与变量落库之后，控制新闻、忆庭入库、手机种子和正文插图的收尾顺序。 */
   backgroundTaskMode: 后台任务模式;
-  /** 缓存前缀诊断：开启后在响应详情中记录本回合请求与上一回合请求的前缀变化位置。 */
   enableCacheDiagnostics: boolean;
-  /** 变量自动更新：主模型回完正文后，调用变量模型分析正文并落地变量命令。 */
   enableVariableUpdate: boolean;
-  /** 星际和平周报：独立新闻演进系统，和变量系统分离。 */
   新闻系统: 星际和平周报设置;
-  /** 手机系统：独立通讯终端，负责私聊、群聊与主动来信。 */
   手机系统: 手机系统设置;
-  /** 智库系统：原著资料库、检索与联动服务，使用独立 API。 */
   智库系统: 智库系统设置;
-  /** 剧情编织：玩家导入自定义剧情文本，经 AI 分解后以滑窗注入主剧情。 */
   剧情编织系统: 剧情编织系统设置;
-  /** 文生图：普通图片、场景图和 NSFW 图片的生成接口配置。 */
   文生图系统: 文生图系统设置;
-  /** 记忆系统管理：即时/短期/中期/长期与 NPC 同行记忆的压缩规则。 */
   记忆系统: 记忆系统设置;
-  /** 变量模型 API 覆盖：可独立填 baseUrl/apiKey/model，留空字段会回退到主 API。 */
   variableApi: 变量API覆盖;
-  /** 应用变量命令前是否需要玩家在面板中手动确认（默认 false，直接落地）。 */
   variableUpdateRequireConfirm: boolean;
   /** @deprecated 用 promptModules 替代。保留字段用于旧存档迁移。 */
   customPrompt: string;
-  /** 内置 + 玩家自定义的提示词模块。所有 enabled 模块都恒注入主流程 system prompt。 */
   promptModules: 提示词模块[];
-  /** ST 预设总开关：关闭后酒馆消息链不参与主剧情发送。 */
   enableStPreset?: boolean;
-  // === 新增：保留式 ST 预设字段 ===
-
-  /** ST 预设兼容 V2：保留原始结构的预设列表 */
   stPresetsV2?: STPresetEntryV2[];
 
-  /** ST 预设兼容 V2：当前激活的预设 id */
   currentStPresetIdV2?: string | null;
 
-  /** ST 预设兼容 V2：当前选中的 prompt_order.character_id 顺序槽位，不代表本项目角色卡。 */
+  /** 不代表本项目角色卡。 */
   currentStCharacterId?: number | null;
 
-  /** ST 预设兼容 V2：消息角色后处理模式 */
   stPostProcessMode?: TavernPostProcessMode;
 
-  /** 思维链输出语言（参考 Izumi，P2 可选）。
-   *  - 'zh'（默认）：中文思考段
-   *  - 其他值：在主剧情思维链末尾追加"请用 X 语言输出 <think> 思考段"提示
-   *  可选值：'zh' / 'en' / 'ja' / 'fr' / 'ru' / 'de' / 'es' / 'it' */
   cotLanguage?: 'zh' | 'en' | 'ja' | 'fr' | 'ru' | 'de' | 'es' | 'it';
-  /** CoT 伪装历史消息注入：在 `user:开始任务` 之后注入一条伪装 assistant 历史消息，用于强化思考段输出习惯。 */
   enableCotFakeHistory: boolean;
-  /** 标签修复：在解析 AI 回复前，自动修复常见标签错误（重复开标签、缺失闭标签等）。 */
   enableTagRepair: boolean;
-  /** 生成失败自动重试：API 报错或解析失败时自动重试，不弹错误确认弹窗。 */
   autoRetryOnError: boolean;
-  /** 自动重试次数上限。 */
   autoRetryCount: number;
-  /** 每回合结束自动存档：正文落地与后台队列收尾时都会写入最近自动存档。 */
   enableAutoSaveEveryTurn: boolean;
   visualTextSettings: VisualTextSettings;
-  /** NSFW 模式：开启后注入独立 NSFW 提示词模块，并允许成人确认后的私密档案写入。 */
   enableNsfw: boolean;
-  /** 男性 NSFW 档案：默认关闭。关闭时变量模型不得写入男性身体档案和男性私密字段。 */
+  /** 关闭时变量模型不得写入男性身体档案和男性私密字段。 */
   enableMaleNsfwArchive: boolean;
-  /** 防止抢话（NoControl）：开启后注入「角色边界」提示词模块，禁止 AI 代写玩家言行与正文内选项菜单。 */
   enableNoControl: boolean;
-  /** 抢话模式：开启后注入「适度代写玩家对白」模块，允许 AI 少量扩写玩家话语；与 enableNoControl 互斥。 */
+  /** 与 enableNoControl 互斥。 */
   enablePlayerSpeechExpansion: boolean;
-  /** 额外功能：用于承载不属于核心叙事/API/系统面板的小型修复与玩法增强。 */
   额外功能: 额外功能设置;
 }
 
@@ -299,8 +253,6 @@ export interface 污染词清理设置 {
   words: string[];
 }
 
-/** 标签块隐藏设置：用于隐藏 ST 预设中的"注入+清理"配对标签块（如抗空回的 <Q>...</WF>、抗截断的 <math>...</math>）。
- *  这些标签块让 AI 生成特定内容起作用，但显示给玩家前需要整段移除，否则污染正文格式。 */
 export interface 标签块隐藏设置 {
   enabled: boolean;
 }
@@ -316,7 +268,6 @@ export interface 星际和平周报设置 {
   autoGenerate: boolean;
   api: 新闻API覆盖;
   maxNewEntriesPerTurn: number;
-  /** 自动生成间隔：每 N 回合触发一次。新闻模型会读取这段窗口内的近期上下文。 */
   generateIntervalTurns: number;
 }
 
@@ -344,17 +295,16 @@ export interface 剧情编织系统设置 {
   api: 剧情编织API覆盖设置;
   chaptersPerSegment: number;
   currentWindow: boolean;
-  /** 独立 AI 语义判定当前分段是否完成：默认关闭，失败只留诊断、不改动确定性阈值。 */
+  /** 失败只留诊断、不改动确定性阈值。 */
   剧情推进AI判定: boolean;
-  /** 推进判定 API 覆盖：留空复用剧情编织 api，再回退主 API。 */
+  /** 留空复用剧情编织 api，再回退主 API。 */
   推进判定API: 剧情编织API覆盖设置;
-  /** 世界演变：结算内排期/裁决到期事件并物化事实；旧存档缺省关闭，可手动开启。 */
+  /** 旧存档缺省关闭，可手动开启。 */
   世界演变: boolean;
 }
 
 export type 文生图响应格式 = 'url' | 'b64_json' | 'dataUrl';
 export type 文生图默认风格 = 'hsr' | 'anime' | 'realistic' | 'custom';
-/** 文生图后端枚举的单一数据源：类型、归一化钳制、UI 选项、路径表都从这里取。 */
 export const 文生图后端列表 = ['openai_compatible', 'novelai', 'sd_webui', 'comfyui'] as const;
 export type 文生图后端类型 = (typeof 文生图后端列表)[number];
 export type 文生图接口路径模式 = 'preset' | 'custom';
@@ -370,7 +320,6 @@ export type 文生图预设接口路径 =
   | 'sd_txt2img'
   | 'comfyui_prompt';
 
-/** 预设接口枚举 → 实际路径。单真相：服务端 readPath 与设置页预设路径选项都从这里取。 */
 export const 文生图预设路径表: Record<文生图后端类型, { 预设接口: 文生图预设接口路径; 路径: string }> = {
   openai_compatible: { 预设接口: 'openai_images', 路径: '/images/generations' },
   novelai: { 预设接口: 'novelai_generate', 路径: '/ai/generate-image' },
@@ -531,41 +480,29 @@ export interface 正文生图解析API配置 {
 }
 
 export interface 正文生图设置 {
-  /** 总开关 */
   enabled: boolean;
-  /** 模式：自动每回合触发 / 手动按钮触发 */
   mode: 'auto' | 'manual';
-  /** 玩家出镜：关闭 / 正文在场时自动 / 强制尽量出镜 */
   playerAppearanceMode: 'off' | 'auto' | 'force';
   /** @deprecated 正文生图固定为故事快照，仅保留字段兼容旧存档。 */
   preference: 'scene_only' | 'character_only' | 'both';
-  /** 生成时机：立即阻塞 / 回合内排队 / 纯异步 */
   timing: 'immediate' | 'queue_current' | 'queue_async';
-  /** 提示词解析模型 API 配置（独立，不走主剧情模型） */
   parserApi: 正文生图解析API配置;
-  /** 生图接口 API 配置 */
   imageApi: 文生图API配置;
 }
 
 export const 参考图注入选择加入版本 = 1;
 
-/** 正文生图手动模式：手动快照卡片显示与回合动作可用性派生共用谓词。 */
 export function 正文生图手动模式(设置: 正文生图设置): boolean {
   return 设置.enabled && 设置.mode === 'manual';
 }
 
 export interface 文生图参考图设置 {
-  /** 总开关：关闭时参考图只作为相册素材保存，不参与生成。 */
   enabled: boolean;
   /** 玩家已在对应版本明确选择是否启用；缺失时按关闭迁移一次。 */
   injectionOptInVersion: number;
-  /** SD WebUI 启用参考图时走 img2img，值越高越接近文字提示，越低越贴近参考图。 */
   sdWebuiDenoisingStrength: number;
-  /** ComfyUI 需要工作流显式接收参考图占位符，默认不开启以免误导。 */
   enableComfyWorkflowReference: boolean;
-  /** OpenAI 兼容图片接口各中转差异很大，默认仅保存和提示，不自动传图。 */
   enableOpenAICompatibleReference: boolean;
-  /** NovelAI 参考图能力接口差异较大，默认仅保存和提示，不自动传图。 */
   enableNovelAIReference: boolean;
 }
 
@@ -591,9 +528,7 @@ export interface 文生图系统设置 {
   autoNpcSize: string;
   enableAutoItemGeneration: boolean;
   autoItemSize: string;
-  /** 正文生图：在剧情正文中插入 AI 生成的场景/角色插图 */
   正文生图: 正文生图设置;
-  /** 参考图：玩家手动开启后，按后端能力把相册参考图传入生成流程。 */
   参考图: 文生图参考图设置;
 }
 
@@ -780,7 +715,6 @@ export function 归一化文生图参考图设置(input?: Partial<文生图参�
 export function 归一化正文生图设置(input?: Partial<正文生图设置>): 正文生图设置 {
   const defaults = 创建默认正文生图设置();
   if (!input) return defaults;
-  // 兼容读取：preference 为废弃兼容字段，经独立结构类型访问以避免触发废弃成员读取检查（与 取游戏设置运行态键 同例）。
   const 兼容输入 = input as {
     preference?: 'scene_only' | 'character_only' | 'both';
   };
@@ -811,18 +745,15 @@ export function 归一化正文生图设置(input?: Partial<正文生图设置>)
 /** 阈值契约版本：存档缺失或低于此值时按历史默认组合一次性迁移。 */
 const 记忆阈值契约版本 = 2;
 
-/** 旧版历史默认三层组合（即时 / 短期转中期 / 中期转长期），仅用于无版本戳存档的一次性迁移。 */
 const 旧版阈值组合: ReadonlyArray<readonly [number, number, number]> = [
-  [25, 20, 10], // v1 早期
-  [15, 15, 15], // v1.2.x
-  [10, 30, 50], // 阶段1
-  [15, 25, 45], // F5
+  [25, 20, 10],
+  [15, 15, 15],
+  [10, 30, 50],
+  [15, 25, 45],
 ];
 
-/** 旧版 NPC 压缩阈值默认，随三层组合一并迁移。 */
 const 旧版NPC默认压缩阈值 = 15;
 
-/** 一次性迁移：命中历史默认组合即视为玩家从未自定义，抬到当前默认；旧 NPC 默认 15 同理。 */
 function 迁移旧版阈值(input: Partial<记忆系统设置>, defaults: 记忆系统设置): Partial<记忆系统设置> {
   const 命中三层 = 旧版阈值组合.some(
     ([即时, 短期, 中期]) =>
@@ -876,12 +807,9 @@ const 记忆系统默认值 = {
   忆庭召回条数: 8,
   /** 关闭后记忆压缩不再调用总结 API，始终使用本地摘要（不产生失败草稿）。 */
   启用中短长期API总结: true,
-  /** 回忆候选池中最近 N 条向检索模型展示完整原文，更早的只展示概括。 */
   剧情回忆完整原文条数N: 20,
   忆庭独立精炼: false,
-  /** 忆庭命中时是否并存注入短/中/长记忆：默认 true 并存互补；显式 false 时命中暂停短/中注入、长期只留 3 条锚点。 */
   忆庭命中并存注入: true,
-  /** 主剧情原始历史保留模式：conservative = 最近 20 条（当前默认）；minimal = 有记忆注入时 0 条，无记忆可抱时回退默认窗口。 */
   主剧情历史模式: 'conservative' as const,
     忆庭召回提示词: [
       '你是「忆庭」的回忆检索器。你的任务不是写正文，而是根据玩家当前输入，从回忆库中筛出最相关的回忆档案，供主剧情继续承接。',
@@ -907,7 +835,6 @@ const 记忆系统默认值 = {
   ].join('\n'),
 };
 
-/** 阈值类字段的公共约束：不小于 1 的整数。z.number() 本身已拒绝 NaN/Infinity。 */
 const 阈值 = z.number().int().min(1);
 
 const 记忆系统设置Schema = z.object({
@@ -937,7 +864,6 @@ const 记忆系统设置Schema = z.object({
 
 export type 记忆系统设置 = z.infer<typeof 记忆系统设置Schema>;
 
-/** 空输入过一遍 schema 就是默认值：默认值与校验规则同源，不可能漂移。 */
 export function 创建默认记忆系统设置(): 记忆系统设置 {
   return 记忆系统设置Schema.parse({});
 }
@@ -960,7 +886,6 @@ export function 创建默认手机系统设置(): 手机系统设置 {
     maxSeedsPerTurn: 2,
     contactCooldownTurns: 3,
     groupCooldownTurns: 5,
-    // 阶段1：手机回复内容短，8/12 条太浪费 API 调用，调高到 20/30
     privateArchiveThreshold: 20,
     groupArchiveThreshold: 30,
   };
@@ -1066,21 +991,17 @@ function 取默认提示词组(defaults: 记忆系统设置) {
   };
 }
 
-/**
- * 历史迁移：只装 zod 表达不了的旧存档规则（版本戳、历史默认组合、废弃字段读取、旧版提示词组）。
- * 形状与约束一律交给 记忆系统设置Schema。
- */
 function 迁移记忆系统设置(input: unknown): Partial<记忆系统设置> {
   const defaults = 创建默认记忆系统设置();
-  // 兼容读取：短期转长期阈值/提示词 为废弃兼容字段，经独立结构类型访问以避免触发废弃成员读取检查（与 取游戏设置运行态键 同例）。
+  // 兼容读取：短期转长期阈值/提示词 为废弃兼容字段，经独立结构类型访问以避开废弃成员读取检查。
   const 原始 = (input ?? {}) as Partial<记忆系统设置> & {
     短期转长期阈值?: number;
     短期转长期提示词?: string;
   };
-  // 版本戳必须是整数才认：被手改坏的版本一律按旧存档处理，交给 schema 的 catch 重新打戳。
+  // 版本戳必须是整数才认：被手改坏的版本一律按旧存档处理。
   const 存档版本 = 原始.记忆阈值契约版本;
   const 已契约 = Number.isInteger(存档版本) && (存档版本 as number) >= 记忆阈值契约版本;
-  // 已打戳的存档阈值归玩家所有，不再嗅探；无戳的旧存档按历史默认组合一次性迁移。
+  // 已打戳的存档阈值归玩家所有，不再嗅探；无戳的旧存档按历史默认组合迁移。
   const 阈值来源 = 已契约 ? 原始 : 迁移旧版阈值(原始, defaults);
   const 旧阈值 = 阈值来源 as { 短期转长期阈值?: number };
 
@@ -1101,7 +1022,6 @@ function 迁移记忆系统设置(input: unknown): Partial<记忆系统设置> {
     );
 
   if (使用旧版默认提示词) {
-    // 提示词整组回落到当前默认（即提示词迁移），阈值沿用已迁移值。
     return { ...迁移后, ...取默认提示词组(defaults) };
   }
 
@@ -1112,7 +1032,6 @@ function 迁移记忆系统设置(input: unknown): Partial<记忆系统设置> {
   return 迁移后;
 }
 
-/** 读档与设置变更的边界：历史迁移一次，形状与约束交给 schema。 */
 export function 归一化记忆系统设置(input?: unknown): 记忆系统设置 {
   return 记忆系统设置Schema.parse(迁移记忆系统设置(input));
 }
@@ -1155,10 +1074,8 @@ export function 创建默认游戏设置(): 游戏设置 {
     enableNoControl: true,
     enablePlayerSpeechExpansion: false,
     额外功能: 创建默认额外功能设置(),
-    // ST 预设兼容相关字段（可选，这里显式列默认值保持风格一致）
     cotLanguage: 'zh',
     enableStPreset: true,
-    // === 新增：保留式 ST 预设默认值 ===
     stPresetsV2: [],
     currentStPresetIdV2: null,
     currentStCharacterId: null,
@@ -1222,49 +1139,42 @@ export function 归一化额外功能设置(input?: Partial<额外功能设置>)
 export type 主题预设 = 'deepspace' | 'starOceanCyan';
 export type 存档类型 = 'manual' | 'auto' | 'backup' | 'imported';
 
-/** 上次离开页面时的 UI 视图，仅用于 boot 路由，不进入存档或 newest。 */
 export const LAST_VIEW_STORAGE_KEY = 'lastView';
 
 export interface 存档数据 {
   id: number;
   type: 存档类型;
   timestamp: number;
-  /** 当前运行回合计数。旧存档没有该字段时，读档会按聊天记录兜底推算。 */
   turnCount?: number;
   旅人: import('./character').角色数据结构;
   世界: import('./world').世界状态;
   chatHistory: import('./chat').聊天消息[];
   记忆: import('./memory').记忆系统;
-  忆庭?: import('./yiting').忆庭系统;               // 可选：兼容旧存档（忆庭系统独立化）
-  智库?: import('./zhiku').智库系统;                // 可选：兼容旧存档（智库资料库）
-  手机?: import('./phone').手机系统;               // 可选：兼容旧存档（手机系统）
-  NPC?: import('./npc').NPC记录[];                 // 可选：兼容旧存档（v1 加入）
-  相册?: import('./imageGeneration').相册系统;      // 可选：图片资产、挂载与生成任务
-  /** @deprecated 旧独立战斗系统字段。当前版本不再读取或写入，仅允许旧存档携带后被忽略。 */
+  忆庭?: import('./yiting').忆庭系统;
+  智库?: import('./zhiku').智库系统;
+  手机?: import('./phone').手机系统;
+  NPC?: import('./npc').NPC记录[];
+  相册?: import('./imageGeneration').相册系统;
+  /** @deprecated 不再读取或写入，仅允许旧存档携带后被忽略。 */
   战斗?: unknown;
-  新闻?: import('./news').新闻条目[];               // 可选：兼容旧存档（v1 加入）
-  剧情?: import('./plot').剧情节点[];                // 可选：兼容旧存档（v1 加入）
-  剧情编织?: import('./storyWeaving').剧情编织系统;   // 可选：自定义剧情编织系统
-  /** @deprecated 旧独立阵营系统字段。当前版本不再读取或写入，仅允许旧存档携带后被忽略。 */
+  新闻?: import('./news').新闻条目[];
+  剧情?: import('./plot').剧情节点[];
+  剧情编织?: import('./storyWeaving').剧情编织系统;
+  /** @deprecated 不再读取或写入，仅允许旧存档携带后被忽略。 */
   阵营?: unknown;
-  variableBatches?: import('./variableCommand').变量命令批次[]; // 可选：兼容旧存档（v1 加入）
-  /**
-   * 过渡账本（待改造，非正式契约）：目标形态是各子系统自有任务字段 + 投影聚合
-   * （kernelization §14.2/§19）。新代码不得直接依赖该字段做跨插件协调；
-   * 读取统一经 hooks/useGame/turnActionRuntime 的账本适配器。
-   */
-  queueTasks?: import('./queueTask').队列任务记录[]; // 可选：后台队列展示记录
-  /** 片 5a-2 D3 迁入顶层：宏变量持久化（跨回合保留的全局变量）。随 newest/checkpoint 提交，不再走 settings 通道。 */
+  variableBatches?: import('./variableCommand').变量命令批次[];
+  /** 新代码不得直接依赖该字段做跨插件协调；读取统一经 hooks/useGame/turnActionRuntime 的账本适配器。 */
+  queueTasks?: import('./queueTask').队列任务记录[];
+  /** 随 newest/checkpoint 提交，不走 settings 通道。 */
   macroGlobalVars?: Record<string, string>;
-  /** 片 5a-2 D3 迁入顶层：世界书条目触发状态表。随 newest/checkpoint 提交，不再走 settings 通道。 */
+  /** 随 newest/checkpoint 提交，不走 settings 通道。 */
   worldbookTriggerStates?: Record<string, number>;
-  /** 未封版回合相位（活跃叶子 ephemeral 字段，生命周期见 models/leafLifecycle.ts / models/turnRecovery.ts）。 */
+  /** 活跃叶子 ephemeral 字段，生命周期见 models/leafLifecycle.ts / models/turnRecovery.ts。 */
   turnPhase?: import('./turnRecovery').TurnPhase | null;
-  /** 恢复上下文（活跃叶子 ephemeral 字段）：重试 / 撤销 / 继续结算所需的最小事实。 */
   recoveryContext?: import('./turnRecovery').TurnRecoveryContext | null;
 }
 
-/** Canonical device-owned settings. These values never belong to a game save. */
+/** These values never belong to a game save. */
 export interface DeviceSettings {
   apiSettings: API设置;
   gameSettings: 游戏设置;
@@ -1272,12 +1182,10 @@ export interface DeviceSettings {
   worldbooks: import('./worldbook').世界书[];
 }
 
-/** Canonical persisted game payload, excluding all device-owned settings. */
 export type GameData = 存档数据;
 
 export type RuntimeSaveData = 存档数据 & Pick<DeviceSettings, 'apiSettings' | 'gameSettings' | 'theme'>;
 
-/** Save metadata plus the canonical game payload. */
 export interface SaveEnvelope {
   id: number;
   type: 存档类型;
@@ -1322,7 +1230,7 @@ export function hydrateSaveEnvelope(envelope: SaveEnvelope, device: DeviceSettin
   };
 }
 
-/** 运行态键迁移输入：新格式 `存档数据`（顶层两键）或旧 settings 投影（gameSettings 残留两键）。 */
+/** 新格式取顶层两键；旧档的 settings 投影里仍有 gameSettings 残留两键。 */
 type 运行态键迁移输入 = 存档数据 | ({
   gameSettings?: 游戏设置 & {
     macroGlobalVars?: Record<string, string>;
@@ -1332,10 +1240,7 @@ type 运行态键迁移输入 = 存档数据 | ({
   worldbookTriggerStates?: Record<string, number>;
 });
 
-/**
- * 读取侧迁移（片 5a-2 D3）：`存档数据` 顶层两运行态键优先；仅当顶层缺省时
- * 从 `gameSettings` 残留读取（旧档），并在返回值里置空原键。纯函数，不改存储，不回写旧档。
- */
+/** 顶层两运行态键优先，缺省时从 `gameSettings` 残留读取（旧档），并在返回值里置空原键。纯函数，不回写存储。 */
 export function 迁移存档运行态键<T extends 运行态键迁移输入>(
   save: T,
 ): {

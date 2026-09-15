@@ -16,18 +16,12 @@ export function getCurrentStoryChapterLabel(system: 剧情编织系统): string 
   return `${series.标题} · ${chapter}`;
 }
 
-/** 当前分段：供推进判定等需要与本段对话的调用方读取。 */
 export function 获取当前剧情分段(system: 剧情编织系统): 剧情编织分段 | undefined {
   const normalized = 归一化剧情编织系统(system);
   const series = 获取激活剧情系列(normalized);
   return series ? getCurrentSegment(series, normalized.当前进度) : undefined;
 }
 
-/**
- * 剧情推进申报契约（常开）：给主模型的当前分段上下文 + <剧情推进> 自报格式。
- * 无激活系列/无当前分段时返回 ''（调用方不注入，避免死指令）。
- * 申报只是候选信号：「完成」必须基于正文实际内容，系统只按正文证据校验，申报本身不能推进剧情。
- */
 export function buildStoryAdvanceDeclarationContract(system: 剧情编织系统): string {
   const normalized = 归一化剧情编织系统(system);
   const series = 获取激活剧情系列(normalized);
@@ -64,12 +58,9 @@ export function autoAlignCanonStoryProgress(params: {
   userInput: string;
   currentLocation?: string;
   gateSnapshot?: 剧情编织门禁快照 | null;
-  /** 独立推进判定：completed 只升不降（补充完成证据），actualSegmentId 只收窄对齐候选。 */
   advanceJudge?: StoryAdvanceJudgement | null;
-  /** 主模型 <剧情推进> 自报：completed 只有正文背书（explicitEnding）才计入，
-   *  targetSegment 只有在候选窗口内且正文锚点背书才收窄；申报 false 永不降级。 */
   declaredAdvance?: { completed: boolean; targetSegment?: string } | null;
-  /** 本回合世界演变已解决事实的文本证据：只参与「本段结束状态」命中，不参与分段存在性评分；阻断词仍只看正文。 */
+  /** 只参与「本段结束状态」命中：不参与分段存在性评分，阻断词仍只看正文。 */
   factEvidence?: string[] | null;
 }): { system: 剧情编织系统; changed: boolean; progressed: boolean } {
   const normalized = 归一化剧情编织系统(params.storyWeaving);
@@ -140,8 +131,6 @@ export function autoAlignCanonStoryProgress(params: {
   const scored = candidates
     .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))
     .sort((a, b) => b.score.value - a.score.value || b.segment.组号 - a.segment.组号);
-  // 目标收窄：独立判定优先；申报目标需在候选窗口内且正文锚点背书（存在性评分 ≥3），否则忽略。
-  // 判定目标维持既有行为；申报目标无背书或越窗时仍走确定性集合。
   const declaredTargetId = resolveDeclaredTargetId(scored, params.declaredAdvance?.targetSegment);
   const judgedTargetId = params.advanceJudge?.actualSegmentId ?? declaredTargetId;
   const judged = judgedTargetId ? scored.filter((item) => item.segment.id === judgedTargetId) : [];
@@ -308,7 +297,6 @@ function isSideCanonSeries(series: 剧情编织系列): boolean {
   return /(^|_)side_|【支线】|支线/.test(text);
 }
 
-/** 跨系列纠偏的强位移判定：目标系列区域必须可确定，且当前正文确实提及该区域。 */
 function hasStrongCrossSeriesWorldShift(source: string, targetSeries: 剧情编织系列): boolean {
   const targetRegion = 推断系列区域ID(targetSeries);
   return targetRegion !== 未知区域ID && 源文命中区域(source, targetRegion);
@@ -735,7 +723,6 @@ function scoreCompletionSignals(segment: 剧情编织分段, text: string, judge
   const blockers = detectProgressBlockers(source);
   const endStates = [...segment.本段结束状态, ...segment.关键事件.flatMap((event) => event.事件结果)].filter(Boolean);
   const endingHits = countHits(source, endStates, 词表);
-  // 世界事实只拓宽结束状态覆盖（按候选去重，不重复计数）；标题/收束词仍只看正文。
   const evidenceText = factEvidence.map((item) => item.trim()).filter(Boolean).join('\n');
   const combinedEndingHits = evidenceText ? countHits(normalizeText(`${source}\n${evidenceText}`), endStates, 词表) : endingHits;
   if (combinedEndingHits > 0) {
@@ -760,13 +747,11 @@ function scoreCompletionSignals(segment: 剧情编织分段, text: string, judge
     value = Math.max(0, value - 2);
     reasons.push(`出现否定/阻断信号：${blockers.slice(0, 4).join('、')}`);
   }
-  // 判定只补完成证据、不降文本信号；explicitEnding 仍由文本证据决定，阻断词存在时判定也无法越权。
   if (judgeCompleted) {
     value += 1;
     reasons.push('独立判定：当前分段已完成');
   }
   const explicitEnding = blockers.length === 0 && (combinedEndingHits > 0 || (titleHits >= 2 && resultHits >= 2));
-  // 申报完成只有正文背书才计入：无背书时静默丢弃，永不降级；阻断词存在时同样无法越权。
   if (declaredCompleted) {
     if (explicitEnding) {
       value += 1;
@@ -779,10 +764,6 @@ function scoreCompletionSignals(segment: 剧情编织分段, text: string, judge
   return { value, explicitEnding, reasons, blockers };
 }
 
-/**
- * 申报目标解析：标题精确匹配或组号匹配，且正文存在性评分 ≥3（锚点背书）才返回分段 id。
- * "无"/空/越窗/缺背书 → undefined（调用方回退确定性集合）。
- */
 function resolveDeclaredTargetId(
   scored: Array<{ segment: 剧情编织分段; score: 分段存在评分 }>,
   declaredTarget?: string,
@@ -1026,10 +1007,6 @@ function decideSegmentAlignment(params: {
   };
 }
 
-/**
- * 否定/阻断信号词。导出给评估集直接引用——那边有一份手抄副本，抄本一旦漂移，
- * 「正文出现阻断词就不该推进」这条不变量就失去了验收意义。
- */
 export const 剧情阻断词: readonly string[] = [
   '还没有',
   '还没',
@@ -1116,11 +1093,6 @@ function countHits(source: string, candidates: string[], 词表: string[]): numb
   return count;
 }
 
-/**
- * 分段词表：分段自带实体（角色/地点/派系），供分词器最长匹配，专名不切碎。
- * 按分段对象缓存：同一回合里同一分段会被评分函数连问三次，分段对象在归一化后又是稳定的，
- * 每次展开三个数组纯属白费。WeakMap 跟着对象走，重开档时随之回收，不必管上限。
- */
 const 分段词表缓存 = new WeakMap<剧情编织分段, string[]>();
 
 function 分段词表(segment: 剧情编织分段): string[] {
@@ -1131,12 +1103,7 @@ function 分段词表(segment: 剧情编织分段): string[] {
   return 词表;
 }
 
-/**
- * 词项提取缓存。canon 文本（标题/结束状态/事件结果/概括）逐回合不变，而评分器每回合要对同一批
- * 文本取词几十次（countHits 逐候选、两个 scorer 各三次）。分词是这条链上最贵的一步：实测不缓存
- * 会让单次对齐从 ~15ms 涨到 ~110ms（216 个分段 × 每个 5.1M 字符），缓存后回到 ~9ms。
- * 返回的数组是共享的——调用方只读（filter/includes/length），不得就地修改。
- */
+/** 返回的数组在调用方之间共享：只能读，不得就地修改。 */
 const termsCache = new Map<string, string[]>();
 const TERMS_CACHE_MAX = 4096;
 
@@ -1158,7 +1125,7 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-// 停用词：只收功能词。完成/收束/跳转信号词（完成、解决、抵达、启程…）是评分信号，禁止入表。
+// 完成/收束/跳转信号词（完成、解决、抵达、启程…）是评分信号，禁止入表。
 const STOP_WORDS = new Set([
   '当前', '本段', '剧情', '玩家', '角色', '已经', '一个', '以及', '进行', '开始', '继续',
   '之后', '然后', '接着', '同时', '但是', '因为', '所以', '如果', '虽然', '尽管',

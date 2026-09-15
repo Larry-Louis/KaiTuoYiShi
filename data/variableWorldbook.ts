@@ -82,7 +82,7 @@ export const NPC_MEMORY_WRITE_RULE_PROMPT = `<NPC档案记忆写入法则>
 - 补档优先当前出场或刚建档的 1-2 名，不要一次性刷满所有 NPC。
 </NPC档案记忆写入法则>`;
 
-/** NSFW 档案与普通 NPC 记忆的分离规则；只在 NSFW 开启时注入变量模型。 */
+/** 只在 NSFW 开启时注入变量模型。 */
 export const NSFW_ARCHIVE_SEPARATION_RULE = '普通 NPC 记忆与私密档案分离。成人向或亲密事件造成长期关系变化时，普通 `memory` 只记录关系结果、承诺、边界和情绪后果；私密长期事实必须遵守 NSFW 开关和独立档案规则。';
 
 export const VARIABLE_SYSTEM_WORLDBOOK_PROMPT = `# 变量系统世界书

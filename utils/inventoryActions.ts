@@ -1,5 +1,4 @@
-// 背包服务层。集中处理 获取/使用/丢弃,保持 UI 与 AI 链路只调这些函数,
-// 不直接戳 traveler.背包 数组,避免遗漏副作用(堆叠合并、属性重算入口)。
+// 调用方不要直接改 traveler.背包，否则会漏掉堆叠合并等副作用。
 
 import type { 角色数据结构 } from '@/models/character';
 import type {
@@ -17,9 +16,6 @@ import {
 } from '@/models/inventory';
 import type { VariableExecContext } from './variableExecContext';
 
-// ── 获取物品 ──
-// 同名同类且双方都「可堆叠」时合并数量;否则作为新条目 push。
-// 光锥 / 武器 / 衣物 / 饰品等叙事物品默认不堆叠 → 每件独立存在。
 export interface 获取物品输入 {
   类别: 物品分类;
   名称: string;
@@ -52,7 +48,6 @@ export function 获取物品(
   const requested = Math.max(1, Math.trunc(input.数量 ?? 1));
   const stackable = input.可堆叠 ?? defaultStackable(input.类别);
 
-  // 叙事物品:每件独立,直接 push
   if (NARRATIVE_ITEM_CATEGORIES.includes(input.类别) || !stackable) {
     const item = 创建背包物品({
       ...input,
@@ -68,7 +63,6 @@ export function 获取物品(
     };
   }
 
-  // 尝试堆叠:同名 + 同类 + 双方都可堆叠
   const existIdx = inventory.findIndex(
     (it) => it.类别 === input.类别 && it.名称 === input.名称 && it.可堆叠,
   );
@@ -85,7 +79,6 @@ export function 获取物品(
     };
   }
 
-  // 新条目
   const item = 创建背包物品({
     ...input,
     数量: requested,
@@ -100,10 +93,6 @@ export function 获取物品(
   };
 }
 
-// ── 使用物品(消耗品 / 食物) ──
-// - 仅 类别 ∈ {food, consumable} 可用
-// - 扣 count(默认 1);堆叠数到 0 后删条目
-// - 使用效果只作为叙事记录，不再修改旧战斗数值
 export interface 使用物品结果 {
   traveler: 角色数据结构;
   ok: boolean;
@@ -139,7 +128,6 @@ export function 使用物品(
     }
   }
 
-  // 扣堆叠数量
   const remain = item.数量 - useCount;
   const nextInventory = [...inventory];
   if (remain > 0) {
@@ -164,8 +152,6 @@ export function 使用物品(
   };
 }
 
-// ── 丢弃物品 ──
-// count 不传或 Infinity 表示全丢。
 export interface 丢弃物品结果 {
   traveler: 角色数据结构;
   ok: boolean;

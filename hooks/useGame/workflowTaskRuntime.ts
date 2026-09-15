@@ -1,7 +1,3 @@
-// 队列任务运行时：pushQueueTask 是过渡账本 queueTasks 的唯一写入口。
-// 目标形态见 models/queueTask.ts 头注与 kernelization §14.2/§19；动作策略与读取适配器
-// 在 hooks/useGame/turnActionRuntime.ts，本文件只负责写入与取消标记。
-
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 聊天消息 } from '@/models/chat';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
@@ -78,7 +74,6 @@ export function pushQueueTask(
     cancellable: patch?.cancellable,
     cancelled: patch?.cancelled,
   };
-  // 投影点（B2 定性，S32）：处理队列即时刷新；管线与存档只认 ctx/d，不回读此 state
   state.setQueueTasks((prev) => [...prev.slice(-24), task]);
   if (queueTasksMirror) {
     queueTasksMirror.splice(0, Math.max(0, queueTasksMirror.length - 24));
@@ -87,9 +82,7 @@ export function pushQueueTask(
 }
 
 /**
- * 取消当前工作流的全部未决队列任务（幂等）。
- * 单一取消通道与独立工作流的事务收尾共用：只把最新状态仍为 pending 的任务
- * 追加一条 cancelled 记录，保证取消后队列不残留「永远处理中」的孤儿条目。
+ * 幂等：只把最新状态仍为 pending 的任务追加 cancelled，避免取消后队列残留「永远处理中」的孤儿条目。
  */
 export function cancelPendingQueueTasks(state: UseGameStateReturn): void {
   state.setQueueTasks((prev) => {

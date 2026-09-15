@@ -1,4 +1,3 @@
-/** 横幅内联小按钮：RecoveryBanner 与 ContinuityBanner 共用同一套尺寸与描边。 */
 export function BannerButton({ label, accent, onClick }: { label: string; accent: boolean; onClick: () => void }) {
   return (
     <button

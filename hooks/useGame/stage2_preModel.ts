@@ -93,7 +93,6 @@ export async function stage2_preModel(
         recentTurns: [`- 系统：开局初始化\n  正文：${openingArchive?.地区名称 ?? currentLocation ?? '当前地区'}「${openingArchive?.章节锚点名称 ?? '当前开局'}」即将开始，新闻系统先生成可供首回合参考的世界事件苗头。`],
         signal: abortController.signal, shouldCommit: isCurrentWorkflow,
       });
-      // 投影点（B2-c）：原 newsWorkflow 内部 setter 的等价复刻
       if (preNews?.changed) state.set新闻(preNews.news);
       assertWorkflowActive();
       openingNewsPreprocessed = true;
@@ -101,7 +100,6 @@ export async function stage2_preModel(
       openingNewsForSave = preNews?.news ?? null;
       pushQueueTask(state, 'news', 'success', { detail: preNews?.changed ? `开局新闻预处理完成，当前 ${preNews.news.length} 条新闻记录。` : preNews ? '开局新闻预处理完成，但本轮没有可写新闻变化。' : '开局新闻预处理未生成可用结果。' }, turnCountAtStart, queueTasksMirror);
     } catch (err) {
-      // 取消必须立即冒泡到工作流级 abort 处理，不得吞掉后继续跑后续阶段
       if ((err as Error).name === 'AbortError') throw err;
       devLogError('stage', 'stage2_preModel.openingNews.catch', err, { turn: turnCountAtStart });
       pushQueueTask(state, 'news', 'failed', { detail: err instanceof Error ? err.message : '开局新闻预处理失败。', failCount: newsSettings.api.retryCount }, turnCountAtStart, queueTasksMirror);
@@ -150,8 +148,6 @@ export async function stage2_preModel(
     : yitingPreview?.entries.length ? `剧情回忆已召回：强 ${yitingPreview.strongEntries?.length ?? 0} 条 / 弱 ${yitingPreview.weakEntries?.length ?? 0} 条`
     : yitingRecallEnabled ? `忆庭已召回：${yitingArchiveCount ? '无相关档案' : '当前还没有可召回档案'}` : `忆庭已召回：未到第${memorySettings.忆庭召回最早触发回合 + 1}回合`;
   const zhikuHint = zhikuSettings?.enabled ? `智库内容已注入：${zhikuPreview?.entries.length ? zhikuPreview.entries.slice(0, 2).map((entry: { 标题: string }) => entry.标题).join('、') : '无相关条目'}` : '智库已跳过';
-  // 投影点（B2 定性）：预模型召回完成、主模型开始生成 —— 置 generating，不置 done。
-  // 旧实现在此置 'done'，导致整个生成期间状态条误显 ✓；真正的完成态在 finally 清空。
   state.activeWorkflow.setTurnStatus({ kind: 'generating', text: isOpeningSystemTrigger ? memoryHint : `${memoryHint} · ${yitingHint} · ${zhikuHint}` });
 
   const immediateStoryReview = !isOpeningSystemTrigger ? buildImmediateStoryReview(updatedHistory) : '';
@@ -203,7 +199,6 @@ export async function stage2_preModel(
 
   const macroGlobalVarsChanged = Object.keys(macroCtx.global).length !== Object.keys(prevGlobalSnapshot).length || Object.entries(macroCtx.global).some(([k, v]) => prevGlobalSnapshot[k] !== v);
   if (macroGlobalVarsChanged) {
-    // 投影点（B2 定性）：刷新订阅 gameSettings 的 UI；存档组装只认 d，不回读此 state
     state.setMacroGlobalVars({ ...macroCtx.global });
   }
 
@@ -213,7 +208,6 @@ export async function stage2_preModel(
     promptInput.worldbookPlan ?? undefined,
   );
   if (nextTriggerStates !== state.worldbookTriggerStates) {
-    // 投影点（B2 定性）：刷新订阅 gameSettings 的 UI；存档组装只认 d，不回读此 state
     state.setWorldbookTriggerStates(nextTriggerStates);
   }
 

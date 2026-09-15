@@ -73,8 +73,6 @@ describe('lazyWithRetry：失败可见且可重试', () => {
       </Suspense>,
     );
 
-    // jsdom 的 location.reload 不可拦截（文件头注释）；这里只锁定入口存在与点击不破坏失败卡片，
-    // reload 的实际转发行为由生产代码的 window.location.reload() 承担，无法在 jsdom 内断言。
     const retryButton = await screen.findByRole('button', { name: '重新载入' });
     expect(retryButton).toBeTruthy();
     fireEvent.click(retryButton);

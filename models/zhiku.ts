@@ -6,7 +6,6 @@ import { isZhikuDataOwner, isZhikuGovernanceCategory } from './zhikuGovernance';
 export type 智库分类 = 'story' | 'character' | 'npc' | 'location' | 'item' | 'faction' | 'term' | 'event' | 'enemy' | 'system';
 export type 智库辅助关键词逻辑 = 'AND_ANY' | 'AND_ALL' | 'NOT_ANY' | 'NOT_ALL';
 
-/** 智库内置目录的就绪信号：pending=载入中，ready=可展示，failed=不可用。 */
 export type ZhikuCatalogStatus = 'pending' | 'ready' | 'failed';
 
 export const RETIRED_ZHIKU_CATEGORIES = ['npc', 'item', 'system'] as const satisfies readonly 智库分类[];
@@ -251,11 +250,7 @@ export function 创建智库条目(input: {
   };
 }
 
-/**
- * **边界归一化**：不可信输入（IDB 旧档、外部载荷）的修复入口——唯一允许清洗、补默认、去重兜底
- * 的地方。可信产物（内置 zhiku 预设装配结果、构建期生成物）走 构造智库系统：它们已由契约测试
- * 定型。返回值不提供私有副本：调用方不得原地修改。
- */
+/** 不可信输入（IDB 旧档、外部载荷）的唯一清洗入口。返回值不提供私有副本：调用方不得原地修改。 */
 export function 归一化智库系统(input?: Partial<智库系统> | null, ctx?: VariableExecContext): 智库系统 {
   if (!input || !Array.isArray(input.条目)) return 创建空智库系统();
   const seen = new Set<string>();
@@ -273,11 +268,7 @@ export function 归一化智库系统(input?: Partial<智库系统> | null, ctx?
   };
 }
 
-/**
- * **可信构造**：输入是已定型条目（内置预设装配结果、构建期生成物）。不逐字段清洗、不补默认、
- * 不去重兜底——重复 ID 或缺字段属于契约被破坏，由契约测试拦截而非运行时悄悄修复。
- * 返回值不提供私有副本：调用方不得原地修改。
- */
+/** 可信构造：不逐字段清洗、不补默认、不去重兜底；重复 ID 或缺字段属于契约破坏，由契约测试拦截。 */
 export function 构造智库系统(input: {
   条目: 智库条目[];
   目录版本?: string;
@@ -308,7 +299,6 @@ export function 搜索智库条目(system: 智库系统, query: string, limit = 
     .map((hit) => hit.entry);
 }
 
-/** 显式触发词：优先结构化触发关键词，其次核心触发词，最后从关键词标签中提取。 */
 export function 获取智库显式触发词(entry: 智库条目): string[] {
   const explicit = normalizeTextList(entry.触发关键词);
   if (explicit.length) return explicit;
@@ -783,7 +773,7 @@ function scoreEntry(entry: 智库条目, query: string, terms: string[]): number
   const summary = entry.摘要.toLowerCase();
   const source = (entry.来源 ?? '').toLowerCase();
   const raw = entry.原文.toLowerCase();
-  // 关键词取标签值：正文写「符玄」匹配「角色:符玄」的值，而不是带前缀的原文。
+  // 关键词取标签值：正文写「符玄」要匹配「角色:符玄」的值，而不是带前缀的原文。
   const keywordValues = entry.关键词
     .map((keyword) => parseKeywordTag(keyword)?.value ?? keyword)
     .map((keyword) => keyword.toLowerCase());

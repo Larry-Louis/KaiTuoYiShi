@@ -1,6 +1,3 @@
-// 剧情对齐评估集（常驻验收）：从 bundled canon 读真实分段，三类正文的不变量必须成立——
-// 中性正文不推进、收束正文归档到下一段、跳段正文对齐到下一段。
-// 与分词器无关：先在旧语义下全绿（基线），切分词器 + 重调阈值后必须保持全绿。
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,8 +13,6 @@ import { 标点切分正则 } from '@/utils/chineseSegments';
 
 const CANON_DIR = path.join(process.cwd(), 'public', 'data', 'story-weaving-canon');
 
-// 阻断词与标点切分都直接引用评分器的实现：这个评估集的价值就在于发现评分器的漂移，
-// 自己抄一份副本，先漂移的只会是副本。
 function cleanFragments(text: string): string[] {
   return text.split(标点切分正则).map((item) => item.trim()).filter(
     (item) => item.length >= 4 && !剧情阻断词.some((blocker) => item.includes(blocker)),
@@ -59,7 +54,6 @@ function buildPairs(): EvalPair[] {
       if (nextEntities.length < 2 || !next.标题.trim()) continue;
       const nextSummary = cleanFragments(next.本段概括).slice(0, 3);
       if (nextSummary.length < 1) continue;
-      // 整句结束状态：正文整句引用，分词后的每个词都命中，不依赖分词器怎么切某个专名。
       const nextEnding = next.本段结束状态.find((state) => state.trim() && !剧情阻断词.some((blocker) => state.includes(blocker)));
       if (!nextEnding) continue;
       const staged: 剧情编织系列 = {
@@ -85,7 +79,6 @@ function buildPairs(): EvalPair[] {
   return pairs;
 }
 
-// 中性候选句：固定池，逐对挑选与分段文本零二元重叠的一句（新旧语义下都不应命中）。
 const NEUTRAL_POOL = [
   '深夜走廊灯光柔和，清洁车缓缓驶过，窗外云海平静，众人各自休息。',
   '午后阳光洒进休息室，咖啡香气弥漫，有人翻书，有人打盹。',
@@ -107,7 +100,6 @@ const pairs = buildPairs();
 
 describe('剧情对齐评估集', () => {
   it('采样充足（非空洞评估）', () => {
-    // buildPairs 封顶 6 对；低于上限说明 canon 数据退化了，评估集就有空洞风险。
     expect(pairs.length).toBeGreaterThanOrEqual(6);
   });
 
@@ -130,7 +122,6 @@ describe('剧情对齐评估集', () => {
   it.each(pairs.map((pair) => [pair.label, pair] as [string, EvalPair]))('收束正文归档到下一段：%s', (_label, pair) => {
     const result = autoAlignCanonStoryProgress({ storyWeaving: pair.system, turnCount: 6, body: pair.收束正文, userInput: '继续' });
     expect(result.progressed).toBe(true);
-    // 不变量是"归档到下一段"而非"任意推进"：当前进度锚点必须真的落在下一段。
     expect(result.system.当前进度?.当前分段ID).toBe(pair.next.id);
   });
 

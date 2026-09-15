@@ -1,22 +1,4 @@
-/**
- * 新局初始化归一入口（GitHub #15）。
- * useGame 里 handlePrepareNewGame（fresh：向导 draft 派生旅人/世界）与
- * handleRestartOpening（restart：保留创角静态字段、清空运行时切片）两条重复的
- * 新局组装路径收敛于此。
- *
- * 职责边界：
- *  - createInitialWorkspace 是唯一公开面，同步组装：不做 React state 写入、不落库
- *    （IndexedDB 持久化由调用侧 handle 的 setter 投影 / saveSetting 与
- *    初始化新局checkpoint 编排，builder 不碰存储）；fresh 侧用 boot 已载入的内置剧情编织
- *    预设对齐开局档案，restart 侧对当前剧情编织对齐。
- *  - buildInitialWorkspace 是同步纯组装（无副作用），所有
- *    React setter 投影与持久化由调用侧 handle 负责。
- *  - 私有 helper：buildFreshOpeningState / buildRestartOpeningState /
- *    createEmptyRuntimeSlices / normalizeWorkspace，全部 module 私有。
- *  - fresh/restart 差异只在「旅人/世界/openingArchive/storyWeaving 来源」一个分支点；
- *    其余运行时切片一律清空重建。device 级保留字段（智库/相册/macroGlobalVars/
- *    worldbookTriggerStates）原样透传并过一遍读档侧同一归一化函数收口。
- */
+// 本模块只做同步纯组装：不写 React state、不落库，投影与持久化由调用侧 handle 负责。
 import type { 角色数据结构 } from '@/models/character';
 import { 归一化旅人 } from '@/models/character';
 import type { 世界状态, 开局档案 } from '@/models/world';
@@ -49,20 +31,12 @@ export type CreateInitialWorkspaceInput =
   | { mode: 'fresh'; draft: OpeningPresetDraft; current: 工作区字段集; bundledStoryWeaving: 剧情编织系统 | null }
   | { mode: 'restart'; current: 工作区字段集 };
 
-/** 完整工作区（所有字段必需）：builder 始终产出全字段，供 setter 投影与 checkpoint 直接消费。 */
 export type 新局工作区字段集 = Required<工作区字段集>;
 
 export interface CreateInitialWorkspaceResult {
-  /** 完整工作区字段集：直接进 初始化新局checkpoint 与 React setter 投影（剧情编织在 workspace.剧情编织）。 */
   workspace: 新局工作区字段集;
 }
 
-/**
- * 新局初始化归一：唯一公开面（同步）。
- *  - fresh：旅人/世界/开局档案/NPC 全部从向导 draft 派生，剧情编织用 boot 已载入的内置预设对齐开局档案；
- *  - restart：旅人保留静态创角字段（清空背包）、世界保留静态字段重置运行态、剧情编织对齐开局档案；
- *  - 两条路径共用同一套空运行时切片 + device 级保留 + 归一化收口（buildInitialWorkspace，纯同步组装）。
- */
 export function createInitialWorkspace(
   input: CreateInitialWorkspaceInput,
 ): CreateInitialWorkspaceResult {
@@ -73,20 +47,11 @@ export function createInitialWorkspace(
   return buildInitialWorkspace(pieces, current);
 }
 
-/**
- * 同步工作区组装（纯函数）：空运行时切片 + device 级保留 + 旅人/世界归一化收口。
- * 无副作用、不写日志，React setter 投影与持久化由调用侧 handle 负责。
- */
 function buildInitialWorkspace(pieces: 新局组装件, current: 工作区字段集): CreateInitialWorkspaceResult {
   const workspace = normalizeWorkspace(pieces, current);
   return { workspace };
 }
 
-/**
- * fresh 编排：用 boot 已载入的原著预设对齐开局档案。
- * 刻意不重新拉取 27 个 canon 文件——门禁保证进入新局前两路已 ready，重取只是浪费。
- * bundledStoryWeaving 为空是门禁之外的直接调用（测试/异常路径），退回当前剧情编织。
- */
 function resolveFreshPieces(
   draft: OpeningPresetDraft,
   current: 工作区字段集,
@@ -98,7 +63,6 @@ function resolveFreshPieces(
   return { ...base, storyWeaving };
 }
 
-/** restart 编排：对当前剧情编织同步对齐开局档案（无内置预设解析，不涉及诊断降级）。 */
 function resolveRestartPieces(current: 工作区字段集): 新局组装件 {
   const base = buildRestartOpeningState(current);
   const storyWeaving = alignStoryWeavingToOpeningArchive(
@@ -108,7 +72,6 @@ function resolveRestartPieces(current: 工作区字段集): 新局组装件 {
   return { ...base, storyWeaving };
 }
 
-/** fresh 组装件：draft → 旅人/世界/开局档案/NPC（复制原 handlePrepareNewGame 的组装逻辑）。 */
 function buildFreshOpeningState(draft: OpeningPresetDraft): Omit<新局组装件, 'storyWeaving'> {
   const {
     selectedPath,
@@ -233,17 +196,11 @@ function buildFreshOpeningState(draft: OpeningPresetDraft): Omit<新局组装件
   };
 }
 
-/**
- * restart 组装件：保留创角静态字段，重置运行态（复制原 handleRestartOpening 的组装逻辑）。
- * 单点集中声明「保留 vs 清空」：worldState 在这里只重建开局档案对应的已成立事实，
- * 运行时累积切片（已访问时段/活跃人物/氛围变化）一律清空。
- */
 function buildRestartOpeningState(current: 工作区字段集): Omit<新局组装件, 'storyWeaving'> {
   const openingArchive = 归一化开局档案(current.世界.开局档案, current.世界);
   const npcRecords = 根据开局档案创建初始NPC记录(openingArchive);
 
-  // worldState：保留创角时的 currentPeriod / difficulty / storyMode / startingScenarioId / customStartPrompt。
-  // 重新开局时必须重建开局档案对应的已成立事实，否则非黑塔/自由开局会只剩字段，缺少后续注入锚点。
+  // 必须重建开局档案对应的已成立事实，否则非黑塔/自由开局会只剩字段，缺少后续注入锚点。
   const prev = current.世界;
   const openingSummary = openingArchive.整理档案;
   const nextLocation =
@@ -274,7 +231,6 @@ function buildRestartOpeningState(current: 工作区字段集): Omit<新局组�
   };
 
   return {
-    // traveler：保留创角时的所有静态字段，把道具运行时累积重置回开局态
     旅人: { ...current.旅人, 背包: [] },
     世界: worldState,
     openingArchive,
@@ -282,7 +238,6 @@ function buildRestartOpeningState(current: 工作区字段集): Omit<新局组�
   };
 }
 
-/** 空运行时切片：fresh/restart 共用的清空重建集合。手机/忆庭/新闻按读档侧同一归一化函数收口。 */
 function createEmptyRuntimeSlices(): {
   chatHistory: 新局工作区字段集['chatHistory'];
   memory: 新局工作区字段集['记忆'];
@@ -305,7 +260,6 @@ function createEmptyRuntimeSlices(): {
   };
 }
 
-/** 最终组装：空运行时切片 + device 级保留 + 旅人/世界归一化收口（对齐读档侧 saveLoadWorkflow）。 */
 function normalizeWorkspace(pieces: 新局组装件, current: 工作区字段集): 新局工作区字段集 {
   const empty = createEmptyRuntimeSlices();
   return {
@@ -326,7 +280,6 @@ function normalizeWorkspace(pieces: 新局组装件, current: 工作区字段集
     turnCount: 1,
     macroGlobalVars: current.macroGlobalVars ?? {},
     worldbookTriggerStates: current.worldbookTriggerStates ?? {},
-    // 新局活跃叶子等待首轮开局：awaitingLanding + 无恢复上下文 = 开局派发条件（U2）。
     turnPhase: 'awaitingLanding',
     recoveryContext: null,
   };

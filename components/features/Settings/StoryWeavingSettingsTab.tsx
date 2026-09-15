@@ -8,9 +8,7 @@ interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘，取代直连 saveSetting。 */
   onPersistSettings: (s: 游戏设置) => Promise<void>;
-  /** AI 探测用例动作（片 panel-p3）：模型列表获取，取代直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 

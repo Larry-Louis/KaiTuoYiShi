@@ -47,7 +47,7 @@ export function openDB(): Promise<IDBDatabase> {
     let settled = false;
     const finish = (db: IDBDatabase) => {
       if (settled) {
-        // 已因超时/失败结算：迟到的成功连接必须关闭，避免孤儿连接。
+        // 已因超时/失败结算时，迟到的成功连接必须关闭：未关闭的连接会一直占用数据库，阻断后续版本升级。
         db.close();
         return;
       }
@@ -159,7 +159,6 @@ function migrateNewestStoryHeadNodeId(transaction: IDBTransaction): void {
 
 const UNIFIED_ID_PATTERN = /^[0-9a-f]{4}-[0-9a-f]{6}-[0-9a-f]{4}$/;
 
-// 为旧版 newest 记录补齐 branchName 的持久化形状，同时保持迁移幂等。
 function migrateNewestStoryBranchName(transaction: IDBTransaction): void {
   const newestStore = transaction.objectStore(NEWEST_STORY_STORE);
   const newestRequest = newestStore.get(NEWEST_STORY_STORE_KEY);
@@ -324,7 +323,6 @@ function migrateNodeIdsToUnifiedFormat(transaction: IDBTransaction): void {
   }, { once: true });
 }
 
-// 将旧版 newest 覆盖结构物化为可写叶子和全局指针，保证升级后仍能恢复工作区并支持幂等重放。
 function migrateNewestToHeadPointer(transaction: IDBTransaction): void {
   const newestStore = transaction.objectStore(NEWEST_STORY_STORE);
   const savesStore = transaction.objectStore(SAVES_STORE);
@@ -332,8 +330,8 @@ function migrateNewestToHeadPointer(transaction: IDBTransaction): void {
   const deltaStore = transaction.objectStore(SAVE_NODE_DELTAS_STORE);
   const assetStore = transaction.objectStore(SAVE_ASSETS_STORE);
 
-  // reviewer P0：任何迁移读写错误都必须显式中止升级事务，禁止部分写入后正常提交、
-  // 用 head-only 空记录覆盖仍含旧 story 的 newest 槽（旧工作区数据将不可恢复）。
+  // 任何迁移读写错误都必须显式中止升级事务：部分写入后正常提交会用 head-only 空记录
+  // 覆盖仍含旧 story 的 newest 槽，旧工作区数据不可恢复。
   let abortTriggered = false;
   const abortMigration = (): void => {
     if (abortTriggered) return;
@@ -344,7 +342,6 @@ function migrateNewestToHeadPointer(transaction: IDBTransaction): void {
       devLogError('save', 'newest-headonly-migration-abort-failed', abortError);
     }
   };
-  // 兜底：未显式挂 error 处理器的写入请求（put/delete）失败时也显式中止事务。
   transaction.addEventListener('error', () => {
     abortMigration();
   });
@@ -432,8 +429,8 @@ function migrateNewestToHeadPointer(transaction: IDBTransaction): void {
         }
 
         const baseTree = (base as SaveWithTree).saveTree;
-        // reviewer P1：复用旧 headNodeId 前必须确认该 ID 未被其他节点占用
-        // （saves 行或 delta 记录），冲突时分配新 ID 并把旧 ID 记录到迁移日志。
+        // 复用旧 headNodeId 前必须确认该 ID 未被其他节点占用（saves 行或 delta 记录），
+        // 冲突时分配新 ID。
         const headNodeIdAlreadyUsed = oldHeadNodeId !== null && (
           saves.some((row) =>
             isPlainRecord(row)

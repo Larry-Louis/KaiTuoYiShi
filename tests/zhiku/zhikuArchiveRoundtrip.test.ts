@@ -44,7 +44,6 @@ describe('智库内置目录持久化与合并完整性', () => {
     }),
     id: 'custom_term_1',
   };
-  // 存档条目顺序与合并结果顺序刻意不同，验证按 id 而非按数组位置对齐。
   const savedSystem = 归一化智库系统({ 条目: [savedCustom, savedBuiltin] });
 
   it('合并后条目按 id 对齐且自定义条目完整保留', () => {
@@ -243,7 +242,6 @@ describe('机器 ID 目录下的持久化往返', () => {
     expect(persistedBuiltin?.来源预设ID).toBe('zhiku_character_rebuild_core');
     expect(persistedBuiltin?.来源文件).toBe('character-rebuild-core.json');
     expect(persistedBuiltin?.来源序号).toBe(5);
-    // 自定义条目在持久化中正文完整保留。
     expect(findEntryById(normalized, 'custom_term_1')?.原文).toBe('自制术语的正文内容');
 
     const mergedAgain = mergeBundledZhikuSystem(bundledSystem, normalized, MIGRATION_AT);

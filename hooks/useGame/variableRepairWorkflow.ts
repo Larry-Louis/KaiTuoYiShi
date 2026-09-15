@@ -1,6 +1,3 @@
-// 变量历史修复提交（V2）：应用计划 → 唯一事务写活跃叶子 → 投影。
-// 不封版、不移动指针；已落地命令由指纹跳过，写失败不投影（可见 = 已保存）。
-
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 变量修复计划, 变量修复回执 } from '@/models/variableRepair';
 import { 应用变量修复计划 } from '@/models/variableRepair';
@@ -18,7 +15,6 @@ const 忙时回执: 变量修复回执 = {
   detail: '当前有任务进行中，请等待完成后再提交变量修复。',
 };
 
-/** 提交修复计划：归约 → 事务写入 → 投影。返回回执供预览弹窗展示。 */
 export async function 提交变量修复计划(params: {
   state: UseGameStateReturn;
   plan: 变量修复计划;

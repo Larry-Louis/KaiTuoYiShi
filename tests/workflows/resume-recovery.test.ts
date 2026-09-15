@@ -79,7 +79,6 @@ describe('settling resume wiring', () => {
       turnCount: 2,
       chatHistory: [userMsg, assistantMsg],
       turnPhase: 'settling',
-      // 落地回复 id 与恢复上下文不一致：续跑守卫应判失效。
       recoveryContext: recoveryFor('检查门锁', userMsg.id, { assistantMessageId: 'stale-assistant' }, 2),
     });
 
@@ -98,7 +97,6 @@ describe('settling resume wiring', () => {
 });
 
 describe('crash-window child adoption by newest identity', () => {
-  /** 构造崩溃窗口：已封版旧 head + 两个同父未封版子叶，指针显式指回旧 head。 */
   async function seedAmbiguousCrashWindow(harness: Harness) {
     await seedWorkspace(harness.state);
     const before = await loadNewestStory();
@@ -113,7 +111,6 @@ describe('crash-window child adoption by newest identity', () => {
 
     const forkA = await forkSaveTreeLeaf({ rootId, targetNodeId: headId, branchName: 'branch-a' });
     const forkB = await forkSaveTreeLeaf({ rootId, targetNodeId: headId, branchName: 'branch-b' });
-    // 封版旧 head：此时 newest 仍指向已封版节点，但两个子叶已存在。
     const sealed = await loadSave(headSaveId);
     if (!sealed) throw new Error('旧叶子缺失');
     await sealLeafRow(sealed);
@@ -155,7 +152,6 @@ describe('crash-window child adoption by newest identity', () => {
     const { headId } = await seedAmbiguousCrashWindow(harness);
 
     const newest = await loadNewestStory();
-    // 无登记身份：多子叶歧义不得按保存 ID 猜测。
     await saveNewestStory(指向NewestStory记录(newest, headId));
 
     const active = await loadActiveLeaf();

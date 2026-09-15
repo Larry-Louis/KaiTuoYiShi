@@ -15,7 +15,6 @@ export function stage7_worldTraveler(
   let worldAfter: typeof state.世界 = 归一化世界状态(effectiveWorld);
   let travelerAfter: typeof state.旅人 = state.旅人;
 
-  // 7. 全局事件
   if (parsedForDisplay.worldEvents.length) {
     worldAfter = {
       ...worldAfter,
@@ -23,9 +22,7 @@ export function stage7_worldTraveler(
     };
   }
 
-  // 7a. 命途狭间·邀请发出 → 写入 世界.待触发狭间
-  //     校验:必须是已踏上 + 待升阶 的命途,才允许邀请落地。AI 偶发误标(把已经过去的命途
-  //     又邀请一次)直接静默丢弃。
+  // 邀请落地须为「已踏上 + 待升阶」的命途：AI 偶发误标（把已过去的命途又邀请一次）直接静默丢弃。
   if (parsedForDisplay.awakenInvite.trim() && !worldAfter.待触发狭间 && !worldAfter.进行中狭间) {
     const invitedId = 解析命途ID(parsedForDisplay.awakenInvite);
     if (invitedId) {
@@ -40,7 +37,6 @@ export function stage7_worldTraveler(
     }
   }
 
-  // 7b. 命途狭间·评判落地 → 调用 应用狭间结果,清空 世界.进行中狭间
   if (parsedForDisplay.awakenJudgement.trim() && worldAfter.进行中狭间) {
     const pathId = worldAfter.进行中狭间;
     const judgementRaw = parsedForDisplay.awakenJudgement.trim();
@@ -65,11 +61,8 @@ export function stage7_worldTraveler(
     }
   }
 
-  // 天气解析：从 AI 响应中提取 <天气> 标签，写入世界状态
-  // 注意:此处 worldAfter.当前地点 仍是本回合开始前的旧地点,变量模型尚未运行。
-  // 如果 AI 同回合切地点+换天气(如 黑塔空间站→罗浮 + 星海潮汐),用旧地点校验会误拒。
-  // 因此只要天气 ID 合法(解析天气标签 已校验过中文→ID 映射)就直接接受,
-  // 地点白名单仅作 prompt 引导,不强制校验。
+  // worldAfter.当前地点 仍是本回合开始前的旧地点（变量模型尚未运行）：
+  // 若 AI 同回合切地点+换天气，用旧地点校验会误拒，因此地点白名单只作 prompt 引导，不强制校验。
   const rawResponseTextForTurn = d.rawFullText || displayText;
   const 天气 = 解析天气标签(rawResponseTextForTurn);
   if (天气) {

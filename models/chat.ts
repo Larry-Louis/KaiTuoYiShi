@@ -2,9 +2,7 @@ import type { NPC账本选择结果 } from './npc';
 
 export type 消息角色 = 'user' | 'assistant' | 'system';
 
-/** 「本回合 user 发送之前」的变量切片快照。挂在 assistant message 上，用于 reroll 时回滚。
- *  保留方式：只在最近一条 assistant message 上持久化，生成新 assistant 时清掉上一条的 snapshot，
- *  避免存档体积无限膨胀。所有切片都是引用拷贝（浅拷贝顶层数组对象足够，state 内部不可变）。 */
+/** 「本回合 user 发送之前」的变量切片快照，用于 reroll 回滚。只在最近一条 assistant message 上持久化，生成新 assistant 时清掉上一条的 snapshot，避免存档膨胀。 */
 export interface 回合快照 {
   旅人: unknown;
   世界: unknown;
@@ -81,33 +79,20 @@ export interface 聊天消息 {
     };
     npcLedgerSelectionRaw?: NPC账本选择结果;
   };
-  /** 该 AI 回复对应的「user 发送前」状态快照，用于 reroll 回滚。
-   *  生成新 assistant message 时会清掉上一条的 snapshot，保证存档里至多只有最新一条带 snapshot。 */
   preTurnSnapshot?: 回合快照;
-  /** 本回合的故事快照（由正文生图后台生成完成后填充） */
   narrativeImages?: 叙事插图[];
 }
 
 export interface 叙事插图 {
-  /** 唯一 ID */
   id: string;
-  /** 图片数据 URL */
   dataUrl: string;
-  /** 底层图片槽位：场景 / 角色。正文生图固定作为故事快照展示。 */
   type: 'scene' | 'character';
-  /** 语义类型：用于把正文生图从普通场景图中区分出来。 */
   kind?: 'snapshot' | 'scene' | 'character';
-  /** 生成用的提示词 */
   prompt: string;
-  /** 负面提示词 */
   negativePrompt?: string;
-  /** 中文描述（用于卡片标题） */
   description?: string;
-  /** 生成状态 */
   status: 'generating' | 'done' | 'failed';
-  /** 错误信息 */
   error?: string;
-  /** 关联的相册资源 ID */
   assetId?: string;
 }
 
@@ -151,24 +136,15 @@ export interface 解析后回复 {
   memory: string;
   commands: Record<string, unknown>;
   worldEvents: string[];
-  /** 由 <行动选项> 标签生成的可点选行动列表，最多 4 条。空数组表示本回合 AI 没给行动选项。 */
   actionOptions: string[];
-  /** 主剧情模型输出的低风险变量候选事实。不是最终命令，只给变量模型作为线索。 */
   variableDraft: string;
-  /** 主剧情模型输出的后续承接备忘。用于下一回合接续伏笔、强制承接、延后/受阻项和镜头余波。 */
   storyPlan: string;
-  /** 主模型在《剧情规划》末尾用 <剧情推进> 子块自报的推进声明（完成/进入分段/依据）。
-   *  只是候选信号：只有正文背书后才能参与分段归档/跳段，申报本身不能推进剧情。 */
+  /** 只是候选信号：只有正文背书后才能参与分段归档/跳段。 */
   storyAdvance?: { completed: boolean; targetSegment?: string; basis?: string };
-  /** AI 在主流程中发出的「命途狭间」邀请。内容为命途 ID(hunt/destruction/...)。
-   *  非空时 sendWorkflow 会写入 世界状态.待触发狭间,并在聊天区渲染一张邀请卡片。 */
   awakenInvite: string;
-  /** 进行中狭间回合 AI 出的三道题。内容为整段 raw 文本(多行 命途:/题1:/题2:/题3:),由 UI 渲染。 */
   awakenQuestions: string;
-  /** 玩家答完狭间问题后,下一回合 AI 给出的升阶回应。当前版本只解析升阶；兼容旧历史消息时仍保留字符串。 */
   awakenJudgement: string;
-  /** 出题/评判回合对应的命途 ID。由 sendWorkflow 在 aiMsg 落库前根据 effectiveWorld.进行中狭间 写入,
-   *  让 TurnItem 即便在 进行中狭间 已被清空后(评判落地后会清空)也能拿到命途名做美化。 */
+  /** 出题/评判回合对应的命途 ID；进行中狭间 在评判落地后会被清空，故单独落库。 */
   awakenPathId: string;
   rawText: string;
 }

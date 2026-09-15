@@ -79,7 +79,6 @@ interface AlbumPanelProps {
   nsfwEnabled: boolean;
   nsfwImageEnabled: boolean;
   mainChatHistory?: 聊天消息[];
-  /** AI 探测用例动作（片 panel-p3）：内嵌 ImageGenerationSettingsTab 所需，取自 App 的 useAiTools，取代直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
   testImageGenerationConnection: (config: 文生图API配置) => Promise<string>;
   fetchImageGenerationModels: (config: 文生图API配置) => Promise<string[]>;
@@ -87,7 +86,6 @@ interface AlbumPanelProps {
     config: 文生图API配置,
     source: 'queue' | 'history',
   ) => Promise<ComfyWorkflowCandidate[]>;
-  /** 文生图请求（片 panel-p10）：封装 generateImage + runImageGenerationWithRetry，重试回调经参数传入以更新任务状态/消息。 */
   onGenerateAlbumImage: (
     config: 文生图API配置,
     request: ImageGenerationRequest,
@@ -97,24 +95,20 @@ interface AlbumPanelProps {
       onRetry?: (attempt: number, total: number, errorMessage: string) => void;
     },
   ) => Promise<ImageGenerationResult>;
-  /** 场景图解析（片 panel-p10）：封装 parseSceneImagePrompt，词组转化器配置缺失时返回 null，本地 fallback 由面板保留。 */
   onParseSceneImagePrompt: (
     settings: 游戏设置,
     apiSettings: API设置,
     context: 解析上下文,
   ) => Promise<场景图解析结果 | null>;
-  /** 故事快照解析（片 panel-p10）：封装 parseStorySnapshotPrompt，词组转化器配置缺失时返回 null，本地 fallback 由面板保留。 */
   onParseStorySnapshotPrompt: (
     settings: 游戏设置,
     apiSettings: API设置,
     context: 解析上下文,
   ) => Promise<故事快照解析结果 | null>;
-  /** 角色锚点提取（片 panel-p10）：封装 extractCharacterAnchorWithAI，NPC/旅人保存仍由面板 setter 完成。 */
   onExtractCharacterAnchor: (
     config: API配置项,
     input: CharacterAnchorExtractInput,
   ) => Promise<NPC角色锚点档案>;
-  /** 词组转化器（片 panel-p10）：配置/system prompt/tokenize 三步收敛到门面，配置缺失返回 null（维持直接使用本地输入语义）。 */
   onTokenizeImagePrompt: (
     settings: 游戏设置,
     apiSettings: API设置,

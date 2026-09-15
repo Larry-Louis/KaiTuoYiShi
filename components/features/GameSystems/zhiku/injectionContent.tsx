@@ -20,7 +20,6 @@ function readField(content: 智库注入内容, field: string): string {
   return typeof record[field] === 'string' ? record[field] : '';
 }
 
-/** 注入内容编辑：召回只使用结构化载荷，缺失字段的条目会被主剧情门禁挡下。 */
 export function InjectionContentFields({ category, value, editable, onChange }: InjectionContentFieldsProps) {
   const normalized = 归一化智库注入内容(value, category) ?? 创建空智库注入内容(category);
   if (!normalized) return null;

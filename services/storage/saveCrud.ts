@@ -52,8 +52,8 @@ import { isPlainRecord, normalizeNodeId, normalizeSaveId, toError } from '@/util
 
 export interface SaveGameOptions {
   /**
-   * 强制全量存储（不做 delta 编码）。仅限叶子（工作区）节点使用：
-   * 叶子行是 putHeadRow 原地写入的目标，必须是全量行，否则 delta-only 行会被覆盖丢数据。
+   * 仅限叶子（工作区）节点使用：叶子行是 putHeadRow 原地写入的目标，必须是全量行，
+   * 否则 delta-only 行会被覆盖丢数据。
    */
   forceFullStore?: boolean;
 }
@@ -156,10 +156,8 @@ export async function getSaveCatalogSnapshot(): Promise<SaveCatalogSnapshot> {
 }
 
 /**
- * 通过轻量目录反查 saveTree 节点对应的 IndexedDB 数字主键。
- * 目录摘要（saveSummaries）只收录可见节点；hidden-delta-base / unreadable / legacy-backup 等
- * 节点不在 items 里。目录未命中时回退到 saves 表直接按 saveTree.nodeId 扫描，
- * 避免父检查点真实存在却被误判为缺失（reroll-parent-missing）。
+ * 目录摘要（saveSummaries）只收录可见节点：hidden-delta-base / unreadable / legacy-backup
+ * 不在 items 里，必须回退扫描 saves 表，否则真实存在的父检查点会被误判为缺失。
  */
 export async function loadSaveIdByNodeId(nodeId: string): Promise<number | null> {
   const normalizedNodeId = normalizeNodeId(nodeId);
@@ -171,9 +169,6 @@ export async function loadSaveIdByNodeId(nodeId: string): Promise<number | null>
   return findSaveIdByNodeIdInSavesTable(db, normalizedNodeId);
 }
 
-/** reroll 父检查点存在性探针：父节点必须真实存在且与当前叶子同属一棵存档树。
- * 与 handleReroll 的祖先探测同语义（loadSaveIdByNodeId 自带 saves 表回退，
- * 目录恢复未完成不会误判缺失）。供 useGameState 的主动验证 effect 调用。 */
 export async function validateRerollParent(rootId: string, parentNodeId: string): Promise<boolean> {
   const saveId = await loadSaveIdByNodeId(parentNodeId);
   if (!saveId) return false;
@@ -182,7 +177,6 @@ export async function validateRerollParent(rootId: string, parentNodeId: string)
   return Boolean(tree?.rootId && tree.rootId === rootId);
 }
 
-/** 目录摘要未命中时回退：直接扫描 saves 表匹配 saveTree.nodeId（覆盖隐藏/不可读/legacy 节点）。 */
 async function findSaveIdByNodeIdInSavesTable(db: IDBDatabase, nodeId: string): Promise<number | null> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SAVES_STORE, 'readonly');
@@ -251,8 +245,6 @@ export async function loadSave(id: number): Promise<存档数据 | null> {
   const assetIds = collectSaveAlbumAssetIds(saveForAssets);
   if (!assetIds.length) return saveForAssets;
   const records = materializeSaveAssetRecords(await loadSaveAssetRecords(db, assetIds));
-  // Restore registers Blobs into the runtime cache and keeps asset: refs in album state
-  // (does not re-expand multi-MB base64 dataUrls into React state).
   return restoreSaveAssetPayloadFromRecords(saveForAssets, records);
 }
 
@@ -290,8 +282,8 @@ export async function loadLatestSave(): Promise<存档数据 | null> {
 }
 
 /**
- * @deprecated 仅限无树 legacy 恢复点与过渡期使用：只删单条存档记录，不维护树结构。
- * 树内节点的删除必须调用 `deleteSaveTreeNode`（叶子仅删自身、内部节点级联修剪子树、newest 槽位重定向）。
+ * @deprecated 仅限无树 legacy 恢复点与过渡期使用。
+ * 树内节点必须用 `deleteSaveTreeNode`，否则子树不会级联修剪、newest 槽位不会重定向。
  */
 export async function deleteSave(id: number): Promise<void> {
   return runWithSaveMutationPriority(() => deleteSaveInternal(id));

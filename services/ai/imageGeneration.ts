@@ -36,16 +36,6 @@ export async function generateImage(config: 文生图API配置, request: ImageGe
   return generateOpenAICompatibleImage(config, request);
 }
 
-/**
- * 生成故事快照：调用生图 API 并返回叙事插图结构。
- * @param config 生图接口配置
- * @param prompt 正面提示词
- * @param negativePrompt 负面提示词
- * @param type 图片类型
- * @param description 中文描述
- * @param imageId 图片 ID
- * @param signal 中断信号
- */
 export async function generateNarrativeImage(
   config: 文生图API配置,
   prompt: string,
@@ -374,7 +364,6 @@ function normalizeNovelAISize(size: string): { width: number; height: number } {
 
 function readPath(config: 文生图API配置): string {
   if (config.pathMode === 'custom' && config.customPath.trim()) return config.customPath.trim();
-  // 穷尽查表：backend 已在归一化入口钳制为 文生图后端类型 成员，无需 default 分支。
   return 文生图预设路径表[config.backend].路径;
 }
 
@@ -414,7 +403,6 @@ function stripDataUrlPrefix(src: string): string {
   return src.startsWith('data:') ? src.slice(src.indexOf(',') + 1) : src;
 }
 
-/** Convert a display/reference src (data URL, blob URL, or remote) to raw base64 for API payloads. */
 async function referenceSrcToBase64(src: string, signal?: AbortSignal): Promise<string> {
   const trimmed = src.trim();
   if (!trimmed) return '';
@@ -858,7 +846,6 @@ function formatComfyError(text: string): string {
       : [];
     if (nodeErrors.length) return nodeErrors.join('；');
   } catch {
-    // keep raw text below
   }
   return text;
 }

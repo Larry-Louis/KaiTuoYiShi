@@ -13,7 +13,6 @@ import type { SaveCatalogSnapshot } from '@/contracts/storage';
 
 registerSaveManagerDialogSpies();
 
-/** 本文件历史行为：删除/导入计数 resolve 0，保持原语义。 */
 function createActions(snapshot: SaveCatalogSnapshot) {
   return createActionsBase(snapshot, { deleteLegacyResult: 0, importResult: 0 });
 }
@@ -65,7 +64,6 @@ describe('过滤语义（4b：两变体各自保留）', () => {
     );
     await screen.findAllByText(/C摘要/);
     fireEvent.click(screen.getByRole('button', { name: /^自动/ }));
-    // 模态先建树后过滤：C 所在树被选中，A 所在树不展示。
     await waitFor(() => expect(screen.queryAllByText(/A摘要/)).toHaveLength(0));
     expect(screen.getAllByText(/C摘要/).length).toBeGreaterThan(0);
     modal.unmount();
@@ -76,7 +74,6 @@ describe('过滤语义（4b：两变体各自保留）', () => {
     );
     await screen.findAllByText(/C摘要/);
     fireEvent.click(screen.getByRole('button', { name: '自动' }));
-    // 设置页先过滤后建树：A 与 C 被合并成同一棵旧档树。
     await waitFor(() => expect(screen.getAllByText(/A摘要/).length).toBeGreaterThan(0));
     expect(screen.getAllByText(/C摘要/).length).toBeGreaterThan(0);
   });

@@ -1,7 +1,6 @@
 import { summarizeArrayItemLabel } from '@/utils/variableManagerLogic';
 import { cardClip, smallClip } from './settingsShared';
 
-// 数组型系统的二级条目列表：带搜索框，点击选中某条。
 export function ArrayItemList({ items, search, onSearch, activeIndex, onSelect, accent }: {
   items: unknown[];
   search: string;

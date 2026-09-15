@@ -162,14 +162,12 @@ describe('standalone workflow transactions', () => {
 
     await retryQueueTask(harness.state, harness.getActiveConfig, failedVariableTask());
 
-    // 写叶子失败：没有领域投影、没有成功队列项。
     expect(harness.cells.世界.get().当前地点).toBe(initialLocation);
     expect(harness.cells.variableBatches.get()).toHaveLength(1);
     expect(latestTask(harness.cells.queueTasks.get(), 'variable')?.status).toBe('failed');
     expect(harness.activeWorkflow.loading).toBe(false);
     expect((await loadActiveLeaf()).status).toBe('sealed-conflict');
 
-    // 崩溃窗口恢复：下一次进入工作区时能重新拿到可写叶子并重试成功。
     const recovered = await ensureHeadLeafWritable(harness.state);
     expect(recovered.headNodeId).toBeTruthy();
     callVariableMock.mockResolvedValue({ rawText: VARIABLE_COMMAND_TEXT });

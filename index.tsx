@@ -37,7 +37,6 @@ ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BootSplashRemover />
-      {/* TEMP 性能测量：记录 React 提交次数与单次提交成本（测量后移除）。 */}
       <React.Profiler
         id="app"
         onRender={(_id, phase, actualDuration) => { bootPerfCommit(phase, actualDuration); }}

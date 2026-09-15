@@ -48,12 +48,10 @@ describe('zhiku canonical roster', () => {
   });
 
   it('form names resolve into the base character roster', () => {
-    // 三月七·巡猎 与 丹恒·饮月 在 CANONICAL_CHARACTERS 中有独立完整档案，保持其自身条目。
     for (const form of ['三月七·巡猎', '丹恒·饮月']) {
       const result = mustResolve(form);
       expect(result.name.startsWith(form.split('·')[0])).toBe(true);
     }
-    // 其余形态名走智库兜底，收敛到基础角色。
     expect(mustResolve('长夜月').name).toBe('三月七');
     expect(mustResolve('丹恒·腾荒').name).toBe('丹恒');
     expect(mustResolve('姬子•启行').name).toBe('姬子');
@@ -73,10 +71,8 @@ describe('zhiku canonical roster', () => {
   it('high-frequency metadata is preserved', () => {
     const result = mustResolve('三月七');
     expect(result.name).toBe('三月七');
-    // 三月七 在 CANONICAL_CHARACTERS 有完整 metadata，应优先返回富档案而非智库兜底。
     expect(result.appearance).toBeDefined();
     expect(result.personality).toBeDefined();
-    // 兜底对象仍可在智库别名登记表中作为键被查到。
     expect(ZHIKU_CANONICAL_CHARACTER_ALIASES['三月七']).toBeDefined();
   });
 });

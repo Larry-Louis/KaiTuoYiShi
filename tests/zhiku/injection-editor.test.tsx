@@ -53,9 +53,7 @@ describe('InjectionContentFields', () => {
     for (const field of CHARACTER_FIELDS) {
       expect(screen.getByLabelText(field)).toBeInTheDocument();
     }
-    // 编回 lore 的字段不属于人物。
     expect(screen.queryByLabelText('核心定义')).toBeNull();
-    // 人物专属字段应可编辑并向外传播（只断言存在 + 归属正确，可能漏掉"看起来是人物字段实际是死控件"）。
     const firstField = CHARACTER_FIELDS[0];
     fireEvent.change(screen.getByLabelText(firstField), { target: { value: '角色设定草稿' } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ [firstField]: '角色设定草稿' }));
@@ -113,7 +111,6 @@ describe('ZhikuPanel 自制条目保存硬门禁', () => {
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '自制术语条目' } });
     fireEvent.change(screen.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
-    // 分类切换为 term 后，注入内容 4 个字段全部留空。
     fireEvent.change(screen.getByLabelText('分类'), { target: { value: 'term' } });
     if (!write.disabled) {
       fireEvent.click(write);
@@ -121,7 +118,6 @@ describe('ZhikuPanel 自制条目保存硬门禁', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(onSaveZhikuSystem).not.toHaveBeenCalled();
     expect(onZhikuSystemChange).not.toHaveBeenCalled();
-    // 条目没有被加入系统：保存门禁拦截后仍停留在编辑态。
     expect(screen.getByLabelText('标题')).toBeInTheDocument();
     view.unmount();
   });

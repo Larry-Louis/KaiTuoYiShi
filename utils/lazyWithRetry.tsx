@@ -1,10 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { devLogError } from '@/utils/devLog';
 
-/**
- * 动态 chunk 最长等待时间：超过即判定停滞，不再让 Suspense fallback 永久停留。
- * 取 12s：冷启动 on-demand 转换与慢网络下仍有余量，又不至于让玩家面对无声空转。
- */
 export const LAZY_CHUNK_TIMEOUT_MS = 12000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- React.lazy 签名要求 ComponentType<any>，收窄会破坏有 props 组件的可赋值性
@@ -28,10 +24,6 @@ function isChunkLoadError(error: unknown): boolean {
   return /dynamically imported module|failed to fetch|loading chunk|chunkloaderror/i.test(message);
 }
 
-/**
- * 加载失败时的可见终局：停在原地给出可重试卡片，而不是静默整页重载或把异常抛给全局错误边界。
- * reload 是 jsdom unforgeable，故重试动作收敛到 window.location.reload（唯一可靠的恢复通道）。
- */
 function ChunkLoadFailure({ label, reason }: { label: string; reason: 'timeout' | 'fetch' }) {
   return (
     <div
@@ -90,16 +82,6 @@ function withChunkTimeout<T>(promise: Promise<T>): Promise<T> {
   });
 }
 
-/**
- * 懒加载 + 失败可见化。
- *
- * 行为契约：
- * - 成功：正常渲染，行为与 React.lazy 一致。
- * - chunk 拉取失败 / 加载超时：返回一张可重试的失败卡片（停在当前 surface），
- *   不再静默整页 reload、不再 `new Promise(() => {})` 永久挂起、不再炸到全局错误边界。
- * - 组件自身的真实错误（非 chunk 失败）：原样抛出，交给错误边界，不伪装成加载失败。
- * - `preload()`：空闲预加载，失败静默，不触发任何 UI 或重载。
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上：约束必须与 React.lazy 的 ComponentType<any> 对齐
 export function lazyWithRetry<T extends ComponentType<any>>(
   loader: () => Promise<{ default: T }>,
@@ -113,7 +95,7 @@ export function lazyWithRetry<T extends ComponentType<any>>(
         if (modulePromise === attempt) modulePromise = null;
         throw error;
       });
-      // 超时可能抢先终结竞速；预挂拒绝处理避免无人认领的拒绝噪声（不改变传播）。
+      // 超时可能抢先终结竞速；预挂拒绝处理避免无人认领的拒绝噪声。
       attempt.catch(() => {});
       modulePromise = attempt;
     }
@@ -138,7 +120,6 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     try {
       await withChunkTimeout(loadModule());
     } catch {
-      // 空闲预加载失败不触发 UI、不重载、不泄漏未处理拒绝；真实渲染时会走可见卡片。
       modulePromise = null;
     }
   };

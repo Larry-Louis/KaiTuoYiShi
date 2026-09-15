@@ -85,7 +85,6 @@ function buildStorySystem() {
   return 归一化剧情编织系统({ 当前系列ID: 'canon_1', 系列列表: [series] });
 }
 
-/** 两个可读章节的分段剧情：用于上一章 / 下一章导航。 */
 function buildNavigableStorySystem() {
   const series = 归一化剧情编织系列({
     id: 'canon_nav',
@@ -155,7 +154,6 @@ describe('智库档案大厅', () => {
     });
     const lobby = screen.getByLabelText('智库分类大厅');
     expect(lobby.querySelector('[data-archive-state="empty"]')).toBeInTheDocument();
-    // 不能只测属性存在：空态文案本身是用户可读的恢复信号。
     expect(lobby).toHaveTextContent(/档案尚未收录/);
   });
 });
@@ -193,7 +191,6 @@ describe('注入内容面板', () => {
     expect(screen.getByText('列车')).toBeInTheDocument();
     const pre = document.querySelector('pre.zj-terminal');
     expect(pre).toBeInTheDocument();
-    // 预览不能是空壳：序号、人名与关键词都来自真实档案数据。
     expect(pre?.textContent).toContain('【人物】星｜常态');
     expect(pre?.textContent).toContain('关键词：列车');
   });
@@ -205,7 +202,6 @@ describe('剧情档案', () => {
     fireEvent.click(screen.getByRole('button', { name: /^剧情档案，/ }));
 
     const index = screen.getByLabelText('剧情卷宗与章节目录');
-    // 卷宗标题优先取作品名。
     expect(within(index).getByText('开拓主线')).toBeInTheDocument();
 
     const readable = within(index).getByRole('button', { name: '阅读第 1 章：第一幕' });
@@ -216,7 +212,6 @@ describe('剧情档案', () => {
     const locked = within(index).getByRole('button', { name: '第 2 章，尚未解锁' });
     expect(locked).toBeDisabled();
 
-    // 当前章节后的第二个章节处于锁定状态，翻页按钮退化为「已经是最后一章」并禁用。
     const nextButton = screen.getByRole('button', { name: '已经是最后一章' });
     expect(nextButton).toBeDisabled();
     expect(screen.getByRole('button', { name: '已经是第一章' })).toBeDisabled();
@@ -251,7 +246,6 @@ describe('重载内置档案', () => {
     await waitForRefreshStatus('done');
     expect(onRefreshBundled).toHaveBeenCalledTimes(1);
     expect(defaultProps.onZhikuSystemChange).toHaveBeenCalledWith(nextSystem);
-    // done 必须真实反映在界面上：重载按钮不再可点击为「重载」，而显示「内置档案已更新」。
     expect(getRefreshButton()).toHaveTextContent(/内置档案已更新/);
   });
 

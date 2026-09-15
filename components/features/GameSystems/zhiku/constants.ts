@@ -3,7 +3,6 @@ import { 创建空智库注入内容 } from '@/models/zhiku';
 
 export type Bucket = 'all' | 'builtin' | 'custom';
 
-// 本模块两张卡历来取 12px / 8px，按刻度的邻近档位固定为 badgeClip / mediumClip。
 export { badgeClip as cardClip, mediumClip as smallClip } from '@/components/ui/clipPaths';
 
 export const categories: 智库分类[] = ['story', 'character', 'location', 'faction', 'term', 'event'];

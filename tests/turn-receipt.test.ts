@@ -12,9 +12,7 @@ describe('turn receipt', () => {
       assistantMessage: { id: 'assistant-1' },
     });
 
-    // 下游按 turn + assistantMessageId 关联变量批：这两个字段必须可被消费。
     expect(receipt).toMatchObject({ turn: 3, assistantMessageId: 'assistant-1' });
-    // 引用稳定性契约：结算路径对 receipt 的读取不能感知后续变异。
     expect(Object.isFrozen(receipt)).toBe(true);
   });
 

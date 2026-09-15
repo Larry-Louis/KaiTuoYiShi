@@ -11,14 +11,9 @@ import type { SaveTabFilter } from '@/utils/saveTreeView';
 
 import { pickSavePackageFile } from '@/components/features/SaveLoad/pickSaveFile';
 
-/**
- * 存档管理共享逻辑（模态与设置页两个变体共用）：
- * 目录快照、后台修复订阅、读取/分支/删除/导入导出全部收在这里，变体只负责布局与错误通道。
- */
 export interface SaveManagerActions {
   showAutoArchives: boolean;
   onLoad: (id: number) => Promise<boolean>;
-  /** 回档（分支）用例动作：未提供时回退 onLoad（enterSession 已按节点类型分派）。 */
   onBranch?: (id: number) => Promise<boolean>;
   onDeleteSave: (save: SaveListItemSummary) => Promise<boolean>;
   onDeleteSaveTree: (rootId: string) => Promise<void>;
@@ -31,11 +26,9 @@ export interface SaveManagerActions {
   onExportSavePackage: (id: number) => Promise<void>;
   onExportSaveTreePackage: (rootId: string) => Promise<void>;
   onImportSaveFileAsMany: (file: File) => Promise<number>;
-  /** 行级操作的错误通道：模态弹 alert，设置页写内联错误；devLog 由模型统一负责。 */
   operationErrorMode: 'alert' | 'inline';
 }
 
-/** 调用方共享动作：错误通道由 SaveManager 按变体注入。 */
 export type SaveManagerCallerActions = Omit<SaveManagerActions, 'operationErrorMode'>;
 
 const 空修复态: SaveCatalogRepairState = {
@@ -83,7 +76,6 @@ export function useSaveManager(actions: SaveManagerActions) {
   const [pendingSummaryCount, setPendingSummaryCount] = useState(0);
   const [unreadableSummaryCount, setUnreadableSummaryCount] = useState(0);
   const [catalogComplete, setCatalogComplete] = useState(true);
-  // 修复进度初始态取 idle 兜底；订阅 effect 挂载时会立刻推送当前真实状态。
   const [repairState, setRepairState] = useState<SaveCatalogRepairState>(空修复态);
   const [selectedRootId, setSelectedRootId] = useState<string | null>(null);
 
@@ -167,7 +159,6 @@ export function useSaveManager(actions: SaveManagerActions) {
     }
   }, [onLoad]);
 
-  // 回档（分支）：独立动词入口，核心行为复用 onBranch（enterSession 检查点分叉路径）。
   const handleBranch = useCallback(async (id: number) => {
     if (!confirm('从这个检查点分支会创建新的工作区分支，是否继续？')) return;
     setLoadingId(id);
@@ -187,7 +178,6 @@ export function useSaveManager(actions: SaveManagerActions) {
     if (!target) return;
     setDeletingId(id);
     try {
-      // resolve→确认→级联删除收敛在门面用例动作，组件只做列表乐观更新。
       const ok = await onDeleteSave(target);
       if (ok) {
         setSaves((prev) => prev.filter((save) => save.id !== id));
@@ -227,7 +217,6 @@ export function useSaveManager(actions: SaveManagerActions) {
     setDeletingLegacyBackups(true);
     try {
       await onDeleteLegacyBackupSaves();
-      // 面板逐条收敛活动树元信息清理，不进门面。
       for (const backup of legacyBackups) {
         onClearActiveSaveTreeMeta(backup.saveTree ? { nodeId: backup.saveTree.nodeId } : null);
       }

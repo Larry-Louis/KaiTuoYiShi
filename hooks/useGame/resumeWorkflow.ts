@@ -21,7 +21,6 @@ function rawTextFromParsed(parsed: 解析后回复): string | undefined {
   return typeof rawText === 'string' ? rawText : undefined;
 }
 
-/** 恢复现场失效时写回清除叶子恢复态并复位投影（不静默保留陈旧相位）。 */
 async function disarmLeafRecovery(state: TurnContext['state'], headNodeId: string | null): Promise<void> {
   await writeClearedRecovery(headNodeId);
   clearRecoveryProjection(state);
@@ -34,15 +33,11 @@ export async function executeResumeWorkflow(deps: SendWorkflowDeps): Promise<boo
   const phase = state.turnPhase;
   const config = deps.getActiveConfig();
 
-  // 工作区数据源 = 活跃叶子载荷（子任务 A：不再读 newest.story 覆盖集）。
-  // 崩溃窗口（commitTurn 封版后写指针前崩溃）采纳子叶子时按 newest 内部身份恢复，不猜线性链。
-  // 无工作区 / head 指向已封版检查点且无法采纳子叶（sealed-conflict）时按无恢复现场处理。
   const active = await loadActiveLeaf();
   const leaf = active.status === 'ok' ? active.leaf : null;
   const leafChatHistory = leaf?.chatHistory ?? [];
   const leafId = active.newest.headNodeId;
 
-  // 恢复入口只处理已落地回合：settling 相位 + 落地事实一致（判定见 models/turnRecovery）。
   if (
     !recovery || !leaf || !leafId
     || phase !== 'settling' || !isSettledRecoveryCoherent(recovery, leafChatHistory)
@@ -78,7 +73,6 @@ export async function executeResumeWorkflow(deps: SendWorkflowDeps): Promise<boo
   const turnCountAtStart = recovery.turnAtStart;
   const isOpeningSystemTrigger = turnCountAtStart === 1 && userInput.startsWith('[系统]');
 
-  // queueTasks 以叶子（工作区）持久化数据为唯一恢复入口。
   // 恢复前的内存态可能来自旧会话，不能覆盖叶子已持久化的后台任务。
   hydrate(await prepareHydration(leaf), state);
   state.setChatHistory(finalHistory);
@@ -217,7 +211,6 @@ export async function executeResumeWorkflow(deps: SendWorkflowDeps): Promise<boo
         devLog('recover', 'resume-superseded', { turn: turnCountAtStart });
         return false;
       }
-      // 停止续跑：叶子仍为 settling，恢复投影仍在，由 App 恢复横幅承载「继续结算」入口。
       setStreamingMessage('');
       state.activeWorkflow.setTurnStatus(TURN_STATUS_IDLE);
       return false;

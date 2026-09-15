@@ -13,17 +13,9 @@ import {
 
 export { pickAssetDisplayUrl } from '@/utils/albumObjectUrl';
 
-/**
- * Persistable asset record.
- *
- * Prefer `blob` for IndexedDB storage. Legacy saves may only have `dataUrl`
- * base64 strings — those are migrated to Blob on first read.
- */
 export interface SaveAssetRecord {
   id: string;
-  /** Binary image payload (preferred). */
   blob?: Blob;
-  /** Legacy / export-compatible base64 data URL. Prefer not to rehydrate into React state. */
   dataUrl?: string;
   originalUrl?: string;
   url?: string;
@@ -97,7 +89,6 @@ export function extractSaveAssetRecords(save: 存档数据): SaveAssetRecord[] {
     records.set(asset.id, {
       id: asset.id,
       blob: resolved.blob,
-      // Keep legacy dataUrl only when Blob conversion failed.
       dataUrl: resolved.blob ? undefined : resolved.dataUrl,
       originalUrl: resolved.blob ? undefined : (isDataImage(resolved.originalUrl) ? resolved.originalUrl : undefined),
       url: asset.url,
@@ -126,12 +117,7 @@ export function stripSaveAssetPayloadForStorage<T extends 存档数据>(save: T)
   };
 }
 
-/**
- * Restore album assets for runtime use.
- *
- * Binary payloads are registered into the Blob cache. React/album state keeps
- * `asset:<id>` references — it does NOT re-expand multi-MB base64 dataUrls.
- */
+/** Must not re-expand multi-MB base64 into React/album state. */
 export function restoreSaveAssetPayloadFromRecords<T extends 存档数据>(
   save: T,
   records: SaveAssetRecord[],
@@ -147,10 +133,6 @@ export function restoreSaveAssetPayloadFromRecords<T extends 存档数据>(
   };
 }
 
-/**
- * Normalize a single SaveAssetRecord: convert legacy dataUrl → Blob when possible
- * and register into the runtime cache. Returns a record that prefers Blob storage.
- */
 export function materializeSaveAssetRecord(record: SaveAssetRecord): SaveAssetRecord {
   if (!record.id) return record;
   if (record.blob instanceof Blob) {
@@ -159,7 +141,6 @@ export function materializeSaveAssetRecord(record: SaveAssetRecord): SaveAssetRe
       ...record,
       mimeType: record.mimeType || record.blob.type,
       size: record.size || record.blob.size,
-      // Drop base64 from the write path when Blob is present.
       dataUrl: undefined,
       originalUrl: isDataImage(record.originalUrl) ? undefined : record.originalUrl,
     };
@@ -205,7 +186,6 @@ function stripAlbumAssetPayload(album: 相册系统): 相册系统 {
       const hasEmbeddedPayload = isDataImage(asset.dataUrl) || isDataImage(asset.originalUrl);
       const hasBlob = hasAlbumAssetBlob(asset.id);
       if (!hasEmbeddedPayload && !hasBlob) return asset;
-      // Ensure binary is cached before stripping so extractSaveAssetRecords can persist it.
       if (hasEmbeddedPayload && !hasBlob) {
         if (isDataImage(asset.dataUrl)) rememberAlbumAssetFromDataUrl(asset.id, asset.dataUrl);
         else if (isDataImage(asset.originalUrl)) rememberAlbumAssetFromDataUrl(asset.id, asset.originalUrl);
@@ -224,12 +204,10 @@ function restoreAssetPayload(asset: 图片资源, records: Map<string, SaveAsset
   if (!record) return asset;
 
   const materialized = materializeSaveAssetRecord(record);
-  // Runtime album state: keep asset ref only — never re-inject multi-MB base64.
   const materializedOriginalIsData = isDataImage(materialized.originalUrl);
   return {
     ...asset,
     dataUrl: 创建相册资源引用(asset.id),
-    // Preserve non-data remote original URLs only.
     originalUrl: materializedOriginalIsData
       ? undefined
       : (materialized.originalUrl ?? (isDataImage(asset.originalUrl) ? undefined : asset.originalUrl)),
@@ -242,11 +220,7 @@ function restoreAssetPayload(asset: 图片资源, records: Map<string, SaveAsset
   };
 }
 
-/**
- * Expand Blob-backed assets into base64 dataUrls for portable export packages /
- * cloud JSON that cannot carry a separate IDB asset store.
- * Only use at export boundaries — never for long-lived React state.
- */
+/** Only use at export boundaries — never for long-lived React state. */
 export async function expandSaveAssetPayloadForExport<T extends 存档数据>(save: T): Promise<T> {
   if (!save.相册?.assets.length) return save;
   let changed = false;

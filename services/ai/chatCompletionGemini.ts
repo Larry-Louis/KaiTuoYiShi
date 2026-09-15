@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import { normalizeGeminiBaseUrl } from './geminiEndpointPolicy';
 import type { API配置项 } from '@/models/settings';
 import { applySamplingParams, errorText, fetchWithApiErrorReport, throwApiError } from './chatCompletionOpenAICompat';
@@ -25,7 +24,6 @@ export function buildGeminiRequestBody(
     maxOutputTokens: request.maxTokens ?? config.maxTokens ?? 2048,
     temperature: request.temperature ?? config.temperature ?? 0.8,
   };
-  // Gemini 原生支持 top_p / top_k / repetition_penalty / frequency_penalty / presence_penalty
   applySamplingParams(generationConfig, {
     topP: 'topP',
     topK: 'topK',
@@ -46,8 +44,7 @@ export function buildGeminiRequestBody(
   return bodyObj;
 }
 
-export // ── Gemini streaming ──
-async function streamGemini(
+export async function streamGemini(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
   request: ChatCompletionRequest,

@@ -1,6 +1,3 @@
-// 从源码导出内置提示词模块与世界书条目，供内容评审。
-// 运行（一次性打包并解析 @/ 别名，不入库）：
-// npx esbuild scripts/dump-injected-prompts.ts --bundle --format=esm --platform=node --alias:@=. --outfile=scripts/_dump-injected-prompts.mjs && node scripts/_dump-injected-prompts.mjs && rm -f scripts/_dump-injected-prompts.mjs
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createBuiltinPromptModules } from '../data/builtinPromptModules';

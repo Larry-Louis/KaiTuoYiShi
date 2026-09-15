@@ -30,7 +30,6 @@ function 主API配置(apiSettings: API设置): API配置项 | null {
   return apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0) ?? null;
 }
 
-/** 覆盖字段逐项回退主配置；缺口（缺 baseUrl/apiKey/model）返回 null 表示该功能未配置。 */
 function 合并剧情编织API(
   mainConfig: API配置项,
   override: 剧情编织API覆盖,
@@ -51,7 +50,6 @@ export function buildStoryWeavingApiConfig(settings: 游戏设置, apiSettings: 
   return 合并剧情编织API(mainConfig, settings.剧情编织系统.api, settings.enableClaudeMode);
 }
 
-/** 推进判定 API：独立覆盖整体留空时回退剧情编织 api，逐字段缺口再回退主配置。 */
 export function buildStoryAdvanceJudgeApiConfig(settings: 游戏设置, apiSettings: API设置): API配置项 | null {
   const mainConfig = 主API配置(apiSettings);
   if (!mainConfig) return null;
@@ -88,7 +86,6 @@ export function buildStoryWeavingInjection(system?: 剧情编织系统, ctx?: St
   if (!resolved) return '';
   const relocated = relocateCurrentSegmentByOpeningArchive(resolved, ctx);
   const { series, completed, current, archivedAnchor, relocationNote } = relocated;
-  // 区域不一致时整体撤回注入：宁可不注入，也不把剧情推向与当前地点冲突的轨道。
   const continuity = 评估剧情区域连续性({
     currentRegionId: ctx?.currentRegionId,
     currentLocation: ctx?.currentLocation,
@@ -363,7 +360,6 @@ function formatProgressAnchor(anchor: 剧情编织系统['当前进度']): strin
     `推进状态：${anchor.推进状态}`,
     `当前分段组号：${anchor.当前分段组号}`,
   ];
-  // 已完成摘要移除：历史信息统一由「最近已完成分段索引」单行承载，避免三处复述
   appendList(lines, '当前待解悬念', anchor.当前待解问题, 6);
   appendList(lines, '最近判定理由', anchor.最近判定理由, 3);
   if ((anchor.连续推进证据回合 ?? 0) > 0 || (anchor.卡段回合数 ?? 0) > 0) {
@@ -570,7 +566,6 @@ function deriveFactions(segments: 剧情编织分段[]): string[] {
 }
 
 function buildRecentSegmentIndex(segments: 剧情编织分段[], currentIndex: number): string {
-  // 不含当前段（当前段有完整滑窗块），每段压缩为单行——历史信息的唯一索引出处
   const start = Math.max(0, currentIndex - 3);
   const window = segments.slice(start, currentIndex);
   if (!window.length) return '';

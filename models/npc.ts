@@ -1,6 +1,4 @@
-// NPC 档案库:路人和重要伙伴共用同一份 schema,靠 `阶位` 区分。
 // AI 注入策略:默认只看 `阶位 === 'companion'` 的,路人再现时由调用方临时拼装。
-// 晋升单向:路人 → 伙伴可手动也可由原著角色库自动;v1 不做降级(兜底 UI 提供)。
 
 import * as z from 'zod';
 import { matchCanonical } from '@/data/canonicalCharacters';
@@ -27,13 +25,11 @@ export type NPC关系阶段 = '敌对' | '陌生' | '初见' | '熟识' | '知�
 export const NPC_AFFINITY_MIN = -50;
 export const NPC_AFFINITY_MAX = 150;
 
-/** 同行记忆来源（对齐 AI提供商列表 先例：列表为唯一事实来源，类型由 zod 派生）。 */
 export const NPC同行记忆来源列表 = ['正文', '手机', '新闻', '变量', '其他'] as const;
 export type NPC同行记忆来源 = (typeof NPC同行记忆来源列表)[number];
 export type NPC头像槽位 = '档案' | '正文' | '手机';
 export type NPC_NSFW年龄确认 = 'adult' | 'unknown' | 'minor_blocked';
 
-/** 内容键只负责比较；显式 id 仍可保留为旧存档的实体标识。 */
 export function 规范NPC记忆键(turn: number | string, text: string): string {
   return `${String(turn)}:${规范记忆摘要(text)}`;
 }
@@ -55,7 +51,7 @@ function 稳定哈希(text: string): string {
   return `${(left >>> 0).toString(16).padStart(8, '0')}${(right >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-/** 确定性 id：不依赖 now/randomString，同一内容键永远得到同一 id。 */
+/** 不依赖 now/randomString：同一内容键永远得到同一 id。 */
 export function 生成NPC记忆ID(kind: 'mem' | 'summary', 键: number | string, 摘要: string): string {
   return `npc_${kind}_${稳定哈希(规范NPC记忆键(键, 摘要))}`;
 }
@@ -100,7 +96,6 @@ const 原始同行记忆条目 = z.preprocess(
   }),
 );
 
-/** 同行记忆升级 schema：legacy 字符串/对象形态在此一次性升级为结构化；缺失 id 时由内容键稳定生成。 */
 export const 升级同行记忆条目Schema = 原始同行记忆条目.transform((o, ctx): NPC同行记忆条目 => {
   const 摘要 = 清理NPC同行记忆摘要((o.摘要 ?? o.原文 ?? '').trim());
   if (!摘要) {
@@ -167,7 +162,6 @@ const 原始总结记忆条目 = z.preprocess(
   }),
 );
 
-/** 总结记忆升级 schema：与 升级同行记忆条目Schema 对称，字符串形态在此处一次性升级。 */
 export const 升级NPC总结记忆条目Schema = 原始总结记忆条目.transform((o, ctx): NPC总结记忆条目 => {
   const 摘要 = 清理NPC同行记忆摘要((o.摘要 ?? o.summary ?? o.内容 ?? '').trim());
   if (!摘要) {
@@ -194,27 +188,17 @@ export interface NPC总结记忆条目 {
   未完成事项?: string[];
 }
 
-/** 约定状态：等待中=未履行也未违约；已履行/已违约/已作废后不再注入但保留历史 */
+/** 等待中=未履行也未违约；已履行/已违约/已作废后不再注入，但保留历史。 */
 export type 约定状态 = '等待中' | '已履行' | '已违约' | '已作废';
 
-/**
- * 约定结构（玩家承诺的结构化载体，挂 NPC 记录下，三环联动）
- * - 写入环：variableModel 的 recallContext 从正文+通讯回忆提取约定
- * - 注入环：等待中的约定在 NPC 账本强制承接区常驻
- * - 清理环：履行/违约后状态变更，不再注入但保留历史
- */
 export interface 约定结构 {
   id: string;
   标题: string;
   内容: string;
-  /** 游戏内时间（时间锚点） */
   约定时间?: string;
   当前状态: 约定状态;
-  /** 履行/违约后果描述 */
   后果?: string;
-  /** 建立回合（溯源） */
   回合: number;
-  /** 约定来源，用于追溯 */
   来源?: '正文' | '通讯';
 }
 
@@ -326,7 +310,7 @@ export function 限制NPC好感度(value: unknown): number {
   return Math.max(NPC_AFFINITY_MIN, Math.min(NPC_AFFINITY_MAX, Math.trunc(affinity)));
 }
 
-/** 关系阶段阈值表：每行一段好感度闭区间 [下限, 上限]。关系阶段/兼容关系/敌对熟识阈值均引用本表，禁止散落魔法数。 */
+/** 每行一段好感度闭区间 [下限, 上限]；关系阶段与阈值常量都取自本表，禁止散落魔法数。 */
 export interface NPC关系阈值行 {
   下限: number;
   上限: number;
@@ -343,16 +327,13 @@ export const NPC关系阈值表: NPC关系阈值行[] = [
   { 下限: 101, 上限: NPC_AFFINITY_MAX, 阶段: '生死挚友', 兼容: 'close' },
 ];
 
-/** 按阶段查行：表内缺行是数据错误，启动即抛。 */
 function 查NPC关系行(阶段: NPC关系阶段): NPC关系阈值行 {
   const row = NPC关系阈值表.find((r) => r.阶段 === 阶段);
   if (!row) throw new Error(`NPC关系阈值表缺少阶段：${阶段}`);
   return row;
 }
 
-/** 敌对分界（含上限）：关系规划判定「高优先级」的阈值。 */
 export const NPC敌对阈值 = 查NPC关系行('敌对').上限;
-/** 熟识分界（含下限）：关系规划判定「适合手机联系」/「中优先级」的阈值。 */
 export const NPC熟识阈值 = 查NPC关系行('熟识').下限;
 
 export function 获取NPC关系阶段(value: unknown): NPC关系阶段 {
@@ -435,34 +416,34 @@ export interface NPC记录 {
   id: string;
   姓名: string;
   别名?: string;
-  阶位: NPC阶位;                     // companion=进 AI prompt;extra=只存档
-  好感度: number;                    // -50..150
-  关系: NPC关系类型;                 // 兼容字段，由好感度确定性派生
-  亲密关系?: boolean;                // 普通关系状态，不受 NSFW 开关控制
+  阶位: NPC阶位;
+  好感度: number;
+  关系: NPC关系类型; // 兼容字段，由好感度确定性派生
+  亲密关系?: boolean;
   同行: boolean;
   初见回合: number;
   最近回合: number;
   性别?: NPC性别;
-  对玩家称呼?: string;               // NPC 平时如何称呼旅人,如「旅人」「开拓者」「小家伙」
+  对玩家称呼?: string;
   外貌?: string;
   穿着?: string;
   说话方式?: string;
   性格?: string;
-  介绍?: string;                     // 人物介绍 / 背景
-  装备摘要?: string;                 // 自由文本描述其装备/武器,后续接 NPC装备 schema 再扩
-  同行记忆?: NPC同行记忆条目[];      // 与玩家共同经历的关键节点,AI 推进剧情时填充
-  最近互动?: string;                 // NPC 账本：最近一次会影响后续态度的互动
-  对玩家长期印象?: string;           // NPC 账本：该 NPC 如何稳定看待玩家
-  当前关系阶段?: string;             // NPC 账本：比关系枚举更具体的阶段描述
-  共同经历?: string[];               // NPC 账本：稳定共同经历
-  未完成事项?: string[];             // NPC 账本：承诺、约定、待办
-  未解决冲突?: string[];             // NPC 账本：尚未化解的冲突/误会
-  必须记得?: string[];               // NPC 账本：主剧情不得遗忘的事实
-  禁止遗忘?: string[];               // NPC 账本：强保护事实，解决前不得删除
-  总结记忆?: NPC总结记忆条目[];      // NPC 账本：压缩后的长期关系记忆
-  约定?: 约定结构[];                 // 与该 NPC 的约定列表（玩家承诺结构化载体）
+  介绍?: string;
+  装备摘要?: string;
+  同行记忆?: NPC同行记忆条目[];
+  最近互动?: string;
+  对玩家长期印象?: string;
+  当前关系阶段?: string;
+  共同经历?: string[];
+  未完成事项?: string[];
+  未解决冲突?: string[];
+  必须记得?: string[];
+  禁止遗忘?: string[];
+  总结记忆?: NPC总结记忆条目[];
+  约定?: 约定结构[];
   备注: string[];
-  原著角色?: boolean;                // 来自原著角色库的标记
+  原著角色?: boolean;
   NSFW档案?: NPC_NSFW档案;
   图像档案?: {
     头像?: string;
@@ -474,7 +455,7 @@ export interface NPC记录 {
     状态?: 'none' | 'pending' | 'done' | 'failed';
     来源?: '手动' | '原著' | '文生图' | '占位';
   };
-  头像?: string;                     // 圆形渲染;后续接入生图功能后由生图模块写入
+  头像?: string;
 }
 
 export function 创建NPC记录(input: {
@@ -942,7 +923,6 @@ function 归一化NPC约定列表(raw: unknown, ctx?: VariableExecContext): 约�
   return output;
 }
 
-/** 按 id 合并；incoming 较新，同 id 覆盖 base。 */
 function 合并NPC约定列表(base: 约定结构[], incoming: 约定结构[]): 约定结构[] {
   const byId = new Map<string, 约定结构>();
   for (const item of base) byId.set(item.id, item);
@@ -1268,13 +1248,11 @@ function normalizeImageSource(raw: unknown): NonNullable<NonNullable<NPC记录['
 }
 
 export function 提取NPC同行记忆文本列表(record: Pick<NPC记录, '同行记忆'> | undefined): string[] {
-  // 同行记忆只有结构化一种形态：字符串在 升级同行记忆条目 里一次性升级，此处不再兜底。
   return (record?.同行记忆 ?? [])
     .map((item) => 清理NPC同行记忆摘要(item.摘要))
     .filter((text) => Boolean(text));
 }
 
-/** 该 NPC 是否在积累同行记忆：同伴阶位、同行中，或已有记忆条目。写入方共用的准入判断。 */
 export function 可追踪NPC同行记忆(record: NPC记录): boolean {
   return record.阶位 === 'companion' || record.同行 || 提取NPC同行记忆文本列表(record).length > 0;
 }

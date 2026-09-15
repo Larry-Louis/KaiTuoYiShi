@@ -57,7 +57,6 @@ export function createSaveManagerActions(
   };
 }
 
-/** confirm=true / alert=noop，与两文件原 beforeEach 一致。 */
 export function registerSaveManagerDialogSpies(): void {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);

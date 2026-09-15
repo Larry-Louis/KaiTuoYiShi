@@ -2,12 +2,6 @@ import { useState } from 'react';
 import { isRecord } from '@/utils/variableManagerLogic';
 import { cardClip, smallClip } from './settingsShared';
 
-// ─────────────────────────────────────────────────────────────
-// NSFW 档案专用编辑面板
-// 在变量管理页 NPC → 某个 NPC → NSFW档案 字段处渲染，
-// 提供中文标签、年龄下拉、标签编辑器和分组身体档案表单。
-// ─────────────────────────────────────────────────────────────
-
 export const NSFW_AGE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'adult', label: '成人' },
   { value: 'unknown', label: '未标注' },

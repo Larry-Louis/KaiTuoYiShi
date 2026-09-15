@@ -23,17 +23,9 @@ interface OfficialOpeningAlignment {
   chapterId: string;
   seriesId: string;
   segmentGroup: number;
-  /** 共享章节或复用系列的有意设计说明；没有复用时省略。 */
   reuseNote?: string;
 }
 
-/**
- * 官方翁法罗斯/二相乐园预设的对齐真值表。
- * 注意两处有意复用：
- * - official_amphoreus_falling_wood 与 official_amphoreus_refugee 共享同一章节锚点；
- * - official_planarcadia_welcome 与 official_planarcadia_academy 复用二相乐园其一系列的不同分段。
- * 这些复用不新建重复系列，测试名会把复用意图显式写出来。
- */
 const OFFICIAL_ALIGNMENTS: OfficialOpeningAlignment[] = [
   {
     presetId: 'official_amphoreus_falling_wood',

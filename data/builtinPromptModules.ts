@@ -41,10 +41,6 @@ function makeBuiltin(overrides: Partial<提示词模块> & { id: string; title: 
   };
 }
 
-// 内置提示词模块。content 中可含 {wordCountTarget} / {personLabel} / {playerName} 占位符，
-// 在 systemPromptBuilder.injectPromptModules 中按运行时设置替换。
-// 每条模块用 scope 字段控制注入场景；不再有"全局恒注入"的概念。
-
 const DEV_MODE_CONTENT = `# 开发者模式
 
 ⚠️ 当前会话处于开发者测试模式。
@@ -530,10 +526,6 @@ Activate the following requirements ONLY when generating a sexual scene:
 - If no specific character is specified, use a general third-person or narrator perspective.
 - Describe the scene step by step.`;
 
-// ── 复合情感协议（参考 Izumi felt[A+B]，P2 可选，默认关闭）────────────────
-// 玩家可选开启：开启后 AI 在思考段按 felt[A+B] 字段输出 NPC 当下复合情感，
-// 并在正文让情绪从行动 / 节奏 / 细节里自然流露，而不是直接告诉读者"她既 A 又 B"。
-
 const EMOTION_PROTOCOL_CONTENT = `# 复合情感协议（felt[A+B]）
 
 ## 字段含义
@@ -563,10 +555,6 @@ const EMOTION_PROTOCOL_CONTENT = `# 复合情感协议（felt[A+B]）
 - 与文风模块不冲突：文风决定行文质感，felt 决定角色当下的情绪底色。
 - NSFW 场景同样适用：亲密场景中的 felt 可能是 \`felt[渴望+紧张]\` 或 \`felt[主动+羞怯]\`，主调决定推进节奏，底色在细节里流露。`;
 
-// ── 认知隔离机制（参考 Izumi Master/<user>，P2 可选，默认关闭）────────────────
-// 玩家可选开启：开启后 AI 严格遵守"玩家 = Master（故事外读者）"与"旅者 = <user>（故事内角色）"
-// 的边界，不替旅者说话、不写旅者心理、不让旅者知道故事外信息。
-
 const COGNITIVE_ISOLATION_CONTENT = `# 认知隔离机制（Master / <user>）
 
 ## 核心概念
@@ -594,10 +582,6 @@ const COGNITIVE_ISOLATION_CONTENT = `# 认知隔离机制（Master / <user>）
 
 - 默认关闭：不开启时，AI 按现有规则写作（仍受「角色边界 / 防止抢话」约束）。
 - 开启后：适用于追求"玩家完全掌控旅者言行、AI 不代写"的玩家。沉浸感更强，但对玩家输入要求更高。`;
-
-// ── 人称模块（三选一，由「设置 → 游戏设定 → 叙述人称」控制启用）────────────────
-// 与「角色边界 / 防止抢话」共享一段通用边界文案：人称只决定代词与镜头，
-// 不授权代写。所有人称模块都把这条边界先声明在前，再讲各自的代词与正文映射。
 
 const PERSPECTIVE_BOUNDARY = `## 通用边界
 - 本模块只决定「玩家代词与叙述镜头」，不授权补写玩家未明确输入的心理、对白、决定或额外动作。

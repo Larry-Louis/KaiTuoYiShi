@@ -25,8 +25,6 @@ export function TreeNode({
     return <LeafRow label={label} value={value} depth={depth} onChange={onChange} onDelete={onDelete} />;
   }
 
-  // NSFW 档案渲染专用编辑面板（中文标签 + 下拉 + 标签编辑器），而非通用树形展开。
-  // 用 <details> 包裹并默认折叠，避免占用大量纵向位置；点击 summary 展开。
   if (!isArray && objectLike && label === 'NSFW档案') {
     const archive = value;
     const enabled = archive.enabled === true;

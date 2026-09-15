@@ -18,10 +18,6 @@ interface Props {
   setStoryWeaving: React.Dispatch<React.SetStateAction<剧情编织系统>>;
 }
 
-/**
- * 剧情区域连续性横幅：世界当前区域与激活系列区域不一致时暂停注入/推进，
- * 由玩家二选一——确认转场（系列跟随当前区域）或保持轨道（世界校正回系列区域）。
- */
 export function ContinuityBanner({ world, storyWeaving, setWorld, setStoryWeaving }: Props) {
   const series = 获取激活剧情系列(storyWeaving);
   if (!series) return null;

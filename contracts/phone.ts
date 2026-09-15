@@ -6,7 +6,6 @@ import type { 新闻条目 } from '@/models/news';
 import type { 聊天消息 } from '@/models/chat';
 import type { 智库系统 } from '@/models/zhiku';
 
-// ── 手机回复（原 services/ai/phoneService.ts）──
 export interface 手机回复上下文 {
   traveler: 角色数据结构;
   world: 世界状态;
@@ -22,7 +21,6 @@ export interface 手机回复上下文 {
   zhiku?: 智库系统;
 }
 
-// ── 手机记忆即时追加 + 归档压缩 + NPC 台账压缩入参（原 hooks/useGame.ts 自建）──
 export interface PhoneMemoryCommitInput {
   summary: string;
   npcId?: string | null;

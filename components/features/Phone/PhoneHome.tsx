@@ -111,8 +111,7 @@ function AppIcon({
       disabled={disabled}
       className="group relative flex min-h-[104px] flex-col items-center justify-center gap-1.5 transition-all hover:scale-[1.02] disabled:opacity-45 disabled:hover:scale-100"
       style={{
-        // 左侧 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），排在 background 第一层；
-        // 两个分支各自夹带的外投影被切角裁掉、不可见，一并删除。
+        // 垫片会丢弃内阴影，强调条只能画成背景条纹，且必须排在第一层。
         background: disabled
           ? 'rgba(var(--tj-surface-strong), 0.68)'
           : active

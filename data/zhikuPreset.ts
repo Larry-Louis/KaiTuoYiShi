@@ -14,7 +14,6 @@ export interface BundledZhikuPreset {
 
 export interface LoadBundledZhikuOptions {
   cacheBust?: string | number;
-  /** 载入进度回调：每完成一个文件调用一次，(已完成, 总数)。 */
   onProgress?: (done: number, total: number) => void;
 }
 
@@ -37,10 +36,6 @@ const 智库分类Schema = z.enum([
   'system',
 ]);
 
-/**
- * 内置预设载荷的最低解析契约：机器 ID、标题与分类决定条目能否进入档案，其余字段交给归一化兜底。
- * 数组为空同样视为损坏目录，避免「静默空档案」被当成合法状态。
- */
 const 智库预设载荷Schema = z.object({
   entries: z.array(z.object({
     id: z.string().trim().min(1, '缺少机器 ID'),
@@ -357,10 +352,7 @@ export function mergeZhikuRuntimeUnlockOverrides(
   });
 }
 
-/**
- * 旧版运行时解锁覆盖迁移：旧目录的条目 ID 由加载器生成（`preset_index`）或使用旧人物前缀，
- * 与新版机器 ID 不一致。按标题把内置条目的覆盖搬到新 ID，内容已移除的条目覆盖随之失效。
- */
+/** 旧目录条目 ID 由加载器生成（preset_index）或使用旧人物前缀，与新版机器 ID 不一致，只能按标题对应。 */
 export function migrateZhikuRuntimeUnlockOverrides(
   bundledEntries: 智库条目[],
   savedEntries: 智库条目[] | undefined,
@@ -401,10 +393,7 @@ export function mergeBundledZhikuSystem(
   });
 }
 
-/**
- * 持久化投影：内置条目只留运行态与来源绑定。输入必须是**可信构造结果**；
- * 不含归一化——保存链路的边界归一化由调用方在入口完成。
- */
+/** 输入必须是可信构造结果；保存边界请用 buildPersistedZhikuSystem。 */
 export function 投影持久化智库系统(system: 智库系统): 智库系统 {
   return {
     目录版本: system.目录版本,
@@ -442,22 +431,11 @@ export function 投影持久化智库系统(system: 智库系统): 智库系统 
   };
 }
 
-/**
- * 保存边界：运行时多个入口传入的状态可能未经归一化，先归一化再投影。
- * 启动链路已知输入可信，应直接调用 投影持久化智库系统。
- */
 export function buildPersistedZhikuSystem(system: 智库系统 | undefined): 智库系统 {
   return 投影持久化智库系统(归一化智库系统(system));
 }
 
-/**
- * 内置预设 payload → 运行时条目。
- *
- * 注意：`public/zhiku-presets/*.json` 是**作者格式**，不是运行时形状——`使用范围`可能是分隔字符串、
- * `重要度` 可能越界、`updatedAt` 可能是版本串、`关联条目ID` 等数组可能缺席，且带 `出身`/`性别` 等
- * 仅供装配期使用的字段。因此单文件的「作者格式 → 运行时条目」必须过一次边界归一化；
- * 其后的聚合/合并/保存都是对已归一化条目操作，改用可信构造，不再重复证明。
- */
+/** public/zhiku-presets/*.json 是作者格式（使用范围可能是分隔字符串、重要度可能越界、数组可能缺席），必须过一次边界归一化。 */
 export function 装配内置智库条目(preset: BundledZhikuPreset, payload: unknown): 智库条目[] {
   const parsed = 智库预设载荷Schema.safeParse(payload);
   if (!parsed.success) {
@@ -505,7 +483,6 @@ export async function fetchBundledZhikuPreset(preset: BundledZhikuPreset, option
   return res.text();
 }
 
-/** 单文件边界：作者格式 → 运行时条目（过边界归一化）。 */
 export function 加工BundledZhikuPreset(preset: BundledZhikuPreset, text: string): 智库系统 {
   return 归一化智库系统({ 条目: 装配内置智库条目(preset, JSON.parse(text) as unknown) });
 }
@@ -514,7 +491,6 @@ export async function loadBundledZhikuPreset(preset: BundledZhikuPreset, options
   return 加工BundledZhikuPreset(preset, await fetchBundledZhikuPreset(preset, options));
 }
 
-/** 网络段：取回全部内置智库预设原文（响应体读完即计数），不做解析。 */
 export async function fetchAllBundledZhikuPresetsText(options: LoadBundledZhikuOptions = {}): Promise<string[]> {
   const { onProgress, ...perFileOptions } = options;
   return loadAllOrThrow({
@@ -526,9 +502,6 @@ export async function fetchAllBundledZhikuPresetsText(options: LoadBundledZhikuO
   });
 }
 
-/**
- * 加工段：作者格式逐文件过边界归一化，聚合成目录。无进度上报（进度只属于网络段）。
- */
 export function 加工内置智库目录(texts: readonly string[]): 智库系统 {
   const entries = bundledZhikuPresets.flatMap((preset, index) =>
     加工BundledZhikuPreset(preset, texts[index]).条目);
@@ -545,10 +518,6 @@ export async function loadAllBundledZhikuPresets(options: LoadBundledZhikuOption
   return 加工内置智库目录(await fetchAllBundledZhikuPresetsText(options));
 }
 
-/**
- * 内置目录完整性校验：机器 ID、来源绑定、所有权与结构化注入内容都是档案体验的运行契约。
- * 校验失败意味着这次加载的目录不可作为档案展示，整条加载即判失败（无降级缓存可退）。
- */
 export function validateBundledZhikuCatalog(system: 智库系统): void {
   const sourcePresets = new Set(system.条目.map((entry) => entry.来源预设ID).filter(Boolean));
   const missingPresets = bundledZhikuPresets.filter((preset) => !sourcePresets.has(preset.id));

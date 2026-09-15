@@ -25,7 +25,6 @@ export function latestTask(
   return [...queueTasks].reverse().find((task) => task.id === id);
 }
 
-/** 读取活跃叶子；不可读时抛与原各文件一致的错误。 */
 export async function loadActiveLeafOrThrow() {
   const active = await loadActiveLeaf();
   if (active.status !== 'ok') throw new Error(`活跃叶子不可读：${active.status}`);
@@ -36,7 +35,6 @@ export function parsedStub(body: string): 解析后回复 {
   return { body } as unknown as 解析后回复;
 }
 
-/** 注意：默认 turnAtStart=1（leaf-recovery 原值）；resume-recovery 原默认 2，迁移时调用方显式传 2。 */
 export function recoveryFor(
   input: string,
   userMessageId: string,

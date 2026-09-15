@@ -78,7 +78,6 @@ describe('匹配智库关键词', () => {
     expect(match?.主关键词命中).toContain('星核');
     expect(match?.辅助关键词命中).toContain('现界');
 
-    // 默认 AND_ANY 下，没有任何辅助关键词命中则拒绝召回。
     expect(匹配智库关键词(entry, '只是提到星核这个词的说明')).toBeNull();
     expect(匹配智库关键词(entry, '星核 相关但也提到 败者 相关内容')).not.toBeNull();
   });
@@ -113,7 +112,6 @@ describe('单字人物关键词的边界匹配', () => {
   });
 
   it('单字嵌在更长词内部时不算命中', () => {
-    // 「岚」不能匹配「岚德」或「斯岚曼」内部。
     expect(匹配智库关键词(entry, '岚德就要醒了')).toBeNull();
     expect(匹配智库关键词(entry, '斯岚曼爆了')).toBeNull();
   });

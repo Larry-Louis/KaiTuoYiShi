@@ -44,7 +44,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
 
   return (
     <>
-      {/* ===== 移动端悬浮面板（不变） ===== */}
       <div className="fixed left-2 top-[calc(var(--app-safe-top)+10px)] z-40 flex items-start gap-2 md:hidden">
         <button
           type="button"
@@ -126,14 +125,12 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
         )}
       </div>
 
-      {/* ===== 桌面端顶栏：新闻底层 + 日期芯片上层 ===== */}
       <div
         className="kaituo-topbar relative hidden items-center overflow-hidden px-5 py-2.5 text-sm md:grid"
         style={{
           gridTemplateColumns: 'minmax(160px, 1fr) auto minmax(160px, 1fr)',
         }}
       >
-        {/* ── 底层：新闻滚动条（absolute 铺满） ── */}
         <div className="pointer-events-none absolute inset-0 z-0 flex items-center overflow-hidden">
           {headlines.length > 0 && (
             <div className="w-full overflow-hidden">
@@ -168,7 +165,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
           )}
         </div>
 
-        {/* ── 上层：左列品牌 ── */}
         <button
           onClick={onHome}
           className="relative z-10 flex items-center gap-2.5 transition-opacity hover:opacity-80 justify-self-start"
@@ -187,7 +183,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
           </span>
         </button>
 
-        {/* ── 上层：中列日期芯片（浮在新闻上方） ── */}
         <div className="relative z-10 justify-self-center">
           <div
             className="flex max-w-[min(56vw,720px)] items-center gap-2 px-3 py-1.5"
@@ -206,7 +201,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
           </div>
         </div>
 
-        {/* ── 上层：右列 DAY 徽章 ── */}
         <div className="relative z-10 justify-self-end">
           <div
             className="flex items-baseline gap-2 px-3 py-1"
@@ -229,8 +223,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarP
     </>
   );
 });
-
-// ---- helpers ----
 
 function MobileDetail({ label, value }: { label: string; value: string }) {
   return (

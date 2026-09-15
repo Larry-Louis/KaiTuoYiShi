@@ -1,10 +1,6 @@
 import type { 世界书, 世界书条目 } from '@/models/worldbook';
-// [迁移] COMPANION_ARCHIVE_WORLDBOOK_CONTENT / VARIABLE_SYSTEM_WORLDBOOK_PROMPT / NSFW_ARCHIVE_WORLDBOOK_CONTENT
-// 已迁移到提示词模块系统（builtin_companion_archive_worldbook / builtin_variable_worldbook / builtin_nsfw_archive_worldbook），
-// 不再以世界书条目形式注入，此处不再 import。
 
-// 现行内置世界书 id：工厂创建用这些 id；normalize 仅在存档缺 builtin 字段时按此补标签。
-// 运行时内置身份看 世界书.builtin，不再查本名单。
+// 仅在存档缺 builtin 字段时按此补标签；运行时判定内置身份看 世界书.builtin。
 export const BUILTIN_BOOK_IDS = [
   'builtin_compass',
   'builtin_worldview_core',
@@ -603,7 +599,6 @@ function entry(partial: Omit<世界书条目, 'createdAt' | 'updatedAt'>, now: n
 export function createBuiltinConfigWorldbooks(): 世界书[] {
   const now = Date.now();
 
-  // 3. 星际罗盘（开局·星际罗盘 + A1 + A2，合并为单条总览）
   const compassBook: 世界书 = {
     id: 'builtin_compass',
     title: '星际罗盘',
@@ -627,7 +622,6 @@ export function createBuiltinConfigWorldbooks(): 世界书[] {
     updatedAt: now,
   };
 
-  // 4. 世界观：宇宙骨架始终注入，势力 / 地点 / 星核等细节按关键词展开。
   const worldviewBook: 世界书 = {
     id: 'builtin_worldview_core',
     title: '世界观',
@@ -717,7 +711,6 @@ export function createBuiltinConfigWorldbooks(): 世界书[] {
     updatedAt: now,
   };
 
-  // 5. 命途纲要（B1-B3）
   const pathsBook: 世界书 = {
     id: 'builtin_paths_lore',
     title: '命途纲要',
@@ -762,34 +755,6 @@ export function createBuiltinConfigWorldbooks(): 世界书[] {
     createdAt: now,
     updatedAt: now,
   };
-
-  // 7. 智库世界书已迁移到提示词模块系统（builtin_zhiku_cot + builtin_zhiku_output_format）。
-  //    智库系统调用 AI 时走自己的 buildZhikuModelSystemPrompt，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_zhiku 世界书条目（死代码已清理，原 builtin_zhiku_guideline 无检索逻辑读取）。
-
-  // 8. 星际和平周报世界书已迁移到提示词模块系统（builtin_news_worldbook）。
-  //    新闻系统调用 AI 时走自己的 buildNewsModelPrompt，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_starrail_weekly_news 世界书条目（死代码已清理）。
-
-  // 9. 手机系统世界书已迁移到提示词模块系统（builtin_phone_worldbook）。
-  //    手机系统调用 AI 时走自己的 buildPhoneSystemPrompt，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_phone_system 世界书条目（死代码已清理，原 builtin_phone_system_worldbook 无检索逻辑读取）。
-
-  // 10. 剧情编织系统世界书已迁移到提示词模块系统（builtin_story_weaving_worldbook）。
-  //    剧情编织分解模型 AI 调用时走自己的 buildStoryWeavingSystemPrompt，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_story_weaving 世界书条目（死代码已清理，原 builtin_story_weaving_worldbook 无检索逻辑读取）。
-
-  // 11. 伙伴档案世界书已迁移到提示词模块系统（builtin_companion_archive_worldbook）。
-  //    伙伴档案 AI 调用时走提示词模块拼接，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_companion_archive 世界书条目（死代码已清理，原 builtin_companion_archive_guideline entry 无检索逻辑读取）。
-
-  // 12. NSFW 档案世界书已迁移到提示词模块系统（builtin_nsfw_archive_worldbook）。
-  //    NSFW 档案 AI 调用时走提示词模块拼接，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_nsfw_archive 世界书条目（死代码已清理，原 builtin_nsfw_archive_worldbook entry 无检索逻辑读取）。
-
-  // 13. 变量系统世界书已迁移到提示词模块系统（builtin_variable_worldbook）。
-  //    变量系统 AI 调用时走提示词模块拼接，从 settings.promptModules 读取。
-  //    此处不再生成 builtin_variable_system 世界书条目（死代码已清理，原 builtin_variable_system_worldbook entry 无检索逻辑读取）。
 
   return [compassBook, worldviewBook, pathsBook];
 }

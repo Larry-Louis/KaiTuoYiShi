@@ -2,7 +2,6 @@ import type { 聊天消息 } from '@/models/chat';
 import { 格式化时间戳 } from '@/utils/format';
 import { formatTokenCount } from '@/utils/tokenEstimate';
 
-/** 本地诊断：只读本回合已保存的调试字段，仅开发者模式下展示，永不发送给主剧情模型。 */
 export function 格式化本地诊断(message: 聊天消息): string {
   const debug = message.debugContext;
   const usage = message.tokenUsage;

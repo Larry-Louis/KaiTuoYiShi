@@ -14,17 +14,14 @@ import {
 
 registerAlbumCacheTeardown();
 
-/** 本文件的 asset 默认 source 为 generated，与其他相册文件不同，此处显式覆盖。 */
 function makeAsset(overrides: Partial<图片资源> & { id: string }): 图片资源 {
   return baseAsset({ source: 'generated', ...overrides });
 }
 
-/** 本文件的 entry 默认指向 traveler，与其他相册文件不同，此处显式覆盖。 */
 function makeEntry(overrides: Partial<相册条目> & { id: string; assetId: string }): 相册条目 {
   return baseEntry({ targetType: 'traveler', targetId: 'traveler', ...overrides });
 }
 
-/** 本文件的 task 默认 queued/traveler，与 archive 的 success/npc 默认不同，此处显式覆盖。 */
 function makeTask(overrides: Partial<图片生成任务> & { id: string }): 图片生成任务 {
   return baseTask({ targetType: 'traveler', targetId: 'traveler', status: 'queued', ...overrides });
 }

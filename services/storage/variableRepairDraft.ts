@@ -1,6 +1,3 @@
-// 变量修复中心草稿持久化：SETTINGS_STORE 单键 'variableRepairDraft'。
-// 断点续扫的可恢复状态唯一通道；不新增任何存储渠道。
-
 import { 归一化变量修复草稿, type 变量修复草稿 } from '@/models/variableRepairBatch';
 import { deleteSetting, loadSetting, saveSetting } from './settings';
 

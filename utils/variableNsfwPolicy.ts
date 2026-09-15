@@ -1,6 +1,3 @@
-// 变量命令的 NSFW 写入策略：回合校准与历史修复共用同一判定。
-// 只做判定，不做任何状态写入。
-
 import type { 变量命令 } from '@/models/variableCommand';
 import type { NPC记录 } from '@/models/npc';
 import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
@@ -67,7 +64,6 @@ export function applyNsfwVariablePolicy(
   return { allowedCommands, rejectedCommands };
 }
 
-/** valueText 由调用方传入：同一条命令的 value 只序列化一次。 */
 export function getNsfwBlockedCommandReason(command: 变量命令, npcs: NPC记录[], valueText: string): string | null {
   const text = `${command.key}\n${valueText}`;
   const selector = command.key.match(/^NPC\[([^\]]+)\]/)?.[1] ?? '';

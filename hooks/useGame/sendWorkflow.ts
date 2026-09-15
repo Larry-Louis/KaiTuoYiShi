@@ -49,14 +49,12 @@ export async function executeSendWorkflow(
   const isOpeningSystemTrigger = turnCountAtStart === 1 && userInput.startsWith('[系统]');
   const openingInstruction = OPENING_TURN_INSTRUCTION;
 
-  // 「踏入命途狭间」触发:玩家点击邀请卡片 → App 调 handleSend('[系统] 踏入命途狭间')。
-  // 在快照/作用域/systemPrompt 计算之前先把 世界.待触发狭间 转成 世界.进行中狭间——
+  // 须在快照/作用域/systemPrompt 计算之前先把 世界.待触发狭间 转成 世界.进行中狭间——
   // 否则 currentScope 拿不到 pathAwakening,系统提示词不会切到狭间问答模块,AI 出不了题。
   const isAwakeningEnterTrigger = userInput === '[系统] 踏入命途狭间';
   let effectiveWorld: typeof state.世界 = state.世界;
   if (isAwakeningEnterTrigger && state.世界.待触发狭间) {
     effectiveWorld = 踏入命途狭间(state.世界);
-    // 投影点（B2 定性，S01）：踏入狭间即时可见；管线与存档只认 ctx/d，不回读此 state
     state.set世界(effectiveWorld);
   }
   const awakeningPathId = isAwakeningEnterTrigger ? effectiveWorld.进行中狭间 : undefined;
@@ -64,7 +62,6 @@ export async function executeSendWorkflow(
     ? buildAwakeningEnterInstruction(awakeningPathId)
     : '';
 
-  // Abort previous request
   state.activeWorkflow.abortControllerRef.current?.abort();
   const abortController = new AbortController();
   state.activeWorkflow.abortControllerRef.current = abortController;
@@ -92,7 +89,6 @@ export async function executeSendWorkflow(
   let keepTurnStatus = false;
   let rollbackSnapshotOnAbort: 回合快照 | null = null;
   let visibilityPublisher: VisibilityBufferedPublisher | null = null;
-  // Declared outside the stream setup so finally can always cancel a pending rAF commit.
   const streamMessageSetter = createRafCoalescedSetter((value: string) => {
     if (isCurrentWorkflow()) setStreamingMessage(value);
   });
@@ -121,56 +117,41 @@ export async function executeSendWorkflow(
   };
 
   try {
-    // 工作区叶子（newest.headNodeId）：回合开始载入并确保可写（封版/缺失时自动分叉重建）；
-    // 阶段边界 writeLeafNode 原地写叶子（L2：只在阶段边界写）。
     const newest = await ensureHeadLeafWritable(state);
     const headNodeId = newest.headNodeId;
     if (!headNodeId) {
       throw new Error('回合写叶子失败：无法建立活跃叶子工作区。');
     }
 
-    // 阶段 1：回合开始（快照 + 用户消息 + awaitingLanding 相位落盘 + 历史清理）
     const s1 = await stage1_turnStart(ctx, headNodeId, userInput, effectiveWorld);
     const preTurnSnapshot = s1.preTurnSnapshot;
     const userMsg = s1.userMsg;
     rollbackSnapshotOnAbort = preTurnSnapshot;
     const updatedHistory = s1.updatedHistory;
 
-    // 阶段 1 → d
     Object.assign(d, { preTurnSnapshot, userMsg, updatedHistory });
 
-    // 阶段 2：主模型前置
     Object.assign(d, await stage2_preModel(ctx, d));
 
-    // 阶段 3: Prompt 组装
     const s3 = stage3_promptAssembly(ctx, d);
     Object.assign(d, s3);
     const apiMessages = s3.apiMessages;
 
-    // 阶段 4：AI 请求与响应（while 重试循环整块移动）
     const s4 = await stage4_aiRequest(ctx, d, visibilityPublisher);
     Object.assign(d, s4.deltas);
     visibilityPublisher = s4.visibilityPublisher;
     let streamedText = s4.streamedText;
     const { result, streamEventCount, previewChain: s4PreviewChain } = s4;
-    d.rawFullText = result.fullText;  // S4 产出，S7 天气解析消费
+    d.rawFullText = result.fullText;
     const previewChain = s4PreviewChain;
 
     visibilityPublisher?.flush();
 
     if (abortController.signal.aborted || !isCurrentWorkflow()) return;
 
-    // 阶段 5：回复落地
-    /* 读 d: updatedHistory,userMsg,preTurnSnapshot,systemPrompt,apiMessages,
-       deepSeek*,shouldTryTavernV2,tavernV2*,yiting/zhikuPreview,zhikuRecallEnabled,
-       npcLedgerSelection,storyWeavingGate/Diagnostics,recallSummary/FullContentForTurn
-       写 d: aiMsg,finalHistory,parsedForDisplay,displayText,pendingVariableStarted */
     Object.assign(d, await stage5_replyLanding(ctx, d, result, streamedText, streamEventCount, previewChain, startTime, headNodeId));
     if (d.pendingVariableStarted) pendingVariableStarted = true;
 
-    // 阶段边界写叶子（子任务 A：S5 后 —— chatHistory / turnCount / S2 两运行态键 /
-    // settling 相位与 assistantMessageId）。正文落地与相位切换在同一次原子写入完成：
-    // 刷新后叶子为 settling，恢复入口=继续结算（§10.3）。
     const landedAssistantId = d.aiMsg?.id;
     if (!landedAssistantId) {
       throw new Error('S5 后缺少落地助手消息 id。');
@@ -196,11 +177,7 @@ export async function executeSendWorkflow(
   } catch (err: unknown) {
     if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
       if (!isCurrentWorkflow()) return;
-      // 中断现场保留在活跃叶子上：settling → 继续结算；awaitingLanding → 重试 / 撤销。
-      // 相位以叶子为准：S5 边界写入与内存投影之间被中止时，投影可能落后于已落盘事实。
-      // 用户消息已持久化，不再回滚历史（kernelization §10.2/§10.3）。
-      // 新鲜开局（awaitingLanding + 无恢复上下文）也如实投影：派发谓词据此重发开局，
-      // 中止不再把投影置空导致刷新前无法派发。
+      // 新鲜开局（awaitingLanding + 无恢复上下文）也如实投影：否则派发谓词在刷新前无法重发开局。
       const active = await loadActiveLeaf();
       const leafPhase = active.status === 'ok' ? (active.leaf.turnPhase ?? null) : null;
       const leafRecovery = active.status === 'ok' ? (active.leaf.recoveryContext ?? null) : null;
@@ -210,7 +187,6 @@ export async function executeSendWorkflow(
         await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(rollbackStoryWeaving));
       }
       if (leafPhase === 'settling') {
-        // 结算中断的通知由 App 的恢复横幅（继续结算 / 放弃）承载，状态条不重复展示
         state.activeWorkflow.setTurnStatus(TURN_STATUS_IDLE);
         devLog('recover', 'abort-keep-settlement', { turn: turnCountAtStart });
       } else {
@@ -222,7 +198,6 @@ export async function executeSendWorkflow(
       devLogError('turn', 'executeSendWorkflow.catch', err);
       keepTurnStatus = true;
       const detail = err instanceof Error ? err.message : '主流程调用失败。';
-      // 变量结算失败（关键位）：叶子保持 settling，走「继续结算 / 放弃」，不并入主流程失败。
       const settlementFailure = isVariableSettlementError(err);
       const alreadyReportedByApiLayer = Boolean(
         err && typeof err === 'object' && (err as { alreadyReportedByApiLayer?: boolean }).alreadyReportedByApiLayer,

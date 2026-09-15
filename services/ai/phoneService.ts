@@ -136,8 +136,7 @@ export function buildPhoneSystemPrompt(ctx: 手机回复上下文, promptModules
       ? '{"messages":["角色甲：短讯1","角色乙：短讯2"],"summary":"一句话群聊摘要"}'
       : '{"messages":["短讯1","短讯2","短讯3","短讯4"],"summary":"一句话通讯摘要"}',
   ].join('\n');
-  // legacy 回退：手机作用域模块未启用时（contextSnapshot 等调用点在空模块段时不再传 promptModules），
-  // 退回源文件常量拼接，保证旧调用路径不丢手机系统提示词。
+  // contextSnapshot 等旧调用点在模块段为空时不传 promptModules，需保留常量拼接回退。
   const effectiveModules = modulesSection || [
     PHONE_LEGACY_WORLD_BOOK_PROMPT,
     PHONE_LEGACY_STYLE_PROMPT,
@@ -503,7 +502,6 @@ function parsePhoneReply(raw: string, messageLimit = 8): 手机回复结果 {
       };
     }
   } catch {
-    // fall through
   }
   return {
     messages: [],

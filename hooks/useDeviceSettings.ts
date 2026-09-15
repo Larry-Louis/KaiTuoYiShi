@@ -7,24 +7,6 @@ import type { API方案槽位, AuxApiProfileState } from '@/models/apiProfiles';
 import type { GitHubCloudSaveConfig } from '@/services/githubCloudSave';
 import type { 世界书 } from '@/models/worldbook';
 
-/**
- * 设备级设置持久化用例动作（片 panel-p2，审计破口 ② 收敛）。
- *
- * B 类设置（apiSettings/gameSettings/currentTheme/worldbooks）的写入侧统一收敛到本管理器：
- * 各 Settings tab 不再直连 storage/settings 的 saveSetting，改经 SettingsModal/App 注入的
- * 持久化动作写入。动作内部统一「归一化 → saveSetting → devLog 埋点」。
- *
- * 语义约束：写入时机与字段与收敛前完全一致；状态源仍为 useGameState（本 hook 不持有
- * 任何状态）。ApiSettings 的显式构造新对象再写 state+IndexedDB 时序由调用方原样保留，
- * 本管理器只在其之后落盘。
- *
- * 片 panel-p9：新增三类本机设备设置的读写动作（apiProfileSlots / apiAuxProfileStates /
- * githubCloudSaveConfig），面板不再直连 storage/settings 的 loadSetting/saveSetting。
- * 读取动作负责形状归一化（非数组→空数组、非对象→空对象、null 原样返回）；
- * GitHub 配置的字段清洗与默认值合并保留在面板，本管理器只负责持久化。
- */
-
-/** API设置 归一化：最小结构保证（activeConfigId + configs 数组）。 */
 function 归一化API设置(settings: API设置): API设置 {
   return {
     activeConfigId: settings.activeConfigId ?? null,
@@ -32,20 +14,16 @@ function 归一化API设置(settings: API设置): API设置 {
   };
 }
 
-/** worldbooks 归一化：数组保证。 */
 function 归一化世界书列表(books: 世界书[]): 世界书[] {
   return Array.isArray(books) ? books : [];
 }
 
-/** 本机 API 方案槽位上限（与收敛前面板 .slice(0, 12) 一致）。 */
 const MAX_API_PROFILE_SLOTS = 12;
 
-/** apiProfileSlots 读取归一化：非数组 → 空数组。 */
 function 归一化API方案槽位列表(value: unknown): API方案槽位[] {
   return Array.isArray(value) ? (value as API方案槽位[]) : [];
 }
 
-/** apiAuxProfileStates 读取归一化：非纯对象 → 空对象（数组视为损坏数据）。 */
 function 归一化辅助API配置表(value: unknown): Record<string, AuxApiProfileState> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, AuxApiProfileState>)
@@ -53,27 +31,16 @@ function 归一化辅助API配置表(value: unknown): Record<string, AuxApiProfi
 }
 
 export interface DeviceSettingsActions {
-  /** 游戏设定落盘（tab 保存 / SettingsModal 变更闭环共用）。 */
   persistGameSettings: (next: 游戏设置) => Promise<void>;
-  /** API 设置落盘（ApiSettings handleSave 单写 apiSettings）。 */
   persistApiSettings: (next: API设置) => Promise<void>;
-  /** 主题切换落盘。 */
   persistTheme: (next: 主题预设) => Promise<void>;
-  /** 世界书（ST 预设导入 / 世界书变更）落盘。 */
   persistWorldbooks: (next: 世界书[]) => Promise<void>;
-  /** ApiSettings 复合写：apiSettings + gameSettings 顺序落盘（applyApiProfile 专用）。 */
   persistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
-  /** 本机 API 方案槽位读取（片 panel-p9）：非数组归一化为空数组。 */
   loadApiProfileSlots: () => Promise<API方案槽位[]>;
-  /** 本机 API 方案槽位写入（片 panel-p9）：保留最多 12 槽位业务限制。 */
   persistApiProfileSlots: (next: API方案槽位[]) => Promise<void>;
-  /** 辅助 API 配置读取（片 panel-p9）：非对象归一化为空对象。 */
   loadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;
-  /** 辅助 API 配置写入（片 panel-p9）。 */
   persistAuxApiProfiles: (next: Record<string, AuxApiProfileState>) => Promise<void>;
-  /** GitHub 云存档配置读取（片 panel-p9）：未存储返回 null，默认值合并保留在面板。 */
   loadGitHubCloudSaveConfig: () => Promise<GitHubCloudSaveConfig | null>;
-  /** GitHub 云存档配置写入（片 panel-p9）：保存与解除绑定共用同一动作。 */
   persistGitHubCloudSaveConfig: (next: GitHubCloudSaveConfig) => Promise<void>;
 }
 
@@ -126,7 +93,6 @@ export function useDeviceSettings(): DeviceSettingsActions {
     const normalizedApi = 归一化API设置(api);
     const normalizedGame = 归一化游戏设置(game);
     try {
-      // 顺序与收敛前 applyApiProfile 原实现一致：先 apiSettings 后 gameSettings。
       await saveSetting('apiSettings', normalizedApi);
       await saveSetting('gameSettings', normalizedGame);
       devLog('ui', 'persist-api-profile', { configs: normalizedApi.configs.length });
@@ -149,7 +115,6 @@ export function useDeviceSettings(): DeviceSettingsActions {
   }, []);
 
   const persistApiProfileSlots = useCallback(async (next: API方案槽位[]) => {
-    // 业务限制与收敛前一致：最多保留 12 个槽位。
     const capped = next.slice(0, MAX_API_PROFILE_SLOTS);
     try {
       await saveSetting('apiProfileSlots', capped);

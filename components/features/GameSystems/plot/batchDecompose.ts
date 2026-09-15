@@ -16,10 +16,6 @@ export function batchModeLabel(mode: BatchDecomposeMode): string {
   return '全部分段';
 }
 
-/**
- * 顺序批量分解执行器。单段失败标记「失败」后继续；persist 失败立即中断。
- * 不直接依赖 React：UI 只负责注入 decompose/persist 与进度回调。
- */
 export async function runBatchDecompose(params: {
   series: 剧情编织系列;
   targets: 剧情编织分段[];

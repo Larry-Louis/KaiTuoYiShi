@@ -54,7 +54,6 @@ export async function hydrateAlbumContentHashes(album: 相册系统): Promise<�
       assets.push(existing === asset.contentHash ? asset : { ...asset, contentHash: existing });
       continue;
     }
-    // Prefer Blob cache bytes for hashing when dataUrl is only an asset: ref.
     const cached = asset.id ? getAlbumAssetBlob(asset.id) : undefined;
     if (cached) {
       const contentHash = await sha256Bytes(new Uint8Array(await cached.arrayBuffer()));

@@ -25,7 +25,6 @@ interface ZhikuArchiveExperienceProps {
   onRefreshBundled?: (current: 智库系统) => Promise<智库系统>;
   onManage?: () => void;
   onClose?: () => void;
-  /** 目录就绪信号（首页入口由 boot 状态驱动，会话内默认 ready）：驱动 data-catalog-status 断言与空态区分。 */
   catalogStatus?: ZhikuCatalogStatus;
 }
 

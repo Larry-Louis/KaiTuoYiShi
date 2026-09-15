@@ -16,7 +16,6 @@ import type { 游戏设置 } from '@/models/settings';
 import type { 世界状态 } from '@/models/world';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 
-// ── id 归一化（唯一出口，消除三处重复 startsWith('npc_')）──
 export function canonicalContactId(id: string): string {
   return id.startsWith('npc_') ? id : `npc_${id}`;
 }
@@ -27,7 +26,6 @@ export function normalizeParticipantId(contacts: 手机联系人[], id: string):
   return direct?.id ?? canonicalContactId(id);
 }
 
-// ── 剧情兜底联系人 ──
 export const FALLBACK_STORY_CONTACTS: Array<
   Pick<手机联系人, 'id' | 'name' | 'organization' | 'relationLabel' | 'avatar'> & { aliases: string[] }
 > = [
@@ -86,7 +84,6 @@ export function buildFallbackContactsFromStory(params: {
   }));
 }
 
-// ── 联系人派生 / 合并 ──
 export function deriveContacts(normalizedNpcRecords: NPC记录[], album?: 相册系统): 手机联系人[] {
   return normalizedNpcRecords
     .filter((npc) => npc.关系 !== 'enemy')
@@ -159,7 +156,6 @@ export function deriveAddableContacts(
     }));
 }
 
-// ── 解析器（UI 直接调用，不进 hook）──
 export function resolveContactForChat(contacts: 手机联系人[], chat?: 手机会话): 手机联系人 | undefined {
   if (!chat) return undefined;
   const participantId = chat.participantIds[0];
@@ -219,7 +215,6 @@ export function resolveSeedContact(
   };
 }
 
-// ── 群聊 ──
 export function findExistingGroupChat(
   phoneChats: 手机会话[],
   contacts: 手机联系人[],
@@ -256,7 +251,6 @@ export function buildStandardGroupTitle(participantContacts: 手机联系人[], 
   return '临时频道';
 }
 
-// ── 回复消息构造 ──
 export function createReplyMessages(
   chat: 手机会话,
   contents: string[],
@@ -319,7 +313,6 @@ export function createReplyMessages(
   });
 }
 
-// ── 本地归档 flush 纯计算 ──
 export function computeLocalArchiveFlush(
   chat: 手机会话,
   entry: 手机会话本地摘要条目,
@@ -344,7 +337,6 @@ export function computeLocalArchiveFlush(
   };
 }
 
-// ── 种子冷却 / 自动选择 ──
 export function getSeedCooldown(seed: 主动来信种子, gameSettings: 游戏设置): number {
   return seed.targetType === 'group'
     ? gameSettings.手机系统.groupCooldownTurns

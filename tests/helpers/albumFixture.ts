@@ -4,7 +4,6 @@ import { clearAlbumAssetObjectUrlCache } from '@/utils/albumObjectUrl';
 
 export type AlbumAssetSource = Pick<图片资源, 'dataUrl' | 'url' | 'localRef'>;
 
-/** 相册用 asset 构造器：默认 upload/ready，与 gallery/reference/archive 三文件原默认值一致。 */
 export function makeAlbumAsset(overrides: Partial<图片资源> & { id: string }): 图片资源 {
   return {
     source: 'upload',
@@ -15,7 +14,6 @@ export function makeAlbumAsset(overrides: Partial<图片资源> & { id: string }
   };
 }
 
-/** 相册用 entry 构造器：默认 npc/avatar_profile，与 gallery/reference/archive 三文件原默认值一致。 */
 export function makeAlbumEntry(overrides: Partial<相册条目> & { id: string; assetId: string }): 相册条目 {
   return {
     title: overrides.id,
@@ -45,7 +43,6 @@ export function makeAlbumTask(overrides: Partial<图片生成任务> & { id: str
   };
 }
 
-/** 兼容两种历史签名：图片资源数组，或 {id,url,dataUrl,localRef} 元组数组。 */
 export function albumAssetMapOf(
   assets: 图片资源[] | Array<{ id: string; url?: string; dataUrl?: string; localRef?: string }>,
 ): Map<string, AlbumAssetSource> {
@@ -56,7 +53,6 @@ export function albumAssetMapOf(
   return map;
 }
 
-/** 注册全局的 album object-url 缓存清理，避免用例间泄漏。调用一次即可。 */
 export function registerAlbumCacheTeardown(): void {
   afterEach(() => {
     clearAlbumAssetObjectUrlCache();

@@ -12,8 +12,6 @@ import type {
   剧情模式定义,
 } from '@/models/journey';
 
-// 重构期占位数据：命题/简介为草稿，等待玩家或编辑器打磨。
-
 export const difficulties: 难度定义[] = [
   {
     id: 'easy',
@@ -70,8 +68,6 @@ export function getStoryMode(id: string): 剧情模式定义 | undefined {
 
 export { getPath, paths } from './pathCatalog';
 
-// ── 组织背景 ──
-// 开局向导只把它作为叙事身份写入档案和首回合摘要,不创建阵营声望系统。
 export const factions: 阵营定义[] = [
   {
     id: 'none',
@@ -846,8 +842,6 @@ export const workshopOpeningTemplatePacks: 创意工坊开局模板包[] = [
   },
 ];
 
-// ── 能力预设 ──
-// 开局特质：偏向崩铁世界观中的技术、命途、裂界、光锥与智库适性。
 export const abilityPresets: 能力预设[] = [
   {
     id: 'path_resonance',
@@ -881,9 +875,6 @@ export const abilityPresets: 能力预设[] = [
   },
 ];
 
-// ── 起始地点 / 官方章节锚点 ──
-// 多开局重构后，这里暴露各地区的官方章节入口。
-// 自由开局与创意工坊会通过开局档案承接玩家自定义切入，不再把黑塔空间站作为唯一默认路线。
 export const startingScenarios: 起始场景[] = [
   {
     id: 'heita_station_incident',
@@ -1121,23 +1112,17 @@ export function getOfficialOpeningPresetsByRegion(regionId: string): 官方开�
   return officialOpeningPresets.filter((preset) => preset.regionId === regionId);
 }
 
-/**
- * 按稳定身份解析官方开局预设：优先预设 ID，其次章节锚点 ID。
- * 同一章节锚点可能承载多个官方预设（如翁法罗斯重渊坠星），
- * 按章节 ID 解析只用于旧存档与自由/创意工坊布局的兜底。
- */
+/** 按章节 ID 解析仅作旧存档与自由 / 创意工坊布局的兜底。 */
 export function resolveOfficialOpeningPreset(id: string): 官方开局预设 | undefined {
   return getOfficialOpeningPreset(id) ?? getOfficialOpeningPresetByChapterId(id);
 }
 
-/** 判断 ID 是否指向任一已知开局身份（官方预设 / 章节锚点 / 起始场景）。 */
 export function isKnownOpeningScenarioId(id: unknown): id is string {
   if (typeof id !== 'string' || !id.trim()) return false;
   const value = id.trim();
   return Boolean(getOfficialOpeningPreset(value) || getOpeningChapterAnchor(value) || getStartingScenario(value));
 }
 
-/** 新局默认开局身份：优先首个起始场景挂接的官方预设 ID，保证卡片身份与预设一致。 */
 export function getDefaultOpeningScenarioId(): string {
   const scenario = startingScenarios.at(0);
   const preset = scenario?.officialPresetId ? getOfficialOpeningPreset(scenario.officialPresetId) : undefined;
@@ -1156,11 +1141,6 @@ export function getWorkshopOpeningTemplatesByRegion(regionId: string): 创意工
   return workshopOpeningTemplates.filter((template) => template.regionId === regionId);
 }
 
-/**
- * 按任意开局身份解析地区/章节/预设三元组。
- * 身份优先级：官方预设 ID → 起始场景挂接的预设 → 章节锚点 ID。
- * 章节只由预设的 chapterId 或传入的章节 ID 决定，地区再由章节/预设回推。
- */
 export function getOpeningScenarioBundle(scenarioId: string): {
   region?: 开局地区;
   chapter?: 开局章节锚点;

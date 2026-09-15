@@ -32,9 +32,9 @@ interface TurnItemProps {
   showInnerVoice?: boolean;
   previousUserInput?: string;
   visualTextSettings?: VisualTextSettings;
-  /** 开发者模式：解锁「请求诊断」本地诊断面板，不改变主剧情请求。 */
+  /** 不改变主剧情请求。 */
   devMode?: boolean;
-  // 历史评判消息若 awakenPathId 为空,由 ChatList 向前查找补一个 ID 进来。
+  // 历史消息可能没有 awakenPathId，由 ChatList 向前查找补齐。
   fallbackPathId?: string;
 }
 
@@ -136,15 +136,11 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
   const snapshotAction = turnActionView?.regenerate_snapshot;
   const snapshotRegenerate = onTurnAction ? () => onTurnAction('regenerate_snapshot') : undefined;
 
-  // 命途名:落 aiMsg 时由 sendWorkflow 把 effectiveWorld.进行中狭间 写到 parsed.awakenPathId,
-  // 评判落地后世界状态会清掉 进行中狭间,但消息里保留这个 ID,玩家回看历史也能看到正确命途名。
-  // 早期消息可能没存 awakenPathId,ChatList 会向前查找补 fallbackPathId 兜底。
   const effectivePathId = parsed.awakenPathId || fallbackPathId || '';
   const pathName = effectivePathId ? getPath(effectivePathId)?.name ?? '' : '';
 
   const card = (
     <div>
-      {/* 顶部工具栏 */}
       <div className="mb-2 flex flex-wrap items-center justify-center gap-1.5">
         <ToolButton
           label="修改正文"
@@ -210,7 +206,6 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
         )}
       </div>
 
-      {/* 展开面板 */}
       {openTool && (
         <div
           className="mb-2 animate-fade-in"
@@ -253,7 +248,6 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
         </div>
       )}
 
-      {/* 正文（无边框，铺满列宽）。狭间回合走「命途意志谕示」风格,主剧情走默认 BodyBlock。 */}
       <div className="px-1 py-2">
         {awakeningKind ? (
           <AwakeningOracleBlock
@@ -279,7 +273,6 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
         )}
       </div>
 
-      {/* 故事快照卡片 */}
       {((message.narrativeImages && message.narrativeImages.length > 0) || (narrativeImageManualEnabled && !isStreaming)) && (
         <div className="px-1 py-2 space-y-2">
           {(message.narrativeImages ?? []).map((img) => (
@@ -299,7 +292,6 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
         </div>
       )}
 
-      {/* 狭间消息:出题回合展示三道凝练题面 / 评判回合展示升阶徽章 + 行进感言 */}
       {awakeningKind === '出题' && parsed.awakenQuestions.trim() && (
         <AwakeningQuestionsBlock raw={parsed.awakenQuestions} />
       )}
@@ -312,7 +304,6 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
         </>
       )}
 
-      {/* 底部信息：左=生成耗时，右=字数 */}
       <div
         className="mt-1 flex items-center justify-between px-1 text-xs tracking-wider"
         style={{ color: 'rgba(var(--tj-text-secondary), 0.65)' }}
@@ -335,14 +326,12 @@ function AiTurnCard({ message, parsed, isStreaming, deferOffscreen = false, onEd
     </div>
   );
 
-  // 主剧情消息直接返回 card;狭间消息再套一层皮肤
   if (!awakeningKind) return card;
 
   return (
     <div
       className="p-3"
       style={{
-        // 暗紫红 + 微金,呼应虚境质感;主剧情是赤金,这里偏冷一点便于一眼区分
         background:
           'linear-gradient(135deg, rgba(var(--tj-panel-bg-start),0.55) 0%, rgba(var(--tj-panel-bg-end),0.55) 60%, rgba(var(--tj-btn-primary-end),0.55) 100%)',
         border: '1px solid rgba(var(--tj-btn-primary-end), var(--tj-edge-tint-strong))',

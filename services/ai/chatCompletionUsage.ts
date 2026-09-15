@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import type { API配置项 } from '@/models/settings';
 import type { ChatCompletionRequest, ChatCompletionUsage, UsageLike } from './chatCompletionTypes';
 
@@ -7,7 +6,6 @@ type UsagePayloadMatch = {
   path: string;
 };
 
-// —— usage 字段别名表（点路径；多供应商命名兼容）。语义组只声明一次，取数/判定共用。 ——
 const INPUT_FIELDS = [
   'prompt_tokens', 'promptTokens', 'input_tokens', 'inputTokens',
   'input_token_count', 'inputTokenCount', 'promptTokenCount',
@@ -95,7 +93,6 @@ const CACHE_RATE_FIELDS = [
   'cache.hit_rate', 'cache.hitRate', 'cache.hit_ratio', 'cache.hitRatio',
 ] as const;
 
-/** 点路径取值：先取语义组内首个命中值；语义与原实现一致（有限数字 / 可转数字字符串）。 */
 function pickFirst(usage: UsageLike, paths: readonly string[]): number | undefined {
   for (const path of paths) {
     let value: unknown = usage;

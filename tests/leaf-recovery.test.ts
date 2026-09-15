@@ -51,7 +51,6 @@ function testContext(state: Harness['state']): TurnContext {
   } as unknown as TurnContext;
 }
 
-/** 建工作区 → 封版一个回合 → 读回封版检查点与当前活跃叶子，供生命周期断言共用。 */
 async function seedCommitAndRead(
   harness: Harness,
   overrides: Partial<新局初始字段> = {},
@@ -94,7 +93,6 @@ describe('ephemeral field lifecycle', () => {
       turnPhase: 'awaitingLanding',
       recoveryContext: { turnAtStart: 1, userInput: `x${'y'.repeat(100_000)}`, userMessageId: 'u1' },
     });
-    // 相位独立归一化不受影响；超长上下文判 issue + null，不截断后原样重发。
     expect(oversized.fields.turnPhase).toBe('awaitingLanding');
     expect(oversized.fields.recoveryContext).toBeNull();
     expect(oversized.issues.map((issue) => issue.field)).toEqual(['recoveryContext']);
@@ -329,7 +327,6 @@ describe('leaf recovery lifecycle', () => {
     const harness = await seedDefaultWorkspace();
     const newest = await loadNewestStory();
     if (!newest.headNodeId) throw new Error('缺少初始工作区指针');
-    // 直接写入非法值，模拟历史数据 / 手工改档绕过了建局归一化。
     await writeLeafNode(newest.headNodeId, {
       turnPhase: 'awaitingLanding',
       recoveryContext: { turnAtStart: 0 } as unknown as TurnRecoveryContext,
@@ -371,8 +368,6 @@ describe('leaf recovery lifecycle', () => {
     if (!newest.headNodeId) throw new Error('缺少初始工作区指针');
     await stage1_turnStart(testContext(harness.state), newest.headNodeId, '检查门锁', harness.state.世界);
 
-    // handleRetryRecovery 的组合语义（abandon + 原样重发）：不断言 AI 调用 half，
-    // 只断言剥离后的叶子历史干净、重发文本与恢复上下文一致。
     const abandoned = await abandonTurnRecovery(harness.state);
     expect(abandoned.ok).toBe(true);
     expect(abandoned.text).toBe('检查门锁');

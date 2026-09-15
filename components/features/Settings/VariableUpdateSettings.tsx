@@ -8,9 +8,7 @@ interface Props {
   gameSettings: 游戏设置;
   onGameSettingsChange: (s: 游戏设置) => void;
   apiSettings: API设置;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘，取代直连 saveSetting。 */
   onPersistSettings: (s: 游戏设置) => Promise<void>;
-  /** AI 探测用例动作（片 panel-p3）：模型列表获取，取代直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 
@@ -40,7 +38,6 @@ export function VariableUpdateTab({
     });
   };
 
-  // 计算「实际生效」的字段（用于回退提示和拉取模型）。
   const effective = {
     provider: override.provider,
     baseUrl: override.baseUrl.trim() || mainConfig?.baseUrl || '',
@@ -68,7 +65,6 @@ export function VariableUpdateTab({
     setLoadingModels(true);
     setFetchMessage(null);
     try {
-      // 构造一个临时 config 给 fetchModels 用
       const tempConfig: API配置项 = {
         id: '__variable_override__',
         name: '变量模型',

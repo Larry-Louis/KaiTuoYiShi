@@ -32,7 +32,6 @@ export function useZhikuReaderFontSize() {
     try {
       window.localStorage.setItem(ZHIKU_READER_FONT_SIZE_STORAGE_KEY, String(fontSize));
     } catch {
-      // 浏览器存储不可用时阅读仍然可用。
     }
   }, [fontSize]);
 

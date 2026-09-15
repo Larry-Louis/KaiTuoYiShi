@@ -319,7 +319,6 @@ export function ChatSurface({
                       className="max-w-[82%] px-3 py-2 text-sm leading-relaxed sm:max-w-[76%]"
                       style={{
                         color: msg.role === 'player' ? 'rgb(var(--tj-on-accent))' : 'rgba(var(--tj-text-primary), 0.94)',
-                        // 对方气泡左侧的 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影）。
                         background:
                           msg.role === 'player'
                             ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.95), rgba(var(--tj-amber-deep),0.95))'

@@ -7,7 +7,6 @@ import { buildZhikuEntryInjectionPreview } from '@/services/zhikuRetrieval';
 
 export type ZhikuArchiveCategoryId = 'character' | 'story' | 'location' | 'faction' | 'event' | 'term';
 
-/** 可逐条翻阅的档案分类；剧情由卷宗阅读器承载，不进入条目列表。 */
 export type ZhikuArchiveLoreCategoryId = Exclude<ZhikuArchiveCategoryId, 'story'>;
 
 export type ZhikuArchiveChapterStatus = 'read' | 'current' | 'unread' | 'locked';
@@ -110,10 +109,6 @@ export function isZhikuArchiveEntryVisible(entry: 智库条目): boolean {
   return !LOCKED_STATUS_PATTERN.test(getZhikuArchiveUnlockStatus(entry));
 }
 
-/**
- * 治理分类到六类档案的映射：星神 / 命途并入专有名词，敌对生物并入人物，
- * 保持用户可见导航不随机器分类扩张。
- */
 const GOVERNANCE_ARCHIVE_CATEGORY: Partial<Record<智库治理分类, ZhikuArchiveLoreCategoryId>> = {
   character: 'character',
   location: 'location',

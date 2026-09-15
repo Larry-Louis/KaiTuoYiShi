@@ -21,9 +21,7 @@ interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘，取代直连 saveSetting。 */
   onPersistSettings: (s: 游戏设置) => Promise<void>;
-  /** AI 探测用例动作（片 panel-p3）：文本模型列表 / 文生图连接探测 / 生图模型列表 / ComfyUI 工作流候选，取代直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
   testImageGenerationConnection: (config: 文生图API配置) => Promise<string>;
   fetchImageGenerationModels: (config: 文生图API配置) => Promise<string[]>;
@@ -893,7 +891,6 @@ function backendHints(backend: 文生图后端类型): string[] {
   return ['OpenAI 兼容接口通常需要 API Key 与模型名。', '如果服务商要求 /v1 前缀，请把它写进 Base URL。'];
 }
 
-/** 正文生图设置页 */
 function NarrativeImageSettings({ settings, onChange, apiSettings }: {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;

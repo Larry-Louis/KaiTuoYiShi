@@ -19,7 +19,6 @@ interface NewsGenerationParams {
   mainBody: string;
   userInput: string;
   recentTurns?: string[];
-  /** 结算内世界演变产出的事实视图；缺省时回退 recentTurns 窗口。 */
   worldFactView?: 世界事实视图 | null;
   storyWeavingSnapshot?: 剧情编织系统;
   signal?: AbortSignal;

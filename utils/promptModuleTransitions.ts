@@ -1,5 +1,3 @@
-// 提示词模块数组的纯状态转换：不触碰 settings 全量、onChange、DOM 或 React state。
-// 时间戳由调用方以 now 参数传入，保持函数纯、可测试。
 import type { 提示词模块, 提示词模块类目, 提示词模块作用域 } from '@/models/prompts';
 import { CALIBRATION_BUILTIN_PREFIXES, PROMPT_MODULE_CATEGORY_LABELS, getDefaultModuleFields, isBuiltinPromptModule } from '@/models/prompts';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
@@ -7,7 +5,6 @@ import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
 export const isMainPlotModule = (m: 提示词模块) => !m.scope.includes('calibration');
 export const isOtherSystemModule = (m: 提示词模块) => m.scope.includes('calibration');
 
-/** 独立系统分组映射：label=系统中文名（进入模块 title/description），match=归类判断。展示用 emoji 由 UI 层单独维护。 */
 export const CALIBRATION_SYSTEM_GROUPS: Record<string, { label: string; match: (id: string) => boolean }> = {
   news: { label: '新闻系统', match: (id) => id.startsWith(CALIBRATION_BUILTIN_PREFIXES.news) || id.startsWith('custom_news_') },
   phone: { label: '手机系统', match: (id) => id.startsWith(CALIBRATION_BUILTIN_PREFIXES.phone) || id.startsWith('custom_phone_') },
@@ -19,7 +16,6 @@ export const CALIBRATION_SYSTEM_GROUPS: Record<string, { label: string; match: (
 };
 export const CALIBRATION_GROUP_ORDER = ['news', 'phone', 'zhiku', 'yiting', 'variable', 'companionArchive', 'storyWeaving'] as const;
 
-/** 根据模块 id 获取所属的系统分组 key，不属于任何已知系统的归入 'other' */
 export function getCalibrationGroupKey(m: 提示词模块): string {
   for (const key of CALIBRATION_GROUP_ORDER) {
     if (CALIBRATION_SYSTEM_GROUPS[key].match(m.id)) return key;
@@ -27,7 +23,6 @@ export function getCalibrationGroupKey(m: 提示词模块): string {
   return 'other';
 }
 
-/** 文风模块互斥组：同一时间只能启用一个。 */
 export const WRITING_STYLE_MODULE_IDS = new Set([
   'builtin_writing_style',
   'builtin_writing_style_hsr',
@@ -37,11 +32,9 @@ export const WRITING_STYLE_MODULE_IDS = new Set([
 export const isWritingStyleModule = (m: 提示词模块) =>
   WRITING_STYLE_MODULE_IDS.has(m.id);
 
-/** 判断模块是否为内置预设提示词(关闭时需弹窗确认)。 */
 export const isBuiltinPresetModule = (m: 提示词模块) => m.source === 'builtin';
 
 export function patchModule(modules: 提示词模块[], id: string, partial: Partial<提示词模块>, now: number): 提示词模块[] {
-  // 文风互斥：启用某个文风模块时，关闭其他文风模块
   if (partial.enabled === true) {
     const target = modules.find((m) => m.id === id);
     if (target && isWritingStyleModule(target)) {
@@ -60,7 +53,6 @@ export function patchModule(modules: 提示词模块[], id: string, partial: Par
 }
 
 export function reorderPromptModules(modules: 提示词模块[], reordered: 提示词模块[]): 提示词模块[] {
-  // 仅替换 order 变化的条目，避免不必要重渲染
   return modules.map((m) => {
     const updated = reordered.find((r) => r.id === m.id);
     return updated && updated.order !== m.order ? updated : m;
@@ -147,7 +139,6 @@ export function resetBuiltinModules(modules: 提示词模块[], now: number): �
     const def = fresh.find((f) => f.id === m.id);
     if (!def) return m;
     const isCalibrationBuiltin = def.scope.includes('calibration');
-    // 保留玩家当前的主剧情 enabled，覆盖其它字段；独立模型展示模块不作为真实请求开关。
     return {
       ...def,
       enabled: isCalibrationBuiltin ? true : m.enabled,
@@ -155,7 +146,6 @@ export function resetBuiltinModules(modules: 提示词模块[], now: number): �
       updatedAt: now,
     };
   });
-  // 若某条 builtin 被异常删除，补回
   for (const def of fresh) {
     if (!next.find((m) => m.id === def.id)) next.push(def);
   }

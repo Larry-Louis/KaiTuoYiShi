@@ -103,7 +103,6 @@ describe('推进判定 API 构建', () => {
     expect(buildStoryAdvanceJudgeApiConfig(settings, apiSettings))
       .toMatchObject({ baseUrl: 'https://weaving.example/v1', model: 'weaving-model' });
 
-    // 独立覆盖只填了 model，baseUrl 仍回退主配置。
     settings.剧情编织系统.推进判定API = { ...settings.剧情编织系统.推进判定API, model: 'judge-model' };
     expect(buildStoryAdvanceJudgeApiConfig(settings, apiSettings)).toMatchObject({
       model: 'judge-model',

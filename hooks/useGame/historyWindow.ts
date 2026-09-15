@@ -2,17 +2,10 @@ import { 创建聊天消息, type 聊天消息 } from '@/models/chat';
 import type { 记忆系统 } from '@/models/memory';
 import type { 游戏设置 } from '@/models/settings';
 
-/** 保守式：保留最近 20 条原始历史（当前行为，默认）。 */
 export const MAIN_HISTORY_LIMIT_CONSERVATIVE = 20;
-/** 极简式：有可注入记忆时 0 条原始历史，最近上下文完全交给记忆与即时回顾承接。 */
 export const MAIN_HISTORY_LIMIT_MINIMAL = 0;
-/** 极简式在无记忆可承接时的回退窗口，保证玩家仍有原始上下文。 */
 export const MAIN_HISTORY_LIMIT_WITHOUT_MEMORY = 20;
 export const MAIN_IMMEDIATE_STORY_REVIEW_LIMIT = 20;
-/**
- * 阶段1：长/中期记忆全量注入。压缩阈值调到 50/30 后实际约 20-30 条，可接受；
- * 用大数表达「不截断」，实际上限由压缩阈值控制，不再由注入窗口二次截断。
- */
 export const MAIN_LONG_TERM_MEMORY_PROMPT_LIMIT = 9999;
 export const MAIN_MIDDLE_TERM_MEMORY_PROMPT_LIMIT = 9999;
 export const MAIN_SHORT_TERM_MEMORY_PROMPT_LIMIT = 30;

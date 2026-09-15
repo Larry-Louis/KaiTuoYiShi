@@ -1,7 +1,5 @@
 import { jsonResponse, optionsResponse, type PagesContextLike } from './auth/_shared';
 
-// 硬编码功能开关：用显式拓宽断言避免 const 字面量收窄，使守卫在类型层面仍可被判定，
-// 后续若需按环境开启，改此值即可（保持守卫结构与运行时语义不变）。
 const PRESENCE_SYSTEM_ENABLED = false as boolean;
 const HEARTBEAT_TTL_MS = 2 * 60 * 1000;
 const SESSION_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -308,7 +306,6 @@ export const onRequestPost = async ({ request, env }: PagesContextLike): Promise
     sessionId = readSessionId(payload.sessionId);
     path = readText(payload.path);
   } catch {
-    // 心跳载荷不是合法 JSON：保持空 sessionId，走下方 400 分支。
   }
   if (!sessionId) {
     return jsonResponse({ error: '缺少在线心跳 sessionId。' }, { status: 400 });

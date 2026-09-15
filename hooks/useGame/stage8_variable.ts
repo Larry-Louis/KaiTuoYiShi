@@ -45,7 +45,6 @@ export async function stage8_variable(
       pathAwakeningTurn: d.isPathAwakeningTurn === true,
     });
   } catch (error) {
-    // 关键位失败：叶子保持 settling，由「继续结算 / 放弃」承载；这里只落可见队列诊断。
     if (isWorkflowAbortError(error)) throw error;
     devLogError('stage', 'stage8_variable.failed', error, { turn: turnCountAtStart });
     pushQueueTask(state, 'variable', 'failed', {

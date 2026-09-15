@@ -22,7 +22,6 @@ import type { ChatModuleMessage } from './promptAssembly';
 import type { VariableCalibrationOverrides } from './variableWorkflow';
 import type { TurnReceipt } from './turnReceipt';
 
-/** 发送入口回调（SendWorkflowDeps 与 TurnContext.deps 共用，不再各写一遍）。 */
 export interface WorkflowSendCallbacks {
   getActiveConfig: () => API配置项 | null;
   onBeforeSend?: () => void;
@@ -30,9 +29,7 @@ export interface WorkflowSendCallbacks {
   rerollContext?: { nonce: string; previousResponse: string } | null;
 }
 
-/** 不可变输入 + 回合生命周期工具。 */
 export interface TurnContext {
-  // 输入
   state: UseGameStateReturn;
   userInput: string;
   deps: WorkflowSendCallbacks;
@@ -52,27 +49,19 @@ export interface TurnContext {
   variableBatchesAtStart: UseGameStateReturn['variableBatches'];
   queueTasksMirror: UseGameStateReturn['queueTasks'];
 
-  // 生命周期工具
   abortController: AbortController;
   isCurrentWorkflow: () => boolean;
   assertWorkflowActive: () => void;
   streamMessageSetter: ReturnType<typeof import('@/utils/rafCoalescedSetter').createRafCoalescedSetter>;
 
-  // catch 块恢复用
   rollbackSnapshotOnAbort: 回合快照 | null;
 }
 
-/**
- * 逐阶段填充的产出。全部字段可选——每阶段函数只填充自己产出的字段。
- * 调用方用 Object.assign(d, await stageN_xxx(ctx, d)) 合并。
- */
 export interface TurnDeltas {
-  // S1: 回合开始
   preTurnSnapshot?: 回合快照;
   userMsg?: 聊天消息;
   updatedHistory?: 聊天消息[];
 
-  // S2: 主模型前置
   awakeningPhase?: 'question' | 'judgement' | undefined;
   isPathAwakeningTurn?: boolean;
   currentTriggerType?: 'swipe' | 'opening' | 'normal';
@@ -92,17 +81,14 @@ export interface TurnDeltas {
   recallSummaryForTurn?: string;
   recallFullContentForTurn?: string;
 
-  // S2→S3 bridge: builtPrompt.chatModuleMessages
   chatModuleMessages?: ChatModuleMessage[];
 
-  // S3: system prompt + API 消息组装
   systemPrompt?: string;
   apiMessages?: 聊天消息[];
   tavernV2Messages?: 聊天消息[] | null;
   tavernV2Error?: Error | null;
   shouldTryTavernV2?: boolean;
 
-  // S3→S4 bridge: ST V2 / DeepSeek / prefix
   deepSeekMainActive?: boolean;
   deepSeekLockFormat?: boolean;
   deepSeekMainMode?: DeepSeek主剧情模式;
@@ -112,55 +98,43 @@ export interface TurnDeltas {
   maxAttempts?: number;
   currentPresetV2ForStage?: STPresetEntryV2 | null;
 
-  // S4: AI 请求 + 响应解析
-  rawFullText?: string;  // S4 产出：AI 响应原文，供 S7 天气解析用
+  rawFullText?: string;
   displayText?: string;
   parsedForDisplay?: 解析后回复 | null;
   deepSeekProtocolIssuesForTurn?: string[];
   rerollSimilarityForTurn?: number | undefined;
   rerollSimilarityRetried?: boolean;
 
-  // S5: 回复落地
   aiMsg?: 聊天消息;
   finalHistory?: 聊天消息[];
   receipt?: TurnReceipt;
 
-  // S6: 记忆
   mem?: 记忆系统;
   yitingWithCompression?: 忆庭系统;
 
-  // S7: 世界/旅人
   worldAfter?: 世界状态;
   travelerAfter?: 角色数据结构;
 
-  // S8: 变量结算
   variableOverrides?: VariableCalibrationOverrides | null;
   pendingVariableStarted?: boolean;
 
-  // S9: NPC
   npcAfterCompression?: NPC记录[];
 
-  // S10: 剧情/智库
   storyWeavingForSave?: 剧情编织系统 | null;
   memoryAfterStoryProgress?: 记忆系统 | null;
   storyProgressMemoryLine?: string;
   zhikuAfterRuntimeUnlock?: 智库系统 | null;
-  /** 世界演变产出的事实视图：S11 新闻只读这一份，缺省时回退近期回合窗口。 */
   worldFactView?: 世界事实视图 | null;
-  /** S8.2：本回合世界演变解决/提前解决的 outcome 与玩家已知事实摘要（≤8 条），只作分段完成证据。 */
   worldFactEvidence?: string[] | null;
 
-  // S11: 后台闭包
   newsAfterGeneration?: 新闻条目[] | null;
   yitingAfterTurnRecall?: 忆庭系统;
   phoneAfterFallbackSeed?: 手机系统;
   finalHistoryForSave?: 聊天消息[];
-  /** 片 5a-2（题外发现 #1）：背景任务 narrativeImageWorkflow 直写 state 的相册结果的捕获值，供 S11 边界写 newest。 */
   相册After?: 相册系统;
 
 }
 
-/** S5 后的最小输入：后续结算阶段不应再猜回复是否已经落地。 */
 type TurnAfterReplyFields = 'aiMsg' | 'finalHistory' | 'receipt' | 'parsedForDisplay' | 'displayText';
 export type TurnAfterReply = Omit<TurnDeltas, TurnAfterReplyFields> & {
   [K in TurnAfterReplyFields]-?: NonNullable<TurnDeltas[K]>;

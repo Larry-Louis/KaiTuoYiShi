@@ -1,34 +1,17 @@
-/**
- * 活跃叶子恢复态（kernelization.md §10.1 / §10.4）：
- * 三态 turnPhase（awaitingLanding / settling / 封版后无状态）与恢复上下文。
- *
- * 两者只属于 newest 指针指向的活跃叶子，ephemeral 生命周期声明在
- * models/leafLifecycle.ts（commitLeaf 剥离、新叶子重置）。恢复信息不再有
- * 独立的日志存储；检查点不携带恢复上下文（K8）。
- */
-
-/** 未封版回合的相位；null = 封版后无状态。 */
+/** 只属于 newest 指针指向的活跃叶子，生命周期见 models/leafLifecycle.ts；检查点不携带恢复上下文。 */
 export type TurnPhase = 'awaitingLanding' | 'settling';
 
 export interface TurnRecoveryContext {
-  /** 本回合开始时的 turnCount。 */
   turnAtStart: number;
-  /** 本回合原始输入（重试时原样重发）。 */
   userInput: string;
-  /** 本回合用户消息 id（撤销时按 id 剥离残余写入）。 */
   userMessageId: string;
-  /** 正文落地后的助手消息 id（settling 恢复用；awaitingLanding 为空）。 */
   assistantMessageId?: string;
 }
 
 const MAX_INPUT_LENGTH = 100_000;
 const MAX_ID_LENGTH = 200;
 
-/**
- * settling 现场是否仍然成立：用户消息与落地回复都在历史里，且落地回复携带解析结果。
- * 相位检查由调用方负责（恢复入口要求 settling，水合边界在 settling 分支内调用）。
- * 恢复入口（resumeWorkflow）与水合边界（saveLoadWorkflow）共用同一判定。
- */
+/** 相位检查由调用方负责（恢复入口要求 settling，水合边界在 settling 分支内调用）。 */
 export function isSettledRecoveryCoherent(
   recovery: TurnRecoveryContext,
   chatHistory: readonly { role: string; id?: string; parsedResponse?: unknown }[],
@@ -42,10 +25,7 @@ export function isSettledRecoveryCoherent(
   return typeof parsedResponse === 'object' && parsedResponse !== null;
 }
 
-/**
- * 容忍旧数据 / 手工改档：结构不完整时返回 issue 与 null，不静默兜底。
- * 调用方负责记录 issue 并写回清除。
- */
+/** 容忍旧数据 / 手工改档：结构不完整时返回 issue 与 null，调用方负责记录并写回清除。 */
 export function normalizeTurnRecoveryContext(raw: unknown): {
   value: TurnRecoveryContext | null;
   issue?: string;
@@ -61,7 +41,6 @@ export function normalizeTurnRecoveryContext(raw: unknown): {
   if (!Number.isFinite(turnAtStart) || turnAtStart < 1 || !userInput.trim() || !userMessageId.trim()) {
     return { value: null, issue: '缺少回合数 / 输入文本 / 用户消息 id' };
   }
-  // 超长不静默截断：与其它非法结构一样返回 issue + null，由水合 / 恢复入口显式清除。
   const rawAssistantId = record.assistantMessageId;
   const assistantMessageId = typeof rawAssistantId === 'string' && rawAssistantId.trim() ? rawAssistantId : undefined;
   if (userInput.length > MAX_INPUT_LENGTH || userMessageId.length > MAX_ID_LENGTH

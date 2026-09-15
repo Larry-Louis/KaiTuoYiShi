@@ -34,9 +34,7 @@ export interface SettingsModalProps {
   onThemeChange: (t: 主题预设) => void;
   onContinue: () => Promise<boolean>;
   onLoadSave: (id: number) => Promise<boolean>;
-  /** 回档（分支）用例动作：转发给存档管理页签（SaveManager settingsTab），App 从 useGame 门面注入。 */
   onBranchSave?: (id: number) => Promise<boolean>;
-  // 变量管理需要的 state 切片
   旅人: 角色数据结构;
   世界: 世界状态;
   on世界Change: (s: 世界状态) => void;
@@ -48,7 +46,6 @@ export interface SettingsModalProps {
   新闻: 新闻条目[];
   剧情编织: 剧情编织系统;
   on剧情编织Change: Dispatch<SetStateAction<剧情编织系统>>;
-  /** 变量管理面板所需的 setter 切片（与 VariableSetters 结构性一致，避免引用已弃用接口）。 */
   variableSetters: {
     set旅人: Dispatch<SetStateAction<角色数据结构>>;
     set世界: Dispatch<SetStateAction<世界状态>>;
@@ -63,57 +60,43 @@ export interface SettingsModalProps {
   variableEditingLocked?: boolean;
   getContextSnapshot: (kind?: ContextSnapshotKind) => ContextSnapshot;
   initialTab?: SettingsTab;
-  /** Phase 7.2：世界书变更回调（同时负责持久化到 IndexedDB）。 */
+  /** 同时负责持久化到 IndexedDB。 */
   onWorldbooksChange: (books: 世界书[]) => void;
-  /** 面板用例动作（片 panel-p1）：存档删除 resolve→级联删除，转发给存档管理页签。 */
   onDeleteSave: (save: SaveListItemSummary) => Promise<boolean>;
-  /** 面板用例动作（片 panel-p1）：整棵存档树删除，转发给存档管理页签。 */
   onDeleteSaveTree: (rootId: string) => Promise<void>;
-  /** 面板用例动作（片 panel-p7）：活动存档树元信息清理，转发给存档管理页签。 */
   onClearActiveSaveTreeMeta: (target?: { rootId?: string; nodeId?: string } | null) => void;
-  /** 面板用例动作（片 panel-p7）：存档目录快照 / 修复 / 订阅 / 历史恢复点清理 / 导出前读取 / 导入落库，转发给存档管理页签。 */
   onGetSaveCatalogSnapshot: () => Promise<SaveCatalogSnapshot>;
   onStartSaveCatalogRepair: (scope?: SaveCatalogRepairScope) => Promise<SaveCatalogRepairResult>;
   onSubscribeSaveCatalogRepair: (listener: (state: SaveCatalogRepairState) => void) => () => void;
   onRepairSaveDatabase: () => Promise<void>;
   onDeleteLegacyBackupSaves: () => Promise<number>;
-  /** 面板用例动作（片 panel-p7）：导出单节点 / 整树存档包 + 导入存档包，转发给存档管理页签。 */
   onExportSavePackage: (id: number) => Promise<void>;
   onExportSaveTreePackage: (rootId: string) => Promise<void>;
   onImportSaveFileAsMany: (file: File) => Promise<number>;
-  /** 面板用例动作（片 panel-p1）：tavernRegex 提取/分析/试运行，转发给提示词模块页签。 */
   onExtractTavernRegexScripts: (rawPreset: unknown) => STRegexScript[];
   onAnalyzeTavernRegexScript: (script: STRegexScript) => TavernRegexScriptSafety;
   onDryRunTavernRegexScript: (script: STRegexScript, sampleText: string) => TavernRegexDryRunResult;
-  /** 设置持久化用例动作（片 panel-p2）：写入侧统一经 useDeviceSettings 管理器收敛，不再直连 dbService。 */
   onPersistGameSettings: (s: 游戏设置) => Promise<void>;
   onPersistApiSettings: (s: API设置) => Promise<void>;
   onPersistTheme: (t: 主题预设) => Promise<void>;
   onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
-  /** 本机 API 方案槽位 / 辅助 API 配置读写动作（片 panel-p9）：经 useDeviceSettings 收敛，不直连 dbService。 */
   onLoadApiProfileSlots: () => Promise<API方案槽位[]>;
   onPersistApiProfileSlots: (slots: API方案槽位[]) => Promise<void>;
   onLoadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;
   onPersistAuxApiProfiles: (profiles: Record<string, AuxApiProfileState>) => Promise<void>;
-  /** AI 探测用例动作（片 panel-p3）：模型列表获取 / 连接测试，取代 Services tab 直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
   testConnection: (config: ConnectionTestConfig) => Promise<ConnectionTestResult>;
-  /** AI 错误报告用例动作（片 panel-p3）：加载 / 清空，取代直连 services/ai。 */
   loadApiErrorReports: () => Promise<ApiErrorReport[]>;
   clearApiErrorReports: () => Promise<void>;
-  /** 变量修复中心门面：批量扫描草稿动作（未传入时该设置页隐藏动作区）。 */
   变量修复中心?: 变量修复中心动作;
 }
 
 /**
- * 各 section 的统一契约：只消费本 context，自身完成 props 映射，SettingsModal 不感知组件细节。
- *
- * 草稿语义：子系统设置（变量更新/记忆/忆庭/新闻/智库/剧情/手机）使用原始 onGameSettingsChange，
+ * 草稿语义：子系统设置（变量更新/记忆/忆庭/新闻/智库/剧情/手机）使用 onGameSettingsChange，
  * 仅更新内存，关闭/重开设置保留草稿，只有各页「保存」才落盘；浏览器刷新会丢弃未保存草稿。
- * 其余设置页维持原有即时落盘（persistGameSettingsChange）。
+ * 其余设置页走 persistGameSettingsChange 即时落盘。
  */
 export interface SettingsSectionContext extends SettingsModalProps {
-  /** deviceSettings.gameSettings 的投影，减少各 section 的重复解构。 */
   gameSettings: 游戏设置;
   persistGameSettingsChange: (next: 游戏设置) => void;
   persistThemeChange: (next: 主题预设) => void;

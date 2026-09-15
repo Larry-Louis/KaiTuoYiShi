@@ -28,7 +28,7 @@ export interface 新闻条目 {
   标题: string;
   正文: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，读取旧新闻时会迁移到「组织标签」。 */
+  /** @deprecated 读取旧新闻时会迁移到「组织标签」。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   关联剧情系列ID?: string;
@@ -46,7 +46,7 @@ export interface 新闻条目补丁 {
   标题?: string;
   正文?: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，兼容旧模型输出。 */
+  /** @deprecated 兼容旧模型输出。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   关联剧情系列ID?: string;
@@ -69,7 +69,7 @@ export function 创建新闻条目(input: {
   标题: string;
   正文?: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，兼容旧存档。 */
+  /** @deprecated 兼容旧存档。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   重要?: boolean;

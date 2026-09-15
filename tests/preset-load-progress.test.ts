@@ -1,8 +1,3 @@
-// 预置载入进度的契约：**无论成功还是失败，进度都必须单调走到总数**。
-//
-// 为什么值得单独测：界面靠 done / total 显示进度条，靠 status 判断何时解除门禁。
-// 如果某个文件抛错就中断计数，进度会停在中途、门禁永远不会解除——玩家被卡在首页。
-// 所以「失败也要计数」不是细节，是门禁能解除的前提。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bundledStoryWeavingPresets, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
@@ -19,7 +14,6 @@ const increasingByOneTo = (calls: ProgressCall[], total: number): void => {
 
 describe('预置载入进度：失败也必须走到总数', () => {
   beforeEach(() => {
-    // 全部失败：这是最坏情况，也是计数最容易漏掉的情况。
     vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
   });
 

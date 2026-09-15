@@ -22,27 +22,17 @@ export interface ApiSettingsOverviewProps {
   deviceSettings: DeviceSettings;
   onChange: (s: API设置) => void;
   onGameSettingsChange: (s: 游戏设置) => void;
-  /** 设置持久化用例动作（片 panel-p2）：apiSettings 落盘（handleSave 单写）。 */
   onPersistApiSettings: (s: API设置) => Promise<void>;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘（子功能页签保存共用）。 */
   onPersistGameSettings: (s: 游戏设置) => Promise<void>;
-  /** 设置持久化用例动作（片 panel-p2）：apiSettings + gameSettings 复合写（applyApiProfile 专用）。 */
   onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
-  /** 本机 API 方案槽位读写动作（片 panel-p9）：经 useDeviceSettings 收敛，不直连 dbService。 */
   onLoadApiProfileSlots: () => Promise<API方案槽位[]>;
   onPersistApiProfileSlots: (slots: API方案槽位[]) => Promise<void>;
-  /** 辅助 API 配置读写动作（片 panel-p9）：经 useDeviceSettings 收敛，不直连 dbService。 */
   onLoadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;
   onPersistAuxApiProfiles: (profiles: Record<string, AuxApiProfileState>) => Promise<void>;
-  /** AI 探测用例动作（片 panel-p3）：模型列表获取 / 连接测试，取代直连 services/ai。 */
   fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
   testConnection: (config: ConnectionTestConfig) => Promise<ConnectionTestResult>;
 }
 
-/**
- * 总接口设置页的全部状态与动作：多配置 CRUD、配置包导入导出、本机方案槽位、
- * 辅助 API 批量套用、模型探测与连接测试。
- */
 export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
   const {
     deviceSettings,
@@ -82,7 +72,6 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
     [settings.configs, selectedId],
   );
 
-  // Reset model options when switching config
   const [prevSelectedId, setPrevSelectedId] = useState(selectedId);
   if (prevSelectedId !== selectedId) {
     setPrevSelectedId(selectedId);
@@ -123,7 +112,6 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
     }
   }
 
-  // 常驻默认配置：列表为空时自动补一个 OpenAI 兼容占位，避免右侧空状态。
   const [prevConfigs, setPrevConfigs] = useState(settings.configs);
   if (prevConfigs !== settings.configs) {
     setPrevConfigs(settings.configs);
@@ -195,7 +183,6 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
 
   const handleSave = async () => {
     if (!selectedConfig) return;
-    // 显式构造新对象，然后同时写 React state 与 IndexedDB，避免依赖 setState 的异步时序。
     const updated: API设置 = {
       ...settings,
       configs: settings.configs.map((c) =>
@@ -246,7 +233,6 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
     onChange(nextApiSettings);
     onGameSettingsChange(nextGameSettings);
     setSelectedId(nextApiSettings.activeConfigId ?? nextApiSettings.configs[0]?.id);
-    // 复合写时序原样保留：先写 state（onChange/onGameSettingsChange 同步），再顺序落盘 apiSettings + gameSettings。
     await onPersistApiProfile(nextApiSettings, nextGameSettings);
   };
 
@@ -426,7 +412,6 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
     if (preset.value !== undefined) {
       updateConfig({ maxTokens: preset.value });
     } else {
-      // 自定义：保留当前值，让用户改输入框
       if (!selectedConfig.maxTokens || [8192, 32768, 65536].includes(selectedConfig.maxTokens)) {
         updateConfig({ maxTokens: 4096 });
       }

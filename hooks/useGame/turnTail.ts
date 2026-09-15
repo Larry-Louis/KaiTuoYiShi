@@ -12,7 +12,6 @@ import { stage12_save } from './stage12_save';
 import { requireTurnAfterReply, type TurnContext, type TurnDeltas } from './turnTypes';
 import { cleanLeafPatch } from './workflowTransaction';
 
-/** S6-S12 共享尾段：正常回合与中断续跑从同一实现完成结算和封版。 */
 export async function runTurnTail(
   ctx: TurnContext,
   d: TurnDeltas,
@@ -35,11 +34,9 @@ export async function runTurnTail(
 
   Object.assign(d, await stage8_variable(ctx, d));
   Object.assign(d, stage9_npcLedger(ctx, d));
-  // S8.2 world-first：世界演变先处理（写运行时/事实），剧情对齐再读取 d.storyWeavingForSave。
   Object.assign(d, await stage9b_worldEvolution(ctx, d));
   const storyWeavingBeforeAlignment = d.storyWeavingForSave;
   Object.assign(d, await stage10_storyZhiku(ctx, d));
-  // 与 set世界 同规矩：只有 S10 真的改写了剧情编织才投影到 UI。
   // 剧情编织每回合都可能是新的归一化克隆，无条件写会让章节摘要/剧情面板每回合整表重算。
   if (d.storyWeavingForSave && d.storyWeavingForSave !== storyWeavingBeforeAlignment) {
     state.set剧情编织(d.storyWeavingForSave);
@@ -61,8 +58,6 @@ export async function runTurnTail(
       剧情: variableOverrides?.剧情,
       NPC: d.npcAfterCompression,
       variableBatches: variableBatchesForSave,
-      // 片 5e（D4）：queueTasks 属主 = 工作区（叶子）字段，留在叶子；
-      // commitTurn 封版晋升时剥离（不进检查点），新叶子继承本字段。
       queueTasks: ctx.queueTasksMirror,
     }));
   }

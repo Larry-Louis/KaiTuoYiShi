@@ -52,7 +52,6 @@ function archiveNarrativeSnapshotToAlbum(
     tags: ['故事快照', '正文生图'],
     note: '故事快照',
   });
-  // 投影点（B2 定性，S22）：相册面板即时刷新；同时捕获提交后的相册值供 d.相册After（片 5a-2 题外发现 #1）。
   assertActive();
   let 相册After = state.相册;
   state.set相册((prev) => {
@@ -78,9 +77,7 @@ export async function generateNarrativeImagesForMessage(params: {
   turn: number;
   signal?: AbortSignal;
   replaceExisting?: boolean;
-  /** 会话身份守卫：旧工作流必须在任何 state 投影前中止（独立事务与主回合共用）。 */
   assertWorkflowActive?: () => void;
-  /** 队列账本投递入口：独立事务走 tx.pushTask（同步叶子镜像），主回合走 ctx 镜像。 */
   pushTask?: (id: 队列任务ID, status: 队列任务状态, patch?: 队列任务补丁, turn?: number) => void;
 }): Promise<{ images: import('@/models/chat').叙事插图[] | null; 相册: 相册系统 }> {
   const { state, messageId, body, tokenizerConfig, imageApiConfig, turn, signal, replaceExisting = false } = params;
@@ -348,7 +345,6 @@ export async function regenerateNarrativeImagesForMessage(
   } catch (error) {
     if (isWorkflowAbortError(error) || tx.signal.aborted) {
       if (tx.isCurrent()) {
-        // 中止：撤掉「生成中」投影，叶子未写、状态与持久化保持一致。
         state.setChatHistory(previousHistory);
         cancelPendingQueueTasks(state);
         terminalStatus = { kind: 'stopped', text: '已取消故事快照重新生成。' };
@@ -357,7 +353,6 @@ export async function regenerateNarrativeImagesForMessage(
     }
     devLogError('net', 'regenerateNarrativeImages.failed', error, { messageId });
     if (tx.isCurrent() && !leafWritten) {
-      // 叶子写入失败：生成结果只存在于 React state，回滚到快照避免伪持久化。
       state.setChatHistory(previousHistory);
     }
     tx.pushTask('narrative_image_parse', 'failed', {

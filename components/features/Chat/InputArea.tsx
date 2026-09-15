@@ -9,23 +9,18 @@ interface InputAreaProps {
   onAbort: () => void;
   loading: boolean;
   disabled?: boolean;
-  // 平铺的快捷动作
   canRestartOpening?: boolean;
   canReroll?: boolean;
-  /** 树检查失败（无父检查点）时的 reroll 禁用原因；缺省时回落为「需要先完成一条回复」。 */
   rerollDisabledReason?: string;
   onRestartOpening?: () => void;
   onReroll?: () => string | undefined | Promise<string | undefined>;
   streamingEnabled?: boolean;
   onToggleStreaming?: () => void;
-  /** 输入区状态条的唯一状态源（管线在相位边界写入）。 */
   turnStatus?: TurnStatus;
   onCancelWorkflow?: () => void;
-  /** 上一条 AI 回复给出的可点选行动列表。点击后填入输入框待玩家微调。 */
   actionOptions?: string[];
-  /** 一次性输入草稿（如撤销未落地回合后交还的文本）；id 变化即应用一次。 */
+  /** id 变化才应用一次。 */
   draft?: { id: string; text: string } | null;
-  /** 行动选项解析（片 panel-p6）：由 useGame 门面接管 parseActionOptionsBlock 直连。 */
   onParseActionOptions?: (text: string) => string[];
 }
 
@@ -220,7 +215,6 @@ export const InputArea = memo(function InputArea({
         </div>
       )}
 
-      {/* 顶部横向快捷图标条 */}
       <div className="mb-1.5 flex items-center gap-1.5">
         {canRestartOpening && (
           <IconButton

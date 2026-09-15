@@ -80,7 +80,6 @@ export function clearActiveSaveTreeMetaIfMatches(
   }
 }
 
-// 检查点必须剥离 queueTasks，否则队列会泄漏进检查点。
 export function buildSavePayload(
   state: UseGameStateReturn,
   type: 存档类型,
@@ -120,7 +119,7 @@ export function buildSavePayload(
   const parentSave = activeSaveTreeMeta
     ? ({ id: 0, type, timestamp, 旅人: baseSave.旅人, 世界: baseSave.世界, chatHistory: [], 记忆: baseSave.记忆, saveTree: activeSaveTreeMeta } as unknown as 存档数据)
     : null;
-  // 与父节点同 id 时不采纳并回退 createId，否则会重复节点 ID。
+  // 与父节点同 id 时必须回退 createId，否则会重复节点 ID。
   const parentNodeId = activeSaveTreeMeta?.nodeId ?? null;
   const effectiveNodeId = nodeId && nodeId !== parentNodeId ? nodeId : undefined;
   const withTree = attachSaveTreeMeta(baseSave as 存档数据, buildNextSaveTreeMeta({
@@ -137,7 +136,6 @@ export function commitActiveSaveTreeMeta(save: 存档数据, state: UseGameState
   state.setActiveTreeMeta(activeSaveTreeMeta);
 }
 
-/** 最后防线：组装路径漏剥时宁可让本次写入失败，也不让脏字段落盘。 */
 export function assertCheckpointPayloadNoQueueTasks(payload: 存档数据, label: string): void {
   const value = (payload as { queueTasks?: unknown }).queueTasks;
   if (value === undefined) return;
@@ -148,7 +146,6 @@ export function assertCheckpointPayloadNoQueueTasks(payload: 存档数据, label
   throw new Error(`[D4] queueTasks 不得进入检查点载荷：${label}`);
 }
 
-/** 会话拆除唯一入口：仅清瞬时态与资源，不触碰领域切片，不产生存储副作用。 */
 export function beginSession(state: UseGameStateReturn): void {
   const aw = state.activeWorkflow;
   aw.abortControllerRef.current?.abort();
@@ -177,7 +174,7 @@ export async function enterSession(
   save: 存档数据,
 ): Promise<void> {
   beginSession(state);
-  // 只有检查点分叉新叶子；读工作区叶子只水合，否则会增殖叶子并写指针。
+  // 读工作区叶子只水合，否则会增殖叶子并写指针。
   const treeMeta = (save as { saveTree?: 存档树元信息 | null }).saveTree;
   const rootId = treeMeta?.rootId ?? null;
   const targetNodeId = treeMeta?.nodeId ?? null;
@@ -198,7 +195,7 @@ export async function enterSession(
       rootId,
       targetNodeId,
     });
-    // 须用分叉出的新叶子水合：用原检查点会让 activeSaveTreeMeta 停在检查点上，UI 误判为不可 reroll。
+    // 须用分叉出的新叶子水合：用原检查点会让 UI 误判为不可 reroll。
     const newLeafSaveId = fork.headNodeId ? await loadSaveIdByNodeId(fork.headNodeId) : null;
     const newLeaf = newLeafSaveId ? await loadSave(newLeafSaveId) : null;
     if (!newLeaf) {
@@ -215,7 +212,7 @@ export async function enterSession(
   } else {
     hydrate(await prepareHydration(save), state);
   }
-  // 单调递增；App 据此 key 重挂载 InputArea 以归零会话本地状态。
+  // 须保持单调递增：App 用它作 key 重挂载 InputArea 以归零会话本地状态。
   const nextEpoch = state.activeWorkflow.sessionEpoch + 1;
   state.activeWorkflow.setSessionEpoch(nextEpoch);
   devLog('recover', 'session-epoch-increment', { epoch: nextEpoch, entry: 'enter-session' });
@@ -249,7 +246,6 @@ export async function handleLoadById(
   return loadSaveIntoSession(id, state);
 }
 
-/** 独立动作入口：UI 借此区分「读取」与「分支」，分派由 enterSession 完成。 */
 export async function handleBranchFromSave(
   id: number,
   state: UseGameStateReturn,
@@ -257,7 +253,6 @@ export async function handleBranchFromSave(
   return loadSaveIntoSession(id, state, 'branch-from-save');
 }
 
-/** 无活跃叶子时返回 false，由调用方走初始化。 */
 export async function bootRestoreFromNewest(state: UseGameStateReturn): Promise<boolean> {
   try {
     const active = await loadActiveLeaf();
@@ -295,8 +290,7 @@ export async function ensureHeadLeafWritable(state: UseGameStateReturn): Promise
     const target = saveId ? await loadSave(saveId) : null;
     const tree = (target as { saveTree?: 存档树元信息 | null } | null)?.saveTree;
     if (target && tree?.rootId && tree.nodeId) {
-      // 崩溃窗口：封版后、写指针前崩溃 → 新叶子已建但指针未更新，须先采纳该子叶子
-      // （分叉会把 queueTasks 重置为空）。采纳身份按 pendingChildNodeId，不按保存 ID 猜测。
+      // 崩溃窗口：封版后写指针前崩溃会留下未采纳的子叶子，须先采纳（分叉会把 queueTasks 重置为空）。
       const adopted = await adoptUnsealedChildLeaf(tree.nodeId);
       if (adopted) {
         devLog('recover', 'head-leaf-adopted-child', {
@@ -328,7 +322,7 @@ export async function handleDeleteSave(id: number, state: UseGameStateReturn): P
   clearActiveSaveTreeMetaIfMatches((save as { saveTree?: 存档树元信息 } | null)?.saveTree ?? null, state);
 }
 
-/** 树内节点返回子树存档数；legacy 无树恢复点返回 null。 */
+/** legacy 无树恢复点返回 null。 */
 export interface 存档删除目标 {
   tree: { rootId: string; nodeId: string } | null;
   cascadeCount: number | null;
@@ -350,7 +344,7 @@ export async function delete存档目标(id: number, target: 存档删除目标,
     await deleteSaveTreeNode(target.tree);
     clearActiveSaveTreeMetaIfMatches(target.tree, state);
   } else {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 无树 legacy 恢复点，见 5d-1b 编辑目标 #2
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 无树 legacy 恢复点
     await dbDeleteSave(id);
     clearActiveSaveTreeMetaIfMatches(null, state);
   }
@@ -396,7 +390,6 @@ export async function prepareHydration(save: 存档数据): Promise<HydrationCon
   };
 }
 
-/** 不做静默兜底：与历史不一致的相位判为 obsolete，由调用方写回清除。 */
 export function evaluateEphemeralFieldsForHydration(
   save: Pick<存档数据, 'turnCount' | 'turnPhase' | 'recoveryContext'>,
   chatHistory: readonly { role: string; id?: string }[],
@@ -415,7 +408,6 @@ export function evaluateEphemeralFieldsForHydration(
   };
 }
 
-/** 相位与历史必须互相印证，否则视为陈旧恢复态（boot 写回清除）。 */
 function isLeafRecoveryCoherent(
   fields: NormalizedEphemeralFields,
   turnCount: number,
@@ -426,12 +418,11 @@ function isLeafRecoveryCoherent(
   if (turnPhase === 'awaitingLanding') {
     if (isOpeningLanded(turnCount, chatHistory)) return false;
     if (!recoveryContext) {
-      // 全新开局：历史必须为空，否则是缺上下文的残缺现场（写回清除，不派发）。
+      // 全新开局时历史必须为空，否则是缺上下文的残缺现场。
       return !chatHistory.some((message) => message.role === 'user' || message.role === 'assistant');
     }
     return chatHistory.some((message) => message.role === 'user' && message.id === recoveryContext.userMessageId);
   }
-  // settling：落地回复必须已写入历史（含解析结果，续跑依赖它重建 d）。
   if (!recoveryContext) return false;
   return isSettledRecoveryCoherent(recoveryContext, chatHistory);
 }
@@ -486,8 +477,6 @@ export function hydrate(
   }
   state.setVariableBatches(compactVariableBatchHistory(normalizedBatches.batches));
   state.setQueueTasks(迁移后存档.queueTasks ?? []); // 旧存档没有该字段，兜底空数组
-  // DeviceSettings is owned by the current device. A save may carry legacy
-  // settings for migration, but loading a session must never replace them.
   state.setMacroGlobalVars(macroGlobalVars);
   state.setWorldbookTriggerStates(worldbookTriggerStates);
   const ephemeral = evaluateEphemeralFieldsForHydration(迁移后存档, safeChatHistory);
@@ -497,7 +486,6 @@ export function hydrate(
       reason: issue.reason,
     });
   }
-  // 恢复态投影只由水合边界写入：不一致 / 非法一律清空，读档入口不重新武装。
   projectRecovery(state, ephemeral.fields.turnPhase, ephemeral.fields.recoveryContext);
   state.setHasSave(true);
   state.setView('game');

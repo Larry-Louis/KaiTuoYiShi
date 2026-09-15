@@ -15,8 +15,6 @@ import { hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回合快照): 剧情编织系统 {
   state.set旅人(snapshot.旅人 as Parameters<typeof state.set旅人>[0]);
   state.set世界(归一化世界状态(snapshot.世界 as UseGameStateReturn['世界']));
-  // 既有持久化边界：回合快照随聊天消息落盘，hydrate 只归一化 chatHistory 外壳、不下钻快照内部；
-  // 因此这里按同一入口归一化。将来水合递归覆盖快照后应删除本行，恢复 K5 单入口。
   state.set记忆(归一化记忆系统(snapshot.记忆).value);
   state.set忆庭(归一化忆庭系统(snapshot.忆庭 as UseGameStateReturn['忆庭']));
   state.set智库(归一化智库系统(snapshot.智库 as UseGameStateReturn['智库']));
@@ -33,8 +31,6 @@ export function restorePreTurnSnapshot(state: UseGameStateReturn, snapshot: 回�
   state.setVariableBatches(snapshot.variableBatches as Parameters<typeof state.setVariableBatches>[0]);
   state.setQueueTasks((snapshot.queueTasks ?? []) as Parameters<typeof state.setQueueTasks>[0]);
   state.setTurnCount(snapshot.turnCount);
-  // 回滚不改恢复态：开局派发的一次性由「派发前清 turnPhase 投影」与 S1 的相位写盘保证，
-  // U2 后不再需要在这里重新武装 / 解除一次性字段。
   return storyWeaving;
 }
 
@@ -46,7 +42,6 @@ function restoreAlbumSnapshot(snapshotAlbum: UseGameStateReturn['相册'], curre
     assets: normalized.assets.map((asset) => {
       const current = currentAssets.get(asset.id);
       // Snapshots store asset: refs only. Keep the ref; binary lives in the Blob cache.
-      // Prefer current metadata when the ref already points at a known asset.
       if (typeof asset.dataUrl === 'string' && asset.dataUrl.startsWith('asset:') && current) {
         return {
           ...asset,

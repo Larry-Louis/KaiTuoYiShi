@@ -15,7 +15,6 @@ import {
   compilePrompt,
   insertDepthIntoHistory,
 } from './mainRequestFinalizer';
-/** stage3 产出：apiMessages 是下游（S4/S5）的必填输入，因此比 Partial<TurnDeltas> 更严格。 */
 export interface Stage3Output extends Partial<TurnDeltas> {
   apiMessages: 聊天消息[];
 }

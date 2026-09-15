@@ -59,7 +59,6 @@ export async function importSaveFileAsMany(file: File): Promise<存档数据[]> 
   } else {
     throw new Error('不支持的存档格式，请选择 .zip、.ktysave 或旧版 .json');
   }
-  // 导入恢复点按节点类型剥离 queueTasks：导出路径已移除 saveRuntime（无 unsealedHead），一律视为检查点。
   return saves.map(剥离检查点队列任务);
 }
 

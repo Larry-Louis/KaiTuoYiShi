@@ -224,7 +224,6 @@ export async function uploadCompleteBackupToGitHub(
   assertNotAborted(options.signal);
   await updateCloudBackupTransfer(transferId, { phase: 'uploading', pointer });
 
-  // 旧指针或旧 manifest 即使损坏，也不能阻止玩家用一次新的完整备份修复云端。
   const oldPointer = await readCloudBackupPointer(config, options.signal).catch(() => null);
   const oldManifest = await readManifest(config, options.signal).catch(() => null);
   const uploadedParts: Array<{ path: string; sha: string }> = [];

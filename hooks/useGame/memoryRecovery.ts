@@ -22,10 +22,6 @@ const MISSING_MESSAGE = '未找到可处理的记忆失败草稿，可能已被�
 
 export type MemoryDraftRetryOutcome = 记忆草稿应用结果 | 'retry_failed';
 
-/**
- * 单草稿重试内核：API 失败时草稿回到 pending 并累计次数；成功时按快照转移记忆层。
- * 不接触事务、投影与 UI，便于独立测试。
- */
 export async function runMemoryDraftRetry(
   memory: 记忆系统,
   draft: 记忆失败草稿,
@@ -33,7 +29,6 @@ export async function runMemoryDraftRetry(
   mainConfig: API配置项,
   signal?: AbortSignal,
 ): Promise<{ memory: 记忆系统; outcome: MemoryDraftRetryOutcome }> {
-  // 源层已无任何快照条目说明批次被其他路径处理过：先判过期，避免浪费一次 API 调用。
   if (记忆草稿已过期(memory, draft)) {
     return { memory: 作废记忆草稿(memory, draft.id, Date.now()), outcome: 'source_changed' };
   }
@@ -68,23 +63,14 @@ export async function runMemoryDraftRetry(
 
 interface 记忆草稿事务配置 {
   turnStatus: TurnStatus;
-  /** 事务体：返回终态状态条，undefined 表示不额外改写状态条。 */
   run: (tx: WorkflowTransaction, draft: 记忆失败草稿) => Promise<TurnStatus | undefined>;
-  /** 中止或异常时还原瞬态投影；error 为 undefined 表示中止。仅重试需要。 */
   restore?: (draft: 记忆失败草稿, error?: unknown) => void;
-  /** 未预期异常时的队列文案前缀与终态文案，如「记忆总结重试失败」。 */
   failureLabel: string;
-  /** 中止时的终态文案。 */
   stoppedStatus: TurnStatus;
   logLabel: string;
-  /** 进入事务前的额外校验：返回文案即提前退出并上报。 */
   precheck?: (draft: 记忆失败草稿) => string | null;
 }
 
-/**
- * 记忆草稿类独立事务的唯一骨架：找草稿 → 前置校验 → 占位 → 执行 → settle。
- * 重试与忽略共用同一套中止 / 失败语义，避免协议在两处各自漂移。
- */
 async function 运行记忆草稿事务(
   state: UseGameStateReturn,
   draftId: string,
@@ -154,7 +140,6 @@ export async function retryMemoryDraft(
       });
     },
     run: async (tx, draft) => {
-      // precheck 已拦截无配置的情况，此处仅用于收窄类型。
       if (!mainConfig) return undefined;
       tx.pushTask('memory', 'pending', {
         detail: '正在重试记忆总结。',

@@ -851,7 +851,7 @@ export function OpeningAnchorStep({
                   onClick={() => onOpeningRegion(region.id)}
                   className="w-full p-[13px] text-left transition-shadow"
                   style={{
-                    // 左侧 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），必须排在 background 第一层。
+                    // 强调条必须排在 background 第一层，否则会被后层渐变盖住。
                     background: active
                       ? `linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge)) 0 3px, transparent 3px), ${openingCardBackground}`
                       : openingCardBackground,
@@ -1546,8 +1546,8 @@ export function OverviewStep({
   starting?: boolean;
   openingArchiveStatus?: string;
   /**
-   * 内置原著预置数据是否已就绪。未就绪时最终确认不可点——否则会把玩家送进一个
-   * 正文尚未落地的开局。加载失败也算已就绪（降级缓存），玩家不能被永久挡住。
+   * 未就绪时最终确认不可点——否则会把玩家送进一个正文尚未落地的开局。
+   * 加载失败也算已就绪（降级缓存），玩家不能被永久挡住。
    */
   presetReady?: boolean;
 }) {

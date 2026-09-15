@@ -15,7 +15,6 @@ import {
 interface Props {
   batches: 变量命令批次[];
   tasks: 队列任务记录[];
-  /** 变量模型正在跑（主回复已落地，变量结算中）。 */
   pending?: boolean;
   onCancelTask?: (id: 队列任务ID) => void;
   onRetryTask?: (task: 队列任务记录, mode: 'retry' | 'reroll') => void | Promise<void>;
@@ -49,7 +48,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
 
   return (
     <>
-      {/* 触发按钮：贴在聊天区最左侧边缘，竖向长方形 */}
       <button
         onClick={() => setOpen((v) => !v)}
         className="absolute top-1/2 -translate-y-1/2 z-20 transition-all hover:opacity-100"
@@ -83,7 +81,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         )}
       </button>
 
-      {/* 背景遮罩：与 SystemDrawer 对称，点击关闭 */}
       <div
         onClick={() => setOpen(false)}
         className="absolute inset-0 z-30 transition-opacity duration-200"
@@ -95,7 +92,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
       />
 
-      {/* 抽屉本体：始终挂载，靠 transform 控制滑入/滑出 */}
       <aside
         className="absolute z-40 flex flex-col overflow-hidden transition-transform duration-300"
         style={{
@@ -110,7 +106,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
         aria-hidden={!open}
       >
-        {/* 右侧中部圆形关闭按钮（朝外伸出） */}
         <button
           type="button"
           onClick={() => setOpen(false)}
@@ -132,7 +127,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
           ›
         </button>
 
-        {/* 顶部标题栏 */}
         <header
           className="flex items-center gap-3 px-5 py-4"
           style={{
@@ -176,7 +170,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
           </div>
         </header>
 
-        {/* 队列任务列表 */}
         <div className="flex flex-1 min-h-0 flex-col overflow-y-auto px-4 py-4 space-y-3">
           {queueRows.map((task, index) => (
             <TaskRow
@@ -201,8 +194,6 @@ function createIdleTask(id: 队列任务ID, title: string, subtitle: string): �
   return { id, title, subtitle, turn: 0, timestamp: 0, status: 'idle' };
 }
 
-// ── 任务行 ──
-
 interface TaskRowProps {
   index: number;
   title: string;
@@ -215,7 +206,6 @@ interface TaskRowProps {
 }
 
 function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetry }: TaskRowProps) {
-  // 默认折叠；用户点「查看原始信息 / 查看变量」才展开。
   const [view, setView] = useState<'raw' | 'commands' | null>(null);
 
   const canViewRaw = !!batch?.rawText || !!task?.rawText;
@@ -252,9 +242,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         clipPath: smallClip,
       }}
     >
-      {/* 行头 */}
       <div className="flex items-center gap-3 px-3 py-3">
-        {/* 编号圆牌 */}
         <span
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center font-serif text-sm font-bold rounded-full"
           style={{
@@ -266,7 +254,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
           {index}
         </span>
 
-        {/* 标题 + 副标题 */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
@@ -296,7 +283,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
           )}
         </div>
 
-        {/* 状态图标 */}
         <div className="flex shrink-0 items-center gap-2">
           {canRetry && (
             <div className="flex items-center gap-1">
@@ -323,7 +309,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         </div>
       </div>
 
-      {/* 按钮条 */}
       <div
         className="flex items-stretch gap-2 px-3 pb-3"
         style={{ borderTop: '1px dashed rgba(var(--tj-accent-primary), 0.15)', paddingTop: '10px' }}
@@ -342,7 +327,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         />
       </div>
 
-      {/* 展开区 */}
       {view === 'raw' && batch?.rawText && <RawTextPanel raw={batch.rawText} />}
       {view === 'raw' && !batch?.rawText && task?.rawText && <RawTextPanel raw={task.rawText} />}
       {view === 'commands' && batch && <CommandsPanel batch={batch} />}

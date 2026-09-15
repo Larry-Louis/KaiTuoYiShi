@@ -9,7 +9,6 @@ import type { 智库系统 } from '@/models/zhiku';
 const readyStory = () => 创建空剧情编织系统();
 const readyZhiku = () => 创建空智库系统();
 
-/** 简单的两段轨道：fetch 立刻回一条载荷并上报进度，process 立刻产出结果。 */
 const simpleStory = (total: number): PresetTrack<剧情编织系统, string> => ({
   total,
   fetch: (onProgress: ResourceProgress) => {
@@ -84,12 +83,10 @@ describe('createPresetLoader', () => {
     });
 
     loader.start();
-    // fetch 同步上报，但加工未完成：网络进度已满，相位尚未离开 network（fetched 未置位）。
     expect(loader.getSnapshot().network.done).toBe(3);
     expect(loader.getSnapshot().network.total).toBe(3);
 
     await vi.waitFor(() => expect(loader.getSnapshot().phase).toBe('processing'));
-    // 网络已满、加工未完成：门禁不得放行。
     expect(loader.getSnapshot().story.status).not.toBe('ready');
 
     release();
@@ -120,7 +117,6 @@ describe('createPresetLoader', () => {
     loader.retry();
     await vi.waitFor(() => expect(storyValue(loader.getSnapshot().story)).toBe(fresh));
 
-    // 旧一轮现在才落定，必须被丢弃。
     releaseFirst();
     await Promise.resolve();
     expect(storyValue(loader.getSnapshot().story)).toBe(fresh);

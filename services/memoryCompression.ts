@@ -23,7 +23,6 @@ export interface MemoryCompressionResult {
   summary: string;
   /** 因失败而回退本地摘要（区别于玩家关闭 API 总结或未配置接口）。 */
   usedFallback: boolean;
-  /** 玩家关闭「启用中短长期 API 总结」时的本地摘要。 */
   usedLocal: boolean;
   failure?: MemoryCompressionFailure;
 }
@@ -41,7 +40,7 @@ export async function summarizeMemoryBatch(
 ): Promise<MemoryCompressionResult> {
   const fallback = buildFallbackSummary(source.items, source.turn, source.kind);
 
-  // 玩家主动选择的本地模式：在解析 API 配置前短路，不产生失败草稿。
+  // 玩家主动选择的本地模式必须在解析 API 配置前短路，否则会误报为失败回退。
   if (!settings.启用中短长期API总结) {
     return { summary: fallback, usedFallback: false, usedLocal: true };
   }

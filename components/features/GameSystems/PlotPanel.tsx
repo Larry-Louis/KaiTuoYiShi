@@ -37,7 +37,7 @@ interface PlotPanelProps {
   onStoryWeavingChange: React.Dispatch<React.SetStateAction<剧情编织系统>>;
   gameSettings: 游戏设置;
   apiSettings: API设置;
-  /** 剧情编织持久化（片 panel-p6）：由 useGame 门面接管 saveSetting 直连。 */
+  /** 由 useGame 门面持久化。 */
   onSaveStoryWeaving: (system: 剧情编织系统) => Promise<void>;
 }
 

@@ -17,22 +17,14 @@ export interface 忆庭召回结果 {
   previewText?: string;
 }
 
-/** 强回忆原文注入的单条上限：防止单条超长回忆吃掉整个上下文预算。 */
 export const YITING_INJECTION_ORIGINAL_PER_ENTRY_LIMIT = 1200;
-/** 强回忆原文注入的总预算：用尽后剩余强回忆降级为摘要层。 */
 export const YITING_INJECTION_ORIGINAL_TOTAL_LIMIT = 6000;
-
-// 注意：这里的「原文注入预算」与 settings.剧情回忆完整原文条数N 是两个独立机制，不要混为一谈——
-// 前者控制「主剧情模型最终被注入多少原文」（按字符数预算截断），后者控制「检索模型在评分阶段能看到
-// 哪些候选的完整原文」（按候选条数边界）。它们作用于不同 pipeline 阶段、面向不同消费者，各自独立。
-
 
 interface 剧情回忆候选 {
   entry: 回忆条目;
   id: string;
   index: number;
   score: number;
-  /** 是否属于最近「剧情回忆完整原文条数N」：只有这些候选向检索模型展示完整原文，更早的只展示概括。 */
   是否完整原文: boolean;
 }
 
@@ -72,7 +64,6 @@ export async function retrieveYitingContextWithModel(
     return { entries: [], injection: '', usedModel: false };
   }
 
-  // 候选与打分只算一次：fullN 只影响单条 是否完整原文 标记，不影响候选筛选，回退结果可直接复用。
   const candidates = buildRecallCandidates(system, query, 24, 6, settings.剧情回忆完整原文条数N);
   const localFallback = buildLocalRecallFallback(candidates, limit);
   const fallbackEntries = [...localFallback.strongEntries, ...localFallback.weakEntries];
@@ -157,7 +148,6 @@ export async function retrieveYitingContextWithModel(
 export function buildYitingRecallSystemPrompt(promptModules?: 提示词模块[]): string {
   const modulesSection = buildYitingRecallPromptModulesSection(promptModules);
   if (modulesSection) return modulesSection;
-  // legacy 回退：yitingRecall 作用域模块未启用/未传入时使用源文件常量，保证旧调用路径可召回。
   return YITING_LEGACY_RECALL_PROMPT;
 }
 
@@ -169,7 +159,6 @@ function buildYitingRecallPromptModulesSection(promptModules?: 提示词模块[]
 function buildRecallCandidates(system: 忆庭系统, query: string, topK = 24, recentReserve = 6, fullN = 20): 剧情回忆候选[] {
   const entries = [...system.回忆档案].sort((a, b) => a.回合 - b.回合);
   const terms = extractRecallTerms(query);
-  // 候选池中最近 fullN 条带完整原文，更早的只有概括。
   const fullStartIndex = Math.max(0, entries.length - Math.max(1, Math.trunc(fullN) || 20));
   const scored = entries.map((entry, index) => ({
     entry,

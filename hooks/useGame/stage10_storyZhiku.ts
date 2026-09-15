@@ -46,13 +46,10 @@ export async function stage10_storyZhiku(
     devLog('stage', 'stage10.continuity_hold', { turn: turnCountAtStart, reasons: continuity.reasons });
   }
 
-  // 申报通道常开：从主模型《剧情规划》末尾的 <剧情推进> 子块直接读取，不依赖判定开关。
-  // 背书逻辑在 autoAlignCanonStoryProgress 内（无背书不计、永不降级）。
   const declaredAdvance = !skipStoryAlignment && !continuity.hold
     ? d.parsedForDisplay?.storyAdvance ?? null
     : null;
 
-  // 开关关闭时（旧档默认）连分段都不取：获取当前剧情分段会整表归一化剧情编织，不必走这条热路径。
   let advanceJudge: StoryAdvanceJudgement | null = null;
   if (state.deviceSettings.gameSettings.剧情编织系统.剧情推进AI判定 && !skipStoryAlignment && !continuity.hold) {
     const judgeSegment = 获取当前剧情分段(state.剧情编织);
@@ -74,7 +71,6 @@ export async function stage10_storyZhiku(
   }
 
   let memoryAfterStoryProgress = variableOverrides?.记忆 ?? mem;
-  // S8.2 world-first：对齐输入取 stage9b 已写入运行时的系统（未跑时回退 state），归一化保留运行时切片。
   const storyWeaving = d.storyWeavingForSave ?? state.剧情编织;
   const storyAlignment = skipStoryAlignment || continuity.hold
     ? { system: storyWeaving, changed: false, progressed: false }
@@ -103,9 +99,7 @@ export async function stage10_storyZhiku(
     storyWeavingForSave = resolvedStory.system;
     storyWeavingConcurrentChange = resolvedStory.concurrentChange;
     if (!storyWeavingConcurrentChange) {
-      // 投影点（B2 定性，S24）：章节摘要/剧情面板即时刷新；管线与存档只认 ctx/d，不回读此 state
       state.set剧情编织(storyWeavingForSave);
-      // 片 5a-2：剧情编织 newest 覆盖集由 S11 阶段边界统一写（报告 c 节「二选一」选项 2）
     } else {
       pushQueueTask(state, 'zhiku', 'success', {
         detail: '检测到剧情编织面板已有更新，本回合后台未覆盖最新导入/分解结果。',
@@ -122,7 +116,6 @@ export async function stage10_storyZhiku(
       );
       if (npcAfterStoryProgress !== npcAfterCompression) {
         npcAfterCompression = npcAfterStoryProgress;
-        // 投影点（B2 定性，S26）：聊天 NPC/伙伴面板即时刷新；管线与存档只认 ctx/d，不回读此 state
         state.setNPC(npcAfterCompression);
       }
     }
@@ -136,9 +129,7 @@ export async function stage10_storyZhiku(
     if (zhikuUnlock.changed) {
       assertWorkflowActive();
       zhikuAfterRuntimeUnlock = zhikuUnlock.system;
-      // 投影点（B2 定性，S27）：智库面板即时刷新；管线与存档只认 ctx/d，不回读此 state
       state.set智库(zhikuAfterRuntimeUnlock);
-      // 片 5a-2：智库 newest 覆盖集由 S11 阶段边界统一写（报告 c 节「二选一」选项 2）
       assertWorkflowActive();
       pushQueueTask(state, 'zhiku', 'success', {
         detail: `剧情归档已更新智库门禁：${zhikuUnlock.unlocked.slice(0, 3).map((item) => `${item.title}→${item.status}`).join('、')}${zhikuUnlock.unlocked.length > 3 ? ` 等 ${zhikuUnlock.unlocked.length} 项` : ''}。`,

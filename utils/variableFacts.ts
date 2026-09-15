@@ -532,12 +532,9 @@ function mergePreferredText(current: unknown, incoming: unknown): string | undef
 function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实, { type: 'nsfw_archive' }>): Record<string, unknown> {
   const current = existing.NSFW档案 ?? {};
   const archive: Record<string, unknown> = {};
-  // NSFW 年龄门禁已解除：年龄确认降级为纯展示信息，不再限制档案写入。
-  // 落库改为字段级合并（existing 优先，fact 补充），不再强制塞入保守基线占位文案。
   archive.enabled = fact.enabled ?? current.enabled ?? true;
   archive.年龄确认 = fact.ageConfirm ?? current.年龄确认 ?? 'unknown';
   archive.亲密阶段 = fact.intimacyStage ?? current.亲密阶段 ?? (existing.亲密关系 ? '已建立亲密关系（私密细节未记录）' : '未建立');
-  // 边界/备注只在 fact 或 existing 有值时写入，不再写保守基线默认长文。
   if (fact.boundaries) archive.边界 = fact.boundaries;
   else if (current.边界) archive.边界 = current.边界;
   const longTermFacts = mergeUniqueTexts(current.长期事实, fact.longTermFacts);
@@ -606,9 +603,6 @@ function resolvePhoneTargetId(fact: Extract<变量事实, { type: 'phone_seed' }
   }
   const related = fact.relatedNpcIds?.find((id) => id.trim());
   if (related?.trim()) return related.trim();
-  // 兜底:从 title/context/evidence 文本里匹配已知 NPC 姓名。
-  // AI 经常只写 context 不写 targetName,导致 phone_seed 被丢弃。
-  // 优先匹配已登记的 NPC,其次匹配经典角色(三月七/丹恒等)。
   const haystack = `${fact.title}\n${fact.context}\n${fact.evidence ?? ''}`;
   for (const npc of npcs) {
     const name = npc.姓名.trim();
@@ -620,7 +614,6 @@ function resolvePhoneTargetId(fact: Extract<变量事实, { type: 'phone_seed' }
       return npc.id;
     }
   }
-  // 经典角色兜底:即使 NPC 列表里没有,也允许生成种子(后续 PhoneModal 会自动创建联系人)
   const canonicalNames = ['三月七', '丹恒', '姬子', '瓦尔特', '帕姆', '黑塔', '艾丝妲', '阿兰', '星', '穹'];
   for (const name of canonicalNames) {
     if (haystack.includes(name)) {
@@ -718,7 +711,6 @@ export function factsToVariableCommands(
         push({ action: 'set', key: '世界.当前时间', value: fact.targetTime });
         continue;
       }
-      // 走到这里 fact.mode 只剩 'overnight' / 'next_day'（其余分支均已 continue）
       {
         const nextDate = 推进琥珀日期(world.当前日期);
         const aligned = 对齐世界日期与天数(world.开拓天数 + 1, nextDate);
@@ -736,7 +728,6 @@ export function factsToVariableCommands(
     }
 
     if (fact.type === 'weather') {
-      // 天气中文名 → ID
       const def = 天气列表.find((w) => w.name === fact.weather || w.id === fact.weather);
       if (def) {
         push({ action: 'set', key: '世界.当前天气', value: def.id });
@@ -898,7 +889,6 @@ export function factsToVariableCommands(
       continue;
     }
 
-    // 走到这里 fact.type 必为 'phone_seed'（其余分支均已 continue）
     {
       if (!phoneSeedsEnabled || maxPhoneSeedsPerTurn <= 0) {
         warnings.push(`phone_seed 已忽略：手机主动来信种子已关闭或每回合上限为 0（${fact.title}）。`);

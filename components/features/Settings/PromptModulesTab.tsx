@@ -25,7 +25,6 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
-/** 独立系统分组展示 emoji：逻辑层 CALIBRATION_SYSTEM_GROUPS 只含 label/match，展示符号留在 UI 层。 */
 const CALIBRATION_SYSTEM_EMOJIS: Record<string, string> = {
   news: '🗞️',
   phone: '📱',
@@ -37,15 +36,6 @@ const CALIBRATION_SYSTEM_EMOJIS: Record<string, string> = {
 };
 
 
-/** 分类语义色：每个类目对应一个 CSS 变量（RGB 三元组），用于分组图标与类目标签着色。
- *  - cot 思维链 → sage-soft 绿（思考/推理）
- *  - format 输出格式 → accent-secondary 副色（结构化）
- *  - persona 叙述人格 → amber-soft 琥珀（人格/温暖）
- *  - devmode 开发模式 → danger 红（特殊/危险模式）
- *  - jailbreak 越狱 → ui-nsfw 粉（NSFW/越狱解锁，ST 预设常见）
- *  - style 文风 → accent-primary 主色（主轴）
- *  - custom 自定义 → text-secondary 中性（用户自建）
- */
 const CATEGORY_COLOR_VAR: Record<提示词模块类目, string> = {
   cot: '--tj-sage-soft',
   format: '--tj-accent-secondary',
@@ -71,7 +61,6 @@ export function PromptModulesTab({ settings, onChange }: Props) {
   );
   const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
   const selected = sorted.find((m) => m.id === selectedId) ?? sorted.at(0);
-  // 系统切换：主剧情 / 独立模型
   const [activeSystem, setActiveSystem] = useState<'main' | 'calibration'>('main');
   const [showAddModal, setShowAddModal] = useState(false);
   const visibleModules = useMemo(
@@ -252,8 +241,6 @@ export function PromptModulesTab({ settings, onChange }: Props) {
   );
 }
 
-/** 判断模块是否可修改：非内置 / 自定义文风槽 都可修改。
- *  用于 ModuleItem 显示 ✓ 可修改 / 🔒 不可修改 标识。 */
 const isModifiableModule = (m: 提示词模块) =>
   !isBuiltinPromptModule(m.id) || m.id === 'builtin_writing_style_custom';
 
@@ -275,7 +262,6 @@ function ModuleList({
   if (!modules.length) return null;
 
   if (!showModifyLayer) {
-    // 独立系统页面：按子系统分组，每组一个折叠标题 + 模块列表
     const grouped: Record<string, 提示词模块[] | undefined> = {};
     for (const m of modules) {
       const key = getCalibrationGroupKey(m);
@@ -296,7 +282,6 @@ function ModuleList({
             <SystemGroupSection key={key} group={group} items={items} selected={selected} onSelect={onSelect} onToggle={onToggle} />
           );
         })}
-        {/* 未归类模块兜底 */}
         {(grouped['other']?.length ?? 0) > 0 && (
           <SystemGroupSection
             group={{ label: '其他系统', emoji: '⚡' }}
@@ -310,7 +295,6 @@ function ModuleList({
     );
   }
 
-  // 主剧情系统：统一为「提示词模块」单一列表，按 order 升序排列（不再区分内置 / 预设）。
   return (
     <div className="mb-2">
       <ModifyLayer
@@ -399,7 +383,6 @@ function ModifyLayer({
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
-  // 拖拽结束：按新顺序重算 order（间距 10），仅修改 order 值变化的模块
   const handleDragEnd = (event: DragEndEvent) => {
     if (!onReorder) return;
     const { active, over } = event;
@@ -471,13 +454,10 @@ function ModifyLayer({
   );
 }
 
-/** 拖拽手柄图标（六点双竖线） */
 const DRAG_HANDLE_ICON = '⠿';
 
-/** SortableModuleItem：在 ModuleItem 外层包裹 dnd-kit 的 sortable 能力。
- *  - attributes 绑到外层 div（提供 a11y/role 等语义）
- *  - listeners 只绑到内部的拖拽手柄 span，避免吃掉 ModuleItem 内部的 onSelect 点击 / onToggle 滑块开关事件
- *  - 拖拽中：透明度 0.5 + 提升 z-index，避免被遮挡
+/**
+ * listeners 只能绑到内部的拖拽手柄 span：绑到外层会吃掉 ModuleItem 内部的 onSelect 点击 / onToggle 滑块开关事件。
  */
 function SortableModuleItem({ m, active, onSelect, onToggle }: {
   m: 提示词模块;
@@ -530,9 +510,7 @@ function ModuleItem({
 }) {
   const isCal = m.scope.includes('calibration');
   const isStyle = isWritingStyleModule(m);
-  // 开关禁用：独立模型展示模块（非真实开关）
   const toggleDisabled = isCal;
-  // 身份标签：内置 > 自定义
   const badgeLabel = m.builtin ? '内置' : '自定义';
   const badgeStyle = m.builtin
     ? {
@@ -568,7 +546,6 @@ function ModuleItem({
         >
           {badgeLabel}
         </span>
-        {/* 可修改性标识：✓ 可修改 / 🔒 不可修改 */}
         <span
           title={isModifiableModule(m) ? '可修改' : '只读不可改'}
           className="text-[10px] px-1 py-0.5"
@@ -609,7 +586,6 @@ function ModuleItem({
         >
           {m.title}
         </span>
-        {/* 右上角小徽章：文风互斥 */}
         {isStyle && (
           <span
             className="text-[8px] font-serif tracking-[0.12em] px-1.5 py-0.5"
@@ -624,7 +600,6 @@ function ModuleItem({
             互斥
           </span>
         )}
-        {/* 滑块开关：独立模型模块禁用（不可切换） */}
         <span
           role="switch"
           aria-checked={toggleDisabled || m.enabled}
@@ -677,15 +652,12 @@ function EditorPanel({
 }) {
   const readonly = m.builtin && m.id !== 'builtin_writing_style_custom';
   const isCalibrationModule = m.scope.includes('calibration');
-  // 开关禁用：独立模型展示模块（非真实开关）
   const toggleDisabled = isCalibrationModule;
 
-  // 分层信息：根据 order 区间映射 Layer
   const layerLabel = m.order < 10 ? 'Layer 1 · 顶层' : m.order < 30 ? 'Layer 2 · 主体' : 'Layer 3 · 尾部';
 
   return (
     <div className="min-w-0 space-y-3">
-      {/* 分层标记 */}
       <div
         className="flex items-center gap-2 px-3 py-1.5 text-xs font-serif tracking-[0.16em]"
         style={{
@@ -711,7 +683,6 @@ function EditorPanel({
           </>
         )}
       </div>
-      {/* 启用开关 */}
       <div
         className="flex flex-col items-stretch gap-3 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
         style={{
@@ -770,7 +741,6 @@ function EditorPanel({
         </button>
       </div>
 
-      {/* 标题 */}
       <Field label={`◆ 标题${readonly ? '（内置，只读）' : ''}`}>
         <input
           type="text"
@@ -782,7 +752,6 @@ function EditorPanel({
         />
       </Field>
 
-      {/* 描述 */}
       <Field label={`◆ 描述${readonly ? '（内置，只读）' : ''}`}>
         <input
           type="text"
@@ -794,7 +763,6 @@ function EditorPanel({
         />
       </Field>
 
-      {/* 分类 + order */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <Field label="◆ 分类">
           <select
@@ -828,7 +796,6 @@ function EditorPanel({
         order &lt; 30 注入到 system prompt 顶部；&ge; 30 注入到尾部。
       </div>
 
-      {/* 注入场景（scope） */}
       <Field label={`◆ 注入场景${readonly ? '（内置，只读）' : ''}`}>
         <ScopeChips
           value={m.scope.length ? m.scope : ['all']}
@@ -842,7 +809,6 @@ function EditorPanel({
           : '勾选「任意」表示在所有场景注入；其他场景互斥于「任意」，选中具体场景将取消「任意」。'}
       </div>
 
-      {/* 内容 */}
       <Field label={`◆ 提示词正文${readonly ? '（内置，只读）' : ''}`}>
         <textarea
           value={m.content}
@@ -857,7 +823,6 @@ function EditorPanel({
         可用占位符：<code>{'{wordCountTarget}'}</code>（最少字数）/ <code>{'{personLabel}'}</code>（叙述人称描述）。注入时按当前设置替换。
       </div>
 
-      {/* 删除按钮（自定义模块） */}
       {!readonly && !isBuiltinPromptModule(m.id) && m.id !== 'builtin_writing_style_custom' && (
         <div className="pt-2" style={{ borderTop: '1px solid rgba(var(--tj-accent-primary), 0.15)' }}>
           <button

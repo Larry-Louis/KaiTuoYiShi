@@ -1,4 +1,3 @@
-// K-Vault 引用版：由 origin/main 的头像批次清理搬运，保留 89 角色 / 113 候选。
 import {
   STATIC_ASSET_FALLBACK_AVATAR,
   createStaticAssetReference,

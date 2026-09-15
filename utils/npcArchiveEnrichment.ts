@@ -210,9 +210,6 @@ function shouldCreateNsfwBaseline(
 function buildNsfwBaseline(npc: NPC记录, baseline?: CanonicalArchiveBaseline): NPC_NSFW档案 {
   const existing = npc.NSFW档案 ?? {};
   const age = existing.年龄确认 ?? baseline?.nsfw年龄确认 ?? 'unknown';
-  // NSFW 年龄门禁已解除：年龄确认降级为纯展示信息，不再限制档案写入或显示。
-  // 基线档案只建一个干净空壳（enabled + 年龄 + 亲密阶段占位），把内容留给事实填充，
-  // 不再写「保守基线」「等待剧情事实补充」等占位文案。
   return {
     ...existing,
     enabled: true,
@@ -225,11 +222,6 @@ function archiveChanged(a: NPC_NSFW档案 | undefined, b: NPC_NSFW档案): boole
   return JSON.stringify(a ?? null) !== JSON.stringify(b);
 }
 
-/**
- * 判断一个 NPC 是否需要变量模型补建 NSFW 基线档案。
- * 触发条件：NSFW 开启、通过门禁、档案缺少实质内容（身体档案/偏好/敏感点等都空）。
- * 已有实质内容的档案不重复生成。
- */
 export function needsNsfwBaseline(
   npc: NPC记录,
   baseline: CanonicalArchiveBaseline | undefined,
@@ -238,7 +230,6 @@ export function needsNsfwBaseline(
   if (!shouldCreateNsfwBaseline(npc, baseline, options)) return false;
   const archive = npc.NSFW档案;
   if (!archive?.enabled) return true;
-  // 检查是否已有实质内容（任一字段有值即视为已填充，不重复生成）。
   const hasFemaleBody = archive.女性身体档案 && Object.values(archive.女性身体档案).some((v) => typeof v === 'string' && v.trim());
   const hasMaleBody = archive.男性身体档案 && Object.values(archive.男性身体档案).some((v) => typeof v === 'string' && v.trim());
   const gender = baseline?.性别 ?? npc.性别;
@@ -246,7 +237,6 @@ export function needsNsfwBaseline(
   const hasPrefs = (archive.偏好?.length ?? 0) > 0;
   const hasSensitive = (archive.敏感点?.length ?? 0) > 0;
   const hasExperiences = (archive.经历?.length ?? 0) > 0;
-  // 只要有一个实质字段有值，就认为基线已建立，不重复生成。
   return !bodyFilled && !hasPrefs && !hasSensitive && !hasExperiences;
 }
 
@@ -289,7 +279,6 @@ export function enrichNpcArchives(
       }
     }
 
-    // 清理 NSFW 档案中的占位字段：这些字段只有发生实际亲密剧情后才有意义，基线阶段不应存在。
     if (updated.NSFW档案) {
       const nsfw = updated.NSFW档案;
       const hasPlaceholder = nsfw.标签?.length || nsfw.备注 || nsfw.长期事实?.length;

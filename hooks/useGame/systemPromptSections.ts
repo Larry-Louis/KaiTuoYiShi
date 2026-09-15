@@ -63,7 +63,6 @@ export function formatMemorySection(title: string, entries: string[]): string {
   return `# 记忆｜${title}\n\n${entries.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
 }
 
-/** 分层记忆注入上限：缺省用全量窗口常量；忆庭互斥时传 { long: 3, middle: 0, short: 0 }。 */
 export interface LayeredMemoryLimits {
   long?: number;
   middle?: number;
@@ -89,7 +88,6 @@ export function getPromptPlayerName(traveler: 角色数据结构): string {
   return traveler.姓名.trim() || '无名开拓者';
 }
 
-/** 思维链输出语言标签映射（cotLanguage 设置 → AI 可读的语言名） */
 const COT_LANGUAGE_LABELS: Record<string, string> = {
   zh: '中文',
   en: 'English',
@@ -101,8 +99,6 @@ const COT_LANGUAGE_LABELS: Record<string, string> = {
   it: 'Italiano',
 };
 
-/** 思维链语言提示段。cotLanguage 缺省或 'zh' 时不注入；其他值在主剧情 CoT 之后追加。
- *  仅对正文生成流程生效（currentScope === 'main'），不影响开局 / 狭间 / 独立系统。 */
 export function buildCotLanguageSection(settings: 游戏设置, currentScope: 提示词模块作用域): string {
   if (currentScope !== 'main') return '';
   const lang = settings.cotLanguage;
@@ -233,7 +229,7 @@ export function buildCharacterSection(traveler: 角色数据结构): string {
   if (traveler.性格) lines.push(`- 性格：${traveler.性格}`);
   if (traveler.背景) lines.push(`- 背景：${traveler.背景}`);
 
-  // 命途：优先读 命途列表[] 多命途数据；旧字段 traveler.主命途 仅作兜底
+  // 旧字段 traveler.主命途 仅作兜底
   if (traveler.命途列表.length > 0) {
     const pathLines: string[] = [];
     for (const pp of traveler.命途列表) {
@@ -581,8 +577,6 @@ export function buildNpcContinuitySection(
   return lines.join('\n');
 }
 
-// 已知伙伴注入：按相关度过滤（同行 > 近回合见过 > 有记忆/好感 > 高好感），避免刚见过的人过早掉出上下文。
-// 路人（tier='extra'）只注入近期或已有可承接关系/记忆的少量对象，避免上下文爆炸。
 export function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0): string {
   if (!npcRecords || npcRecords.length === 0) return '';
   const companions = npcRecords.filter((n) => n.阶位 === 'companion');
@@ -647,8 +641,6 @@ export function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0):
   }
   return `# 已知伙伴与路人\n\n${lines.join('\n')}`;
 }
-// 背包注入：按 category 分桶，每桶最多取 3 件；总数控制在前 10 件，避免上下文膨胀。
-// 末尾附 物品获取协议:教 AI 用 push 旅人.背包 = {...} 把剧情中提到的物品落地到背包。
 export function buildInventorySection(traveler: 角色数据结构): string {
   const inventory = traveler.背包;
   const buckets = new Map<string, 背包物品[]>();
@@ -690,7 +682,6 @@ export function buildInventorySection(traveler: 角色数据结构): string {
   return `# 背包概览\n\n${overview}\n${protocol}`;
 }
 
-// 剧情注入：当前 active 节点 + 最近 3 个 completed 节点 + active 节点的 AI引导。
 export function buildPlotSection(plotNodes?: 剧情节点[]): string {
   if (!plotNodes || plotNodes.length === 0) return '';
   const active = plotNodes.filter((n) => n.状态 === 'active');
@@ -717,7 +708,6 @@ export function buildPlotSection(plotNodes?: 剧情节点[]): string {
   return `# 主线进度\n\n${lines.join('\n')}`;
 }
 
-// 新闻注入：最近 5 条标题摘要（带分类标签），按 turn 倒序。
 export function buildNewsSection(news?: 新闻条目[]): string {
   if (!news || news.length === 0) return '';
   const recent = [...news].sort((a, b) => b.回合 - a.回合).slice(0, 5);

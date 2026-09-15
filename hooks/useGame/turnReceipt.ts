@@ -1,6 +1,5 @@
 import type { 聊天消息 } from '@/models/chat';
 
-/** 已落地助手回复的不可变身份；仅在当前工作流内传递，不写入存档。 */
 export interface TurnReceipt {
   readonly sessionEpoch: number;
   readonly turn: number;

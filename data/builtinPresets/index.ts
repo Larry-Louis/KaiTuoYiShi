@@ -1,10 +1,3 @@
-/**
- * 内置酒馆预设注册表（V2 保留式结构）。
- *
- * 内置预设以 JSON 文件形式存储，已手工融合。
- * 玩家导入的预设不在本注册表内，运行时存在 state.gameSettings.stPresetsV2 里。
- */
-
 import type { STPreset, STPresetEntryV2 } from '@/models/stTypes';
 import shuangrenchenghangPreset from './shuangrenchenghang.json';
 import izumiPreset from './izumi.json';

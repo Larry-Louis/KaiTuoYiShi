@@ -50,7 +50,6 @@ export function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-/** 把未知值转成摘要文本：字符串原样（空串回退），基础字面量转 String，其余回退默认文案。 */
 export function displayText(value: unknown, fallback: string): string {
   if (typeof value === 'string') return value || fallback;
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
@@ -91,12 +90,10 @@ export function summarizeValue(value: unknown): string {
   return `[${typeof value}]`;
 }
 
-// 从数组条目（NPC / 新闻）里提取一个可读标签，用于条目列表和详情标题。
 export function summarizeArrayItemLabel(item: unknown): string {
   if (!isRecord(item)) {
     return typeof item === 'string' ? item : summarizeValue(item);
   }
-  // NPC 优先 姓名/别名；新闻优先 标题。
   const name = readStrKey(item, ['姓名', '别名', '名称', 'title', '标题', 'id', 'ID']);
   const tier = readStrKey(item, ['阶位', 'tier']);
   const following = item['同行'] === true;

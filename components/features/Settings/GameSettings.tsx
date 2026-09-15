@@ -10,17 +10,15 @@ interface Props {
   onChange: (s: 游戏设置) => void;
   worldState: 世界状态;
   onWorldStateChange: (s: 世界状态) => void;
-  /** 设置持久化用例动作（片 panel-p2）：gameSettings 落盘，取代直连 saveSetting。 */
+  /** 勿直连 saveSetting。 */
   onPersistSettings: (s: 游戏设置) => Promise<void>;
 }
 
 
-// 把 builtin module 的 enabled 同步成 v。若数组里还没有这条 builtin（异常存档），直接跳过。
 function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): 提示词模块[] {
   return modules.map((m) => (m.id === id ? { ...m, enabled: v, updatedAt: Date.now() } : m));
 }
 
-// 三种内置文风互斥：选 activeId 启用，其余两条强制关闭；activeId=null 表示启用「文风-自定义」模块。
 const WRITING_STYLE_IDS = [
   'builtin_writing_style',
   'builtin_writing_style_hsr',
@@ -54,7 +52,6 @@ function getActiveWritingStyle(modules: 提示词模块[]): WritingStyleId | nul
   return (hit?.id as WritingStyleId | undefined) ?? null;
 }
 
-// 三种人称模块互斥：按当前 narrativePerson 启用对应一条，其他两条强制关闭。
 const PERSPECTIVE_MODULE_IDS: Record<'first' | 'second' | 'third', string> = {
   first: 'builtin_perspective_first',
   second: 'builtin_perspective_second',
@@ -101,7 +98,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
 
   return (
     <div className="space-y-5">
-      {/* Word count */}
       <Field label="◆ 最少字数">
         <div className="flex items-center gap-3">
           <input
@@ -122,7 +118,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* 默认文风（三选一 + 自定义槽） */}
       <Field label="◆ 默认文风">
         <div className="grid grid-cols-2 gap-2">
           {WRITING_STYLE_OPTIONS.map((opt) => {
@@ -173,7 +168,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         )}
       </Field>
 
-      {/* Narrative person */}
       <Field label="◆ 叙述人称">
         <div className="flex gap-2">
           {(
@@ -213,7 +207,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* 思维链输出语言（参考 Izumi，P2 可选） */}
       <Field label="◆ 思维链语言">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(
@@ -255,7 +248,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </p>
       </Field>
 
-      {/* 剧情偏向 */}
       <Field label="◆ 剧情偏向（可中途切换）">
         <div className="grid grid-cols-2 gap-2">
           {storyModes.map((mode) => {
@@ -290,7 +282,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* Toggles */}
       <ToggleRow
         label="Claude 专用模式"
         desc="用于 Claude 兼容中转的 Messages API。开启后，模型名像 Claude / Opus / Sonnet / Haiku 的 Claude 兼容请求会走 Claude 通道；Gemini、DeepSeek、OpenAI 兼容模型仍走各自通道。"
@@ -316,8 +307,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
-                  // active 分支原本是个外发光，被切角整条裁掉、本就不可见，故保持「无可见描边」；
-                  // 用透明边而不是 `none`，避免 1px 的边框宽度变化带动布局。
+                  // 用透明边而不是 `none`，避免 1px 边框宽度变化带动布局。
                   border: active
                     ? '1px solid transparent'
                     : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
@@ -467,8 +457,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
-                  // active 分支原本是个外发光，被切角整条裁掉、本就不可见，故保持「无可见描边」；
-                  // 用透明边而不是 `none`，避免 1px 的边框宽度变化带动布局。
+                  // 用透明边而不是 `none`，避免 1px 边框宽度变化带动布局。
                   border: active
                     ? '1px solid transparent'
                     : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
@@ -524,7 +513,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       )}
 
-      {/* Custom prompt 已迁移到「提示词模块」tab，此处不再提供 */}
       <div className="sticky bottom-0 z-10 pt-3" style={{ background: 'linear-gradient(180deg, rgba(var(--tj-bg-primary),0), rgba(var(--tj-bg-primary),0.98) 30%)' }}>
         {saveMessage && (
           <div className="mb-2 text-right text-xs" style={{ color: saveMessage.startsWith('保存失败') ? 'rgba(255,180,180,0.92)' : 'rgba(165,230,170,0.92)' }}>

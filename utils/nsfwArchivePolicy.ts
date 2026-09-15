@@ -25,7 +25,7 @@ export function getNsfwArchiveBlockReason(
   fallbackName = '',
   fallbackText = '',
 ): string | null {
-  // 保留参数兼容旧调用方，但命令值不是目标身份，不能参与硬禁判断。
+// 命令值不是目标身份，不得参与硬禁判断。
   void fallbackText;
   if (isHertaIdentity(subject, fallbackName)) return null;
 
@@ -36,8 +36,7 @@ export function getNsfwArchiveBlockReason(
     return `${displayName} 属于智械、机械或非人形对象，禁止写入 NSFW 档案`;
   }
 
-  // 只检查身份文本。介绍、外貌、备注和命令值可能提到同场的帕姆、机械声或人偶，
-  // 它们描述的是剧情上下文，不是目标 NPC 的种类，不能作为 NSFW 硬禁依据。
+// 只用身份文本判定：介绍/外貌里的机械、人偶只是剧情上下文。
   if (BLOCKED_IDENTITY_RE.test(names.join(' '))) {
     return `${displayName} 命中智械、机械或非人形对象屏蔽规则，禁止写入 NSFW 档案`;
   }

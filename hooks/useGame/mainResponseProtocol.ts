@@ -75,9 +75,6 @@ export function stripLeakedHistoryMetaFromBody(body: string): string {
     .join('\n');
 }
 
-/** CoT 伪装历史：在 `user:开始任务` 后注入一条 assistant 历史，强化思考段输出习惯。
- *  内容刻意保留 `<thinking>` 段，让模型 in-context 学到「下次也要写 thinking」。
- *  使用 AI 答应口吻而非系统口吻，避免给模型示范「系统就绪」类系统客串。 */
 export const COT_FAKE_HISTORY_USER = '开始任务';
 export const COT_FAKE_HISTORY_ASSISTANT = `<thinking>
 思考已开始，按当前生效思维链继续逐步推演。

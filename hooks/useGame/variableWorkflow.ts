@@ -22,20 +22,15 @@ import { isWorkflowAbortError } from './workflowTransaction';
 import { buildNpcLedgerUpdateDebug, type NpcLedgerUpdateDebug } from './npcLedgerWorkflow';
 import type { TurnReceipt } from './turnReceipt';
 
-// ── 变量模型校准 ──
-
 interface VariableCalibrationParams {
   state: UseGameStateReturn;
   mainApiConfig: import('@/models/settings').API配置项;
   userInput: string;
   body: string;
   variableDraft?: string;
-  /** 已落地正文的回合与 assistant 身份。 */
   receipt: Pick<TurnReceipt, 'turn' | 'assistantMessageId' | 'input'>;
   memorySystemSnapshot: import('@/models/memory').记忆系统;
-  /** 7/7a/7b 后的旅人快照(包含 应用狭间结果 写入的命途列表变化)。 */
   travelerSnapshot?: import('@/models/character').角色数据结构;
-  /** 7/7a/7b 后的世界快照(包含全局事件追加、待触发狭间写入、进行中狭间清空)。 */
   worldSnapshot?: import('@/models/world').世界状态;
   signal?: AbortSignal;
   allowYiting?: boolean;
@@ -43,9 +38,7 @@ interface VariableCalibrationParams {
   queueTasksMirror?: UseGameStateReturn['queueTasks'];
   pathAwakeningTurn?: boolean;
   /**
-   * 事务化重试：为真时本步不写任何 React 投影（领域切片、variableBatches、
-   * 失败队列项全部延迟），由调用方在叶子写入成功后统一提交；
-   * 写入失败或中止时调用方恢复捕获快照。主回合管线保持即时投影语义。
+   * 为真时本步不写任何 React 投影，由调用方在叶子写入成功后统一提交；失败或中止时调用方按捕获快照还原。
    */
   deferProjection?: boolean;
 }
@@ -64,10 +57,6 @@ export interface VariableCalibrationOverrides {
   npcLedgerUpdate?: NpcLedgerUpdateDebug;
 }
 
-/**
- * 变量结算关键位失败（kernelization §13.2 settlement）：不写假命令、不软失败封版。
- * 回合引擎据此把状态条切到专用文案，叶子保持 settling，由「继续结算 / 放弃」处理。
- */
 export interface VariableSettlementError extends Error {
   name: 'VariableSettlementError';
   alreadyReportedByApiLayer?: boolean;
@@ -102,10 +91,6 @@ export function buildVariableBatch(
   };
 }
 
-/**
- * 选择变量模型 API：用 settings 里的 override，字段留空回退到主 API 同名字段。
- * 回合校准与历史重解析共用同一回退链。
- */
 export function resolveVariableModelConfig(
   override: import('@/models/settings').变量API覆盖,
   mainApiConfig: import('@/models/settings').API配置项,
@@ -126,8 +111,6 @@ export function resolveVariableModelConfig(
   };
 }
 
-/** 执行一次变量模型校准：调用独立 API → 解析命令 → 落地 → 推入 variableBatches。
- *  模型 / 解析失败按关键位抛 VariableSettlementError；中止与 supersede 仍返回 null。 */
 export async function runVariableCalibrationStep(
   params: VariableCalibrationParams,
 ): Promise<VariableCalibrationOverrides | null> {
@@ -140,7 +123,6 @@ export async function runVariableCalibrationStep(
     mainApiConfig,
   );
 
-  // 构造当前状态快照(用主流程已更新过的切片)。
   const stateSnapshot = snapshotVariableState({
     旅人: params.travelerSnapshot ?? state.旅人,
     世界: params.worldSnapshot ?? state.世界,
@@ -154,7 +136,6 @@ export async function runVariableCalibrationStep(
   });
 
   try {
-    // NSFW 基线候选：开启时，为缺少实质内容的 NPC 在变量更新那一次调用里生成基线。
     const nsfwBaselineCandidates: NsfwBaselineCandidate[] = [];
     if (state.deviceSettings.gameSettings.enableNsfw) {
       const npcRecords = (stateSnapshot.NPC ?? []) as NPC记录[];
@@ -179,7 +160,7 @@ export async function runVariableCalibrationStep(
       body: params.body,
       variableDraft: params.variableDraft,
       userInput: params.userInput,
-      turnCount: params.receipt.turn, // 这条变量是给「刚结束的那回合」用的
+      turnCount: params.receipt.turn,
       state: stateSnapshot,
       nsfwEnabled: state.deviceSettings.gameSettings.enableNsfw,
       maleNsfwArchiveEnabled: state.deviceSettings.gameSettings.enableMaleNsfwArchive,
@@ -190,8 +171,7 @@ export async function runVariableCalibrationStep(
     });
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 归约输入投影的基态指纹：命令落地前的变量投影，供重放幂等判定。
-    // 放在模型返回后算：快照在这期间不变，整份状态的序列化因此不挡模型请求，失败路径也不再白算。
+    // 须在模型返回后计算：整份状态的序列化否则会挡住模型请求。
     const baseStateFingerprint = await variableStateFingerprint(stateSnapshot);
 
     const parsedFacts = parseVariableFacts(rawText);
@@ -211,13 +191,11 @@ export async function runVariableCalibrationStep(
       nsfwEnabled: state.deviceSettings.gameSettings.enableNsfw,
       maleNsfwArchiveEnabled: state.deviceSettings.gameSettings.enableMaleNsfwArchive,
     }, stateSnapshot.NPC as NPC记录[]);
-    // 重跑幂等（§10.3 整槽重跑 / 已封版补结算）：跳过本回合本条消息历史批中已成功落地的命令。
     const appliedFingerprints = listAppliedFingerprintsForTurn(
       state.variableBatches,
       params.receipt.turn,
       params.receipt.assistantMessageId,
     );
-    // 指纹只按规范化命令内容算一次：既用于「已落地则跳过」，也随回执落库供下次重放判定。
     const pending = await filterCommandsByAppliedFingerprints(allowedCommands, appliedFingerprints);
     const pendingCommands = pending.map((item) => item.command);
     const skippedAppliedCount = allowedCommands.length - pending.length;
@@ -227,7 +205,6 @@ export async function runVariableCalibrationStep(
     }
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 解析错误也合并进 results，让玩家在面板里看到
     const errResults = parseErrors.map((reason) => ({
       command: { action: 'set' as const, key: 解析失败哨兵键, value: null },
       ok: false,
@@ -241,7 +218,7 @@ export async function runVariableCalibrationStep(
       reason,
     }));
     const rejectedResults = rejectedCommands.map((item) => ({ ...item, kind: 'rejected' as const }));
-    // 回执与命令同序（reduceVariableCommands 的既有契约），指纹取自同一次计算。
+    // 回执与命令同序，指纹取自同一次计算。
     const commandResults = results.map((item, index) => ({
       ...item,
       kind: 'command' as const,
@@ -259,7 +236,6 @@ export async function runVariableCalibrationStep(
       ],
     });
 
-    // 把整个 batch 推入历史
     const batch = buildVariableBatch({
       receipt: params.receipt,
       source: overrodeAny ? 'calibration' : 'main',
@@ -278,23 +254,19 @@ export async function runVariableCalibrationStep(
       outcome: 派生变量批次结局(allResults),
     });
     if (params.shouldCommit?.() === false) return null;
-    // 投影点（B2 定性，S11/S12）：队列抽屉即时显示批次；管线与存档只认 ctx/d，不回读此 state
     if (!params.deferProjection) {
       state.setVariableBatches((prev) => compactVariableBatchHistory([...prev, batch]));
     }
 
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 没有任何成功命令时，无需 setState；返回空 overrides 让 save 用主流程的值
     const anyApplied = results.some((r) => r.ok);
     const worldSelfHealed = nextState.世界 !== stateSnapshot.世界;
     if (!anyApplied && !worldSelfHealed) return { batch, npcLedgerUpdate };
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 一次性提交所有切片到 React state。传 stateSnapshot 作 initialState,
-    // commitVariableState 内部用引用相等过滤——变量模型没改的 root 不会 setState,
+    // 传 stateSnapshot 作 initialState：commitVariableState 按引用过滤未改动的 root，
     // 避免覆盖玩家在校准这几秒里在 UI 上做的交互(比如点了「踏入命途狭间」)。
-    // 投影点（B2 定性，S13–S21）：变量切片即时刷新各面板；管线与存档只认 ctx/d，不回读此 state
     if (!params.deferProjection) {
       commitVariableState(nextState, stateSnapshot, {
         set旅人: state.set旅人,
@@ -314,7 +286,6 @@ export async function runVariableCalibrationStep(
     if (isWorkflowAbortError(err)) throw err;
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
     const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '变量模型校准失败。';
-    // 关键位失败：不写假命令、不软失败封版；队列诊断与状态文案由调用方负责。
     throw createVariableSettlementError(errorMessage, {
       cause: err,
       alreadyReportedByApiLayer: Boolean(
@@ -323,8 +294,6 @@ export async function runVariableCalibrationStep(
     });
   }
 }
-
-// ── 事务化重试的延迟投影（仅叶子写入成功后提交）──
 
 export interface VariableProjectionSnapshot {
   旅人: UseGameStateReturn['旅人'];
@@ -370,10 +339,6 @@ export function restoreVariableProjectionSnapshot(
   state.setVariableBatches(snapshot.variableBatches);
 }
 
-/**
- * deferProjection 路径的唯一提交点：叶子写入成功后把校准结果投影到 React state。
- * 引用相等过滤与主回合一致；allowYiting=false 时不动忆庭（与 runVariableCalibrationStep 相同）。
- */
 export function projectVariableCalibrationResult(params: {
   state: UseGameStateReturn;
   overrides: VariableCalibrationOverrides;

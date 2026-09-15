@@ -19,7 +19,6 @@ export interface ConnectionTestResult {
   detail: string;
 }
 
-/** 连接测试所需的最小配置形状：调用方（设置面板）会传「覆盖字段 + 主 API 回退」后的对象。 */
 export interface ConnectionTestConfig {
   id?: string;
   name?: string;
@@ -60,7 +59,6 @@ export async function fetchModels(config: ConnectionTestConfig): Promise<string[
         return fetchOpenCodeModels(baseRaw, apiKey);
       }
       if (config.provider === 'cline' || isClineBaseUrl(baseRaw)) {
-        // Cline 不提供 /models 接口：返回内置推荐目录，用户仍可手填任意模型 ID。
         return [...CLINE_RECOMMENDED_MODELS];
       }
       if (config.provider === 'ark' || isArkBaseUrl(baseRaw)) {

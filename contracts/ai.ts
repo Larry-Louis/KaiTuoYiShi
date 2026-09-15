@@ -2,7 +2,6 @@ import type { 角色数据结构 } from '@/models/character';
 import type { 命途ID } from '@/models/journey';
 import type { 命途阶段 } from '@/models/path';
 
-// ── TavernRegex 试运行 / 脚本安全（原 hooks/useGame/tavernRegexProcessor.ts）──
 export type TavernRegexScriptKind = 'prompt_preprocess' | 'output_postprocess' | 'display_replace' | 'blocked';
 
 export interface TavernRegexScriptSafety {
@@ -23,7 +22,6 @@ export interface TavernRegexDryRunResult {
   error?: string;
 }
 
-// ── 旅人模板生成（原 services/ai/travelerTemplate.ts）──
 export interface TravelerTemplateContext {
   storyModeName?: string;
   openingSourceLabel?: string;
@@ -51,7 +49,6 @@ export interface TravelerTemplateDraft {
   background: string;
 }
 
-// ── 战技生成（原 services/ai/skillGenerator.ts）──
 export interface 战技生成上下文 {
   traveler: 角色数据结构;
   slotKind: 'normal' | 'path';
@@ -73,7 +70,6 @@ export interface 战技生成草稿 {
   备注: string;
 }
 
-// ── 文生图请求 / 结果（原 services/ai/imageGeneration.ts）──
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
@@ -99,7 +95,6 @@ export interface ImageGenerationResult {
   originalUrl?: string;
 }
 
-// ── 正文生图解析（原 services/ai/narrativeImageParse.ts）──
 export interface 解析上下文 {
   body: string;
   traveler?: {
@@ -110,7 +105,6 @@ export interface 解析上下文 {
     anchorPrompt?: string;
   };
   playerAppearanceMode?: 'off' | 'auto' | 'force';
-  /** 当前在场 NPC 的外貌档案，用于给解析模型提供角色参考 */
   presentNpcs?: Array<{ name: string; appearance?: string; clothing?: string }>;
 }
 
@@ -139,7 +133,6 @@ export interface 故事快照解析结果 {
   rawText: string;
 }
 
-// ── 角色视觉锚点提取（原 services/ai/characterAnchorExtract.ts）──
 export interface CharacterAnchorExtractInput {
   name: string;
   kind: 'traveler' | 'npc';
@@ -147,7 +140,6 @@ export interface CharacterAnchorExtractInput {
   requirement?: string;
 }
 
-// ── 文生图词组转化器（原 services/ai/imagePromptTokenizer.ts）──
 export interface ImagePromptTokenizerInput {
   title: string;
   mode: string;

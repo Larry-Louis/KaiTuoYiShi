@@ -21,7 +21,7 @@ export function isClineBaseUrl(baseUrl: string): boolean {
   return /^https:\/\/api\.cline\.bot(?:\/|$)/i.test(baseUrl.trim());
 }
 
-/** 代理面收敛：只允许转发 Cline 官方主机，避免同源代理被当作任意上游跳板。 */
+/** 防止同源代理被当作任意上游跳板。 */
 export function assertClineBaseUrl(baseUrl: string): string {
   const base = normalizeClineBaseUrl(baseUrl);
   if (!/^https:\/\/api\.cline\.bot\/api\/v1$/i.test(base)) {

@@ -21,7 +21,6 @@ interface TooltipProps {
 }
 
 
-/** A portal tooltip that is visible only while hovering or keyboard focusing its trigger. */
 export function Tooltip({ label, description, children, placement = 'top' }: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);

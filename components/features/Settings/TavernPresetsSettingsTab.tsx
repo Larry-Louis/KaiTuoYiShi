@@ -9,7 +9,6 @@ interface TavernPresetsSettingsTabProps {
   onChange: (s: 游戏设置) => void;
   worldbooks: 世界书[];
   onWorldbooksChange: (books: 世界书[]) => void;
-  /** 提示词模块用例动作（片 panel-p1）：透传给 PromptModulesTab。 */
   onExtractTavernRegexScripts: (rawPreset: unknown) => STRegexScript[];
   onAnalyzeTavernRegexScript: (script: STRegexScript) => TavernRegexScriptSafety;
   onDryRunTavernRegexScript: (script: STRegexScript, sampleText: string) => TavernRegexDryRunResult;

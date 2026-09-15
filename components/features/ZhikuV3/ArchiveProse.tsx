@@ -75,10 +75,6 @@ function renderBlock(block: ProseBlock, key: string, withDropCap: boolean): Reac
   return <p key={key} className={withDropCap ? 'zj-dropcap' : undefined}>{block.text}</p>;
 }
 
-/**
- * 档案正文渲染：按空行切块，只识别预设书写契约里真实存在的结构
- * （二三级标题、列表、语料语音行），其余保持原样段落。
- */
 export function ArchiveProse({ source, dropCap = false, footer }: { source: string; dropCap?: boolean; footer?: ReactNode }) {
   const trimmed = source.trim();
   if (!trimmed) {

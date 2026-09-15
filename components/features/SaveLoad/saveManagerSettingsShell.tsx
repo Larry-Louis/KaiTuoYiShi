@@ -24,7 +24,6 @@ export function SaveManagerSettingsShell({ model, onContinue }: Props) {
     }
   };
 
-  // 设置页保留整树过滤：先按类型筛节点再建树，与模态的节点级过滤是不同工作流。
   const treeGroups = useMemo(
     () => buildSaveTreeGroups(model.displaySaves.filter((save) => matchesSaveTab(save, model.filter))),
     [model.displaySaves, model.filter],
@@ -186,7 +185,6 @@ function SaveTreeCard({
       </button>
       <div className="grid gap-1">
         {group.nodes.map(({ save, depth, isLatest }) => {
-          // 节点类型判定（与模态一致）：unsealedHead = 未封版叶子 =「读取」；其余 =「分支」。
           const isLeaf = save.unsealedHead === true;
           return (
             <div

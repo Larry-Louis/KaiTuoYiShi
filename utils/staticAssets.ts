@@ -1,4 +1,3 @@
-// K-Vault 静态资源解析层：manifest 逻辑引用 -> 远端内容寻址 URL。
 import staticAssetManifest from '@/data/staticAssetManifest.json';
 
 export const STATIC_ASSET_FALLBACK_AVATAR = '/assets/static-fallback/avatar-placeholder.webp';

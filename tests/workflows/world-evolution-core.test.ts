@@ -81,7 +81,6 @@ describe('排期投影', () => {
     const events = 投影排期事件(system, runtime, 5);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ eventInstanceId: 世界事件实例ID('s', 'n'), 标题: '下一段', dueAt: 6 });
-    // 已有实例（无论终态）都不重建，重投影返回同一份列表。
     expect(投影排期事件(system, { ...runtime, worldEvents: events }, 5)).toBe(events);
     expect(投影排期事件(system, { ...runtime, worldEvents: events.map((e) => ({ ...e, status: 'resolved' as const })) }, 5))
       .toHaveLength(1);
@@ -175,7 +174,6 @@ describe('世界演变裁决', () => {
       .toMatchObject({ status: 'resolved', resolvedAt: 3, outcome: '车站停运' });
     expect(first.facts[0]).toMatchObject({ factType: 'world_event', payload: { 区域: '贝洛伯格' }, playerKnown: true });
 
-    // 同一结算重跑（revision 未推进，事件未被持久化为终态）得到同一 factId，合并后只剩一条。
     const retry = 裁决世界演变({ candidates, events, dueInstanceIds: ['a', 'b'], runtimeRevision: 4, 当前游戏日: 3 });
     if (!retry.ok) return;
     expect(retry.facts[0].factId).toBe(first.facts[0].factId);
@@ -225,7 +223,6 @@ describe('提前解决未来事件', () => {
     expect(result.events.find((event) => event.eventInstanceId === 'future'))
       .toMatchObject({ status: 'superseded', outcome: '玩家提前平息骚动', resolvedAt: 3 });
     expect(result.facts[0]).toMatchObject({ origin: 'player_early', playerKnown: true });
-    // 到期事件 resolve 仍是 resolved + world_evolution。
     const dueResult = 裁决世界演变({
       candidates: [{ eventInstanceId: 'due', action: 'resolve', outcome: '到期结算', facts: [{ factType: 'world_event' }] }],
       events,

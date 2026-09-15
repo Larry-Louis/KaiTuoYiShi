@@ -22,8 +22,6 @@ export function stage9_npcLedger(
     zhiku: state.智库,
   });
 
-  // NSFW 基线补建：开启 NSFW 后，把需要补建基线的 NPC 信息传给变量模型，
-  // 变量模型在变量更新那一次调用里顺带生成 NSFW 基线档案，走正常 nsfw_archive facts 落库链路。
   const npcSourceForCompression = archiveEnrichment.records;
   const memorySettings = state.deviceSettings.gameSettings.记忆系统;
   const npcCompressionSummaryTriggered: string[] = [];
@@ -54,7 +52,6 @@ export function stage9_npcLedger(
     npcAfterCompression.length !== npcSource.length ||
     npcAfterCompression.some((npc, index) => npc !== npcSource[index]);
   if (npcChanged) {
-    // 投影点（B2 定性，S22）：聊天 NPC/伙伴面板即时刷新；管线与存档只认 ctx/d，不回读此 state
     state.setNPC(npcAfterCompression);
   }
   const npcLedgerUpdateDebug = variableOverrides?.npcLedgerUpdate || npcCompressionSummaryTriggered.length

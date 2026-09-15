@@ -1,4 +1,3 @@
-// 静态图片引用解析：保留调用方对失败呈现的领域决定权。
 import { useEffect, useState, type ImgHTMLAttributes } from 'react';
 import {
   isRemoteStaticAssetUrl,

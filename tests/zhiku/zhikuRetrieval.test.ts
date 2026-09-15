@@ -80,7 +80,6 @@ describe('buildZhikuEntryInjectionPreview', () => {
       },
     });
     const preview = buildZhikuEntryInjectionPreview(entry);
-    // 不止是与静态注入“相同”：内容必须真的含结构化字段。
     expect(preview).toContain('核心定义：冰封的殖民星。');
     expect(preview).toContain('裂界正在侵蚀地表');
   });
@@ -179,13 +178,11 @@ describe('retrieveZhikuContext 主剧情门禁与关键词召回', () => {
       注入内容: loreTemplate,
     });
 
-    // 排除词在场。
     const excluded = retrieveZhikuContext({ 条目: [filtered, companion] }, '星核 剧透', 4);
     expect(excluded.entries.some((entry) => entry.id === 'notany')).toBe(false);
     expect(excluded.strongEntries?.some((entry) => entry.id === 'notany')).toBe(false);
     expect(excluded.weakEntries?.some((entry) => entry.id === 'notany')).toBe(false);
 
-    // 排除词不在场。
     const included = retrieveZhikuContext({ 条目: [filtered] }, '星核 出现了', 4);
     expect(included.entries.some((entry) => entry.id === 'notany')).toBe(true);
   });

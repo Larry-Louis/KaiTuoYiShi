@@ -39,9 +39,8 @@ export function startSaveCatalogRepairTask(
   operations: SaveCatalogRepairOperations,
 ): Promise<SaveCatalogRepairResult> {
   if (repairPromise) {
-    // 单飞：已有修复在进行。为避免静默吞掉本次请求的 scope（把运行中的修复结果
-    // 当作本次结果返回），先等当前修复结束，再以请求的 scope 启动新修复。
-    // 修复幂等可重放，排队重复跑一次无害。
+    // 直接返回进行中的修复会把运行中的结果当作本次结果、静默吞掉请求的 scope，
+    // 必须等它结束后按请求的 scope 重跑；修复幂等可重放。
     return repairPromise
       .catch(() => {})
       .then(() => startSaveCatalogRepairTask(scope, operations));

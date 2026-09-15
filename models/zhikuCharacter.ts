@@ -7,7 +7,6 @@ import {
   解析智库软结构标签,
 } from './zhiku';
 
-// ============ 类型 ============
 export type CharacterGroupKind = '组织' | '地区' | '阵营' | '资料大区' | '待整理';
 
 export interface CharacterProfile {
@@ -86,7 +85,6 @@ export interface CharacterProfileViewModel {
   lockedGateTitles: string[];
 }
 
-// ============ 分组数据（module-private）============
 const characterGroupFallbacks: Array<{ label: string; kind: CharacterGroupKind; aliases: string[] }> = [
   { label: '星穹列车', kind: '组织', aliases: ['星穹列车', '列车组', '无名客', '列车', '帕姆'] },
   { label: '黑塔空间站', kind: '地区', aliases: ['黑塔空间站', '空间站', '防卫科', '主控舱段', '基座舱段', '收容舱段', '支援舱段'] },
@@ -109,7 +107,6 @@ const nativeAmphoreusOrganizations = new Set(['黄金裔', 'Chrysos Heirs', '奥
 const crossoverOrganizations = new Set(['Fate/stay night [Unlimited Blade Works]', 'Fate', 'UBW']);
 const everFlameOrganizations = new Set(['永火官邸', '泯灭帮', 'Ever-Flame Mansion', 'Annihilation Gang']);
 
-// ============ 人物分组 ============
 export function buildCharacterWorkspace(entries: 智库条目[]): { profiles: CharacterProfile[]; groups: CharacterGroup[] } {
   const profiles = new Map<string, CharacterProfile>();
   for (const entry of entries) {
@@ -232,7 +229,6 @@ function getTagValue(entry: 智库条目, keys: string[]): string | undefined {
     .find((tag) => tag && keys.includes(tag.key))?.value;
 }
 
-// ============ 故事系列 ============
 export function buildStorySeries(entries: 智库条目[]): { groups: StorySeries[]; looseEntries: 智库条目[] } {
   const map = new Map<string, StorySeries>();
   const looseEntries: 智库条目[] = [];
@@ -272,7 +268,6 @@ export function compareStoryEntries(a: 智库条目, b: 智库条目): number {
   return a.updatedAt - b.updatedAt || a.标题.localeCompare(b.标题, 'zh-Hans-CN');
 }
 
-// ============ 结构解析 ============
 export function parseZhikuMarkdownSections(raw: string): ZhikuSection[] {
   const sections: Array<{ title: string; body: string[] }> = [];
   let current: { title: string; body: string[] } | null = null;
@@ -465,7 +460,6 @@ function extractLineValue(raw: string, label: string): string {
   return '';
 }
 
-// ============ ViewModel ============
 export function buildCharacterProfileViewModel(entry: 智库条目): CharacterProfileViewModel {
   const meta = 解析智库软结构标签(entry);
   const sections = parseZhikuMarkdownSections(entry.原文);

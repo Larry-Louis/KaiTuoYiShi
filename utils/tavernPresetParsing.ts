@@ -1,5 +1,4 @@
-// 酒馆预设原始结构读取：Tavern 导出的 world_info / regex_scripts 字段形状不固定，
-// 这些纯函数负责把 unknown 输入安全收敛为可展示的字符串 / 条目列表。
+// Tavern 导出的 world_info / regex_scripts 字段形状不固定（数组或对象）。
 
 export function getPresetWorldInfoEntries(worldInfo: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(worldInfo)) return worldInfo.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
@@ -83,7 +82,7 @@ export function getPresetRegexReplaceText(script: Record<string, unknown>): stri
   return readPresetRegexText(script.replace_string) || readPresetRegexText(script.replaceString) || readPresetRegexText(script.replace);
 }
 
-/** 正则脚本安全类型的 kind 联合字面量：与门面 analyze 动作返回值结构一致（不直取内部模块类型）。 */
+/** 须与门面 analyze 动作的 kind 取值保持一致。 */
 export type PresetRegexKind = 'prompt_preprocess' | 'output_postprocess' | 'display_replace' | 'blocked';
 
 export function getPresetRegexKindLabel(kind: PresetRegexKind): string {

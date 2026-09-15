@@ -1,10 +1,4 @@
-// 变量历史修复（V2 单条重解析）：分类 + 计划 + 应用回执，纯域。
-//
-// 原则：
-// - 冲突路径永不静默写（展示为不可选）；
-// - 已落地命令（指纹命中历史回执）永不再写；
-// - 提交前用基态指纹校验计划是否过期（STALE_PLAN）；
-// - 应用只经 reduceVariableCommands（variableExecutor 管线），不新增写入通道。
+// 应用只经 reduceVariableCommands（variableExecutor 管线），不新增写入通道。
 
 import type { 变量命令, 变量命令结果 } from '@/models/variableCommand';
 import type { VariableState } from '@/utils/variableRegistry';
@@ -24,12 +18,9 @@ export interface 变量修复项 {
   id: string;
   category: 修复项分类;
   commands: 变量命令[];
-  /** 分类原因 / 冲突说明 / 拒绝原因。 */
   reason?: string;
-  /** 当前值与目标值（set 类命令，供预览展示）。 */
   currentValue?: unknown;
   proposedValue?: unknown;
-  /** NSFW 策略拒绝标记（用于整单被拒时返回 NSFW_POLICY_REJECTED）。 */
   nsfwRejected?: boolean;
 }
 
@@ -37,15 +28,13 @@ export interface 变量修复计划 {
   schemaVersion: 1;
   turn: number;
   targetMessageId: string;
-  /** 分类型时的归约输入投影指纹（提交前校验过期）。 */
   baseStateFingerprint: string;
   createdAt: number;
-  /** 重解析所用的变量模型名（写入批次报告）。 */
   modelName?: string;
   items: 变量修复项[];
 }
 
-/** 回执码：每个码只表示一种结局，调用方据此分支，不比 detail 文案。 */
+/** 每个码只表示一种结局：调用方据此分支，不比 detail 文案。 */
 export type 修复回执码 =
   | 'OK'
   | 'STALE_PLAN'
@@ -54,11 +43,8 @@ export type 修复回执码 =
   | 'NO_SELECTED_ITEMS'
   | 'INVALID_SELECTION'
   | 'NSFW_POLICY_REJECTED'
-  /** 提交事务被占用（有任务进行中）。 */
   | 'BUSY'
-  /** 用户取消。 */
   | 'CANCELLED'
-  /** 写入失败。 */
   | 'WRITE_FAILED';
 
 export interface 变量修复回执 {
@@ -68,14 +54,12 @@ export interface 变量修复回执 {
   nextState?: VariableState;
 }
 
-/** 冲突：确定性事实，历史重解析永不写入。 */
 const 冲突路径规则: RegExp[] = [
   /^世界\.(当前日期|当前时间|开拓天数|当前地点|当前天气)$/,
   /^手机\.(messageSeeds|联系人)(\.|\[|$)/,
   /^NPC\[[^\]]*\]\.(最近回合|初见回合|累计互动次数|归档|归档回合)$/,
 ];
 
-/** 需确认：会显著影响玩法或人设，默认不勾选。 */
 const 确认路径规则: RegExp[] = [
   /^NPC\[[^\]]*\]\.(好感度|好感|亲密|亲密关系|关系|阶位|同行|同行记忆|约定|当前关系阶段)$/,
   /^旅人\.背包(\.|\[|$)/,
@@ -91,9 +75,6 @@ function 值相等(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-/**
- * 分类历史重解析命令。appliedFingerprints 来自历史批次回执（「已落地则跳过」）。
- */
 export async function 分类修复命令(params: {
   commands: readonly 变量命令[];
   state: VariableState;
@@ -108,13 +89,12 @@ export async function 分类修复命令(params: {
   return items;
 }
 
-/** 单条命令归类：判定顺序即优先级。返回除 id / commands 外的修复项字段。 */
+/** 判定顺序即优先级。 */
 async function 判定修复项(
   command: 变量命令,
   state: VariableState,
   appliedFingerprints: ReadonlySet<string>,
 ): Promise<Omit<变量修复项, 'id' | 'commands'>> {
-  // 已落地命令（指纹命中历史回执）永不再写；无历史回执时省掉这次哈希。
   if (appliedFingerprints.size > 0 && appliedFingerprints.has(await commandFingerprint(command))) {
     return { category: 'existing', reason: '历史回执显示该命令已落地。' };
   }
@@ -178,11 +158,7 @@ export interface 应用修复计划参数 {
   appliedFingerprints: ReadonlySet<string>;
 }
 
-/**
- * 应用计划：校验过期 → 校验选择 → 跳过已落地 → 归约。
- * 回执 nextState 只在 code=OK 时存在，写入由调用方经唯一事务完成；
- * pending 携带同一次计算的指纹，供回执落库。
- */
+/** 回执 nextState 只在 code=OK 时存在，写入由调用方经唯一事务完成。 */
 export async function 应用变量修复计划(
   params: 应用修复计划参数,
 ): Promise<变量修复回执 & { pending?: Array<{ command: 变量命令; fingerprint: string }> }> {

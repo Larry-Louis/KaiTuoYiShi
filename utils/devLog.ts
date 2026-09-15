@@ -1,7 +1,6 @@
 export type DevLogCategory = 'turn' | 'stage' | 'net' | 'save' | 'retry' | 'recover' | 'ui';
 
-// 与 ZhikuPanel.tsx 相同的本地窄化写法：不得用 /// <reference types="vite/client" />——
-// 三斜线引用会把 vite/client 的 ImportMeta 增强注入整个程序，改变全仓库的类型推断。
+// 不得改用 /// <reference types="vite/client" />：它会把 ImportMeta 增强注入整个程序，改变全仓库类型推断。
 const IS_DEV_BUILD = typeof import.meta !== 'undefined'
   && Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
@@ -36,7 +35,6 @@ export function devLog(
       console.warn(`[${category}] ${event}`, data ?? '');
     }
   } catch {
-    // Diagnostic logging must never alter the caller's control flow.
   }
 }
 
@@ -54,7 +52,6 @@ export function devLogError(
       console.error(`[${category}] ${event}`, err, data ?? '');
     }
   } catch {
-    // Diagnostic logging must never alter the caller's control flow.
   }
 }
 

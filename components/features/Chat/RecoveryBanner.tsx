@@ -8,10 +8,6 @@ export interface RecoveryBannerCallbacks {
   onUndo: () => void;
 }
 
-/**
- * 未封版回合的恢复横幅：settling → 继续结算 / 放弃，awaitingLanding → 重试 / 撤销。
- * 纯展示组件；可见性（hasRecovery && !turnBusy）由调用方判定。
- */
 export function RecoveryBanner({
   phase,
   onResume,

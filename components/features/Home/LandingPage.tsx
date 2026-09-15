@@ -1,7 +1,3 @@
-// 首页界面。无状态：没有 useState / useEffect / useMemo，界面只是 props 的纯投影。
-// 装饰层（星场、光晕）读的是 starfield.ts 里模块加载期算好的常量；
-// 转场计时与入口命令由 hooks/useHomePage 提供。
-
 import { memo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { HomePageCommands, HomePageView } from '@/hooks/useHomePage';
@@ -13,13 +9,9 @@ interface LandingPageProps {
   commands: HomePageCommands;
 }
 
-// 左上角工具条与右上角版本牌共用的外框：切角 + 描边。
-// 此前四枚工具按钮各自内联复制了一份近似值，这里收敛成一套。
 const UTILITY_FRAME: CSSProperties = {
   color: 'rgba(var(--tj-accent-primary), 0.92)',
   background: 'rgba(var(--tj-bg-primary), 0.32)',
-  // 原先还带一个 `0 10px 24px` 投影。本元素带 clipPath（切角），外阴影会被整条裁掉，
-  // 写了也画不出来——删掉它，顺带消掉一个触发「layer 模式」的条件。
   border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
   clipPath: mediumClip,
 };
@@ -30,7 +22,6 @@ const UTILITY_CLASS =
 const HERO_SHINE = 'linear-gradient(90deg, transparent, rgba(var(--tj-accent-primary), 0.25), transparent)';
 const HERO_SHINE_PRIMARY = 'linear-gradient(90deg, transparent, rgba(var(--tj-text-primary), 0.45), transparent)';
 
-/** 背景星场。纯装饰，不参与可访问性树。 */
 const StarField = memo(function StarField() {
   return (
     <div aria-hidden="true">
@@ -52,7 +43,6 @@ const StarField = memo(function StarField() {
   );
 });
 
-/** 标题下方的四芒星徽记。 */
 const HeroEmblem = memo(function HeroEmblem() {
   return (
     <div className="relative my-0.5 sm:my-1">
@@ -105,9 +95,7 @@ function UtilityButton({
 }: {
   onClick: () => void;
   disabled: boolean;
-  /** 断点显隐与面板内的铺满样式由调用处追加。 */
   className?: string;
-  /** 仅「更多」开关传：告知展开态，其余按钮保持不传（属性不会渲染）。 */
   ariaExpanded?: boolean;
   children: ReactNode;
 }) {
@@ -159,13 +147,8 @@ export function LandingPage({ view, commands }: LandingPageProps) {
   // 载入路径 / 打开档案都要读内置预置数据，数据未落定时点开只会看到一份空档案。
   const dataGated = busy || !dataReady;
 
-  // 「更多」面板只属于本页：首页每次进出都会整棵卸载，状态随之下车，
-  // 因此不必（也不该）挂到 useHomePage 上——那样反而要给每条命令都补一次收起。
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // 窄屏收进「更多」面板的四枚系统入口：宽屏平铺成工具条，窄屏折叠进面板，
-  // 两处共用同一份定义。手机宽度下五枚按钮连同右侧版本牌必然重叠，故以 md 为界
-  // （五枚按钮约 515px 加版本牌约 120px，需约 650px；sm 的 640px 不够）。
   const collapsedUtilities = [
     { id: 'cloudSave', label: 'GitHub 云存档', run: commands.openCloudSave },
     { id: 'announcements', label: '更新公告', run: commands.openAnnouncements },
@@ -180,7 +163,6 @@ export function LandingPage({ view, commands }: LandingPageProps) {
     >
       <StarField />
 
-      {/* 暗角：把四周压暗，视线收到中央徽记 */}
       <div
         aria-hidden="true"
         className="absolute inset-0 z-[1] pointer-events-none"
@@ -189,8 +171,6 @@ export function LandingPage({ view, commands }: LandingPageProps) {
         }}
       />
 
-      {/* ── 系统入口：工具条（左上）与版本牌（右上） ── */}
-      {/* 「设置」两种断点下都留作直达；其余四枚在窄屏收进「更多」面板。 */}
       <div className="kaituo-safe-toolbar absolute z-20">
         <div className="flex flex-wrap items-center gap-2">
           {collapsedUtilities.map((item) => (
@@ -213,7 +193,6 @@ export function LandingPage({ view, commands }: LandingPageProps) {
           </UtilityButton>
           <UtilityButton onClick={commands.openSettings} disabled={busy}>设置</UtilityButton>
         </div>
-        {/* 面板随工具条自然下展，不需要另设定位 */}
         {moreOpen && (
           <div className="mt-2 flex w-40 flex-col gap-2 md:hidden">
             {collapsedUtilities.map((item) => (
@@ -233,7 +212,6 @@ export function LandingPage({ view, commands }: LandingPageProps) {
         <span>v{view.version}</span>
       </div>
 
-      {/* ── 主体 ── */}
       <div className="relative z-10 flex min-h-0 w-full max-w-[520px] flex-col items-center justify-center animate-fade-in">
         <div className="mb-3 flex w-full items-center justify-center gap-3 sm:gap-6">
           <span className="hidden text-2xl sm:inline" style={{ color: 'rgba(var(--tj-accent-primary), 0.55)' }}>◆</span>
@@ -279,7 +257,6 @@ export function LandingPage({ view, commands }: LandingPageProps) {
 
         <HeroEmblem />
 
-        {/* ── 主行动：只有游戏入口留在这里，系统入口上移到工具条 ── */}
         <div className="mt-3 flex w-full max-w-[340px] flex-col gap-3 animate-slide-up sm:w-72 sm:gap-3.5">
           <HeroButton
             className="kaituo-btn-primary px-6 py-3.5 text-base font-medium"

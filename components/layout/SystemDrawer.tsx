@@ -13,8 +13,6 @@ interface SystemDrawerProps {
 const headerClip =
   'polygon(0 0, 100% 0, 100% 100%, 18px 100%, 0 calc(100% - 18px))';
 
-// 右侧抽屉：在中间「chat 区」内部用 absolute 滑出，不覆盖左侧信息栏和右侧菜单栏。
-// 始终挂载，靠 transform 控制可见性，保证滑入/滑出动画。
 export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }: SystemDrawerProps) {
   return (
     <>
@@ -34,7 +32,6 @@ export function SystemDrawer({ open, title, subtitle, glyph, onClose, children }
         }}
         aria-hidden={!open}
       >
-        {/* 左侧中部圆形关闭按钮 —— 大抽屉下手最顺的关闭入口 */}
         <button
           type="button"
           onClick={onClose}

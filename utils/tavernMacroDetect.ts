@@ -1,4 +1,3 @@
-// 酒馆预设宏检测：识别 Tavern 风格的 {{macro}} 模板，用于预设导入后的结构扫描。
 const ADVANCED_MACRO_RE = /\{\{\s*(?:setvar|setglobalvar|getvar|getglobalvar|if\b|else|\/if|random|pick|pick_var|roll:|[.$][^}]+|bias::|trim::|lower::|upper::)/gi;
 const BASIC_MACRO_RE = /\{\{\s*(?:char|user|time|date|datetime|model|messageCount|turnCount|lastMessage|lastUserMessage|lastCharMessage|newline|noop)\s*\}\}/gi;
 

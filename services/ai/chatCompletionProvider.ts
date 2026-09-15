@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import { isArkBaseUrl } from './arkProxyCore';
 import { isClineBaseUrl } from './clineProxyCore';
 import { isPioneerBaseUrl } from './pioneerProxyCore';
@@ -50,7 +49,6 @@ function normalizeDeepSeekPrefixBaseUrl(baseUrl: string): string {
   return `${trimmed}/beta`;
 }
 
-/** 通用 prefill 追加：role 区分 provider（assistant/model），baseUrlOverride 供 DeepSeek /beta。 */
 function appendPrefill(
   config: API配置项,
   messages: ChatMessagePayload[],
@@ -65,15 +63,7 @@ function appendPrefill(
   };
 }
 
-export /**
- * Phase 4：通用化 assistant prefill。按 provider 分流：
- * - DeepSeek：baseUrl 改 /beta + assistant prefill（beta 特性）
- * - Claude / OpenAI 兼容 / OpenCode / Ark / Mimo：末尾追加 assistant prefill
- * - Gemini：末尾追加 model prefill
- * - 其余 provider 静默降级，不 prefill。
- * prefix 内容优先从 request.prefixContent 读取，默认 '<thinking>\n'。
- */
-function withPrefixMessages(
+export function withPrefixMessages(
   config: API配置项,
   messages: ChatMessagePayload[],
   request: ChatCompletionRequest,
@@ -94,7 +84,7 @@ function withPrefixMessages(
     case 'gemini':
       return appendPrefill(config, withoutOldPrefix, prefix, 'model');
     case 'cline':
-      // Cline 不支持 assistant prefill，静默不追加（与 main 的 supportsAssistantPrefill=false 一致）。
+      // Cline 不支持 assistant prefill，静默不追加。
       return { config, messages: withoutOldPrefix, prefix: '' };
     default:
       return { config, messages, prefix: '' };

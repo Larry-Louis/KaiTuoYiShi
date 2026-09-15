@@ -22,7 +22,6 @@ describe('注入提示词导出', () => {
     expect(mkdirSync).toHaveBeenCalledWith('docs/generated', { recursive: true });
     const markdown = vi.mocked(writeFileSync).mock.calls[0][1] as string;
     expect(writeFileSync).toHaveBeenCalledWith('docs/generated/injected-prompts-full-content.md', markdown, 'utf8');
-    // 规则标题以注册表为准（第一部分按 scope 分组导出），避免模块增删时硬编码标题过期。
     const { createBuiltinPromptModules } = await import('../../data/builtinPromptModules');
     const ruleTitles = createBuiltinPromptModules()
       .filter((m) => m.scope.includes('main'))
@@ -34,8 +33,6 @@ describe('注入提示词导出', () => {
     for (const title of ['星际罗盘', '世界观', '命途纲要']) {
       expect(markdown).toContain(`### 《${title}》`);
     }
-    // “叙事铁律”出现 2 次是因为该模块同时属于 main/opening 两个 scope 分组、各导出一次：
-    // 断言“出现次数 = 同名模块的 scope 分组数”，改名/增减 scope 时自动跟随。
     const sameTitle = createBuiltinPromptModules().filter((m) => m.title === '叙事铁律');
     expect(sameTitle).toHaveLength(1);
     const expectedGroups = sameTitle.flatMap((m) => (m.scope.length ? m.scope : ['all']));

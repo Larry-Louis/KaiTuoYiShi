@@ -38,7 +38,6 @@ interface V2PresetSwitcherProps {
   onDryRunTavernRegexScript: (script: STRegexScript, sampleText: string) => TavernRegexDryRunResult;
 }
 
-/** ST 预设切换器：下拉选当前预设 + 重命名按钮 + 删除按钮。 */
 export function V2PresetSwitcher({
   presets,
   currentId,

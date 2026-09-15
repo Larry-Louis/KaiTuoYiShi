@@ -18,8 +18,6 @@ import { isMemorySystemNoise, upsertRecallEntry } from './memoryUtils';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { devLog } from '@/utils/devLog';
 
-// ---- 参数/结果类型 ----
-
 interface NewsJobParams {
   newsSettings: 星际和平周报设置 | undefined;
   worldFactView?: 世界事实视图 | null;
@@ -80,8 +78,6 @@ interface NarrativeJobParams {
 }
 interface NarrativeJobResult { finalHistoryForSave: 聊天消息[]; 相册After?: 相册系统; }
 
-// ---- 四个参数化闭包（函数体逻辑一字不改）----
-
 async function runNewsBackgroundJob(p: NewsJobParams): Promise<NewsJobResult> {
   if (!p.newsSettings?.enabled || !p.newsSettings.autoGenerate) {
     pushQueueTask(p.state, 'news', 'skipped', {
@@ -120,7 +116,6 @@ async function runNewsBackgroundJob(p: NewsJobParams): Promise<NewsJobResult> {
   });
   const generatedNews = newsGenerationResult?.news;
   p.assertWorkflowActive();
-  // 投影点（B2-c）：会话身份守卫之后才允许旧 workflow 刷新 UI。
   if (newsGenerationResult?.changed && generatedNews) p.state.set新闻(generatedNews);
   const newsAfterGeneration = generatedNews ?? p.state.新闻;
   pushQueueTask(p.state, 'news', 'success', {
@@ -134,7 +129,6 @@ async function runNewsBackgroundJob(p: NewsJobParams): Promise<NewsJobResult> {
 }
 
 async function runYitingArchiveJob(p: YitingJobParams): Promise<YitingJobResult> {
-  // 忆庭入库始终执行；这里的开关只控制"是否召回并注入正文"。
   const turnRecallEntryResult = await buildYitingArchiveEntry(
     p.turnRecallSource,
     p.memorySettings,
@@ -243,8 +237,6 @@ async function runNarrativeImageJob(p: NarrativeJobParams): Promise<NarrativeJob
   return { finalHistoryForSave: fh, 相册After: generatedImagesResult.相册 };
 }
 
-// ---- 主阶段函数 ----
-
 export async function stage11_backgroundJobs(
   ctx: TurnContext,
   d: TurnDeltas,
@@ -268,7 +260,6 @@ export async function stage11_backgroundJobs(
   const isOpeningSystemTrigger = turnCountAtStart === 1 && userInput.startsWith('[系统]');
   const memorySettings = (state.deviceSettings.gameSettings.记忆系统 as 记忆系统设置 | undefined) ?? 创建默认记忆系统设置();
 
-  // 阶段 11 前置计算
   const newsSettings = state.deviceSettings.gameSettings.新闻系统 as 星际和平周报设置 | undefined;
   const newsEnabled = Boolean(newsSettings?.enabled && newsSettings.autoGenerate);
   const newsInterval = Math.max(5, Math.min(10, Math.trunc(newsSettings?.generateIntervalTurns ?? 5) || 5));
@@ -281,7 +272,6 @@ export async function stage11_backgroundJobs(
     userInput,
     body: displayText,
     memory: parsedForDisplay.memory,
-    // 阶段1：进度元数据不进忆庭归档（它会在正文里重复出现，且无回忆价值）
     worldEvents: storyProgressMemoryLine && !isMemorySystemNoise(storyProgressMemoryLine)
       ? [...parsedForDisplay.worldEvents, storyProgressMemoryLine]
       : parsedForDisplay.worldEvents,
@@ -293,7 +283,6 @@ export async function stage11_backgroundJobs(
 
   const phoneAfterFallbackSeedBase = variableOverrides?.手机 ?? phoneAtStart;
 
-  // 四个参数化任务
   const newsParams: NewsJobParams = {
     newsSettings, shouldRunNews, newsInterval, shouldRunOpeningNews,
     state, displayText, userInput, finalHistory,

@@ -104,10 +104,6 @@ export function 创建相册资源引用(assetId: string): string {
   return assetId ? `asset:${assetId}` : '';
 }
 
-/**
- * Resolve an album field (`asset:<id>`, remote URL, or legacy data URL) to a
- * displayable URL. Prefers Blob cache object URLs over base64 expansion.
- */
 export function 解析相册资源引用(album: 相册系统 | undefined, value: string | undefined): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -134,7 +130,6 @@ export function 解析相册资源引用(album: 相册系统 | undefined, value:
   return trimmed;
 }
 
-/** Resolve a display URL for a concrete album asset (Blob cache → remote). */
 export function 解析相册资源地址(asset: {
   id?: string;
   dataUrl?: string;

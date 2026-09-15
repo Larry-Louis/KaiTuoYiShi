@@ -1,6 +1,3 @@
-// 变量修复中心批处理 hook：拥有扫描草稿状态机与单键持久化，提交复用既有
-// 提交变量修复计划 唯一事务（该事务自带 variable_reparse 队列账本，本文件不新增任务 ID）。
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { API配置项 } from '@/models/settings';
@@ -35,7 +32,6 @@ const 扫描上限 = 40;
 
 interface 中心状态 {
   草稿: 变量修复草稿 | null;
-  /** 草稿被会话身份 epoch 校验：翻转（读档 / 分支 / 新局）后旧草稿视为不可用。 */
   草稿Epoch: number;
   扫描中: boolean;
   提交中: boolean;
@@ -58,24 +54,17 @@ export interface 变量修复中心动作 {
 }
 
 export interface VariableRepairCenterParams {
-  /** 活跃 state 的非响应式读取（命令式回调里取最新值）。 */
   getState: () => UseGameStateReturn;
   getActiveConfig: () => API配置项 | null;
-  /** 会话身份标识：读档 / 分支 / 新局后单调递增，批量草稿一律重置。 */
   sessionEpoch: number;
   pushQueueTask: typeof 推入队列账本;
 }
 
 interface 扫描中止持有 {
   controller: AbortController;
-  /**
-   * 中止后的落点：暂停可续扫，取消保留作废草稿。
-   * 清除 / 会话翻转不走这里——它们自增扫描代，在途扫描直接失效，不回写草稿。
-   */
   mode: 'pause' | 'cancel';
 }
 
-/** 判定扫描代是否已被清除 / 会话翻转作废；作废后不得再回写草稿。 */
 function 代已作废(代Ref: { current: number }, 代: number): boolean {
   return 代Ref.current !== 代;
 }
@@ -95,7 +84,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
   const 状态Ref = useRef(状态);
   const 中止Ref = useRef<扫描中止持有 | null>(null);
   const 已挂载Ref = useRef(false);
-  /** 扫描代：清除 / 会话翻转时自增，令在途扫描失效，杜绝作废后回写草稿。 */
   const 扫描代Ref = useRef(0);
 
   const 合并状态 = useCallback((patch: Partial<中心状态>) => {
@@ -104,7 +92,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
     set状态(next);
   }, []);
 
-  // ── 挂载恢复（异步 → 不级联渲染）；会话翻转只派生失效，见 草稿有效 ──
   useEffect(() => {
     if (!已挂载Ref.current) {
       已挂载Ref.current = true;
@@ -114,7 +101,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
           if (issues.length > 0) 合并状态({ 诊断: `本地草稿已损坏并被丢弃：${issues[0]}` });
           return;
         }
-        // 载入历史草稿同时绑定当前会话身份：跨读档 / 分支不恢复。
         const 指纹 = await variableStateFingerprint(snapshotVariableState(getState()));
         if (草稿是否过期(draft, 指纹)) {
           await 清除变量修复草稿().catch(() => undefined);
@@ -134,7 +120,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
   useEffect(() => {
     if (已挂载Ref.current && 恢复EpochRef.current !== sessionEpoch) {
       恢复EpochRef.current = sessionEpoch;
-      // 会话翻转（读档 / 分支 / 新局）：作废在途扫描并清空内存与存储，避免旧草稿回写。
       扫描代Ref.current += 1;
       中止Ref.current?.controller.abort();
       中止Ref.current = null;
@@ -179,7 +164,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
           message,
           turn: item.turn,
           stateSnapshot: snapshotVariableState(s),
-          // 全批共用扫描起点的一次性指纹：提交前据此判过期，逐项重算只会制造漂移。
           baseStateFingerprint: base.指纹,
           batches: s.variableBatches,
           mainApiConfig: config,
@@ -232,7 +216,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
       return;
     }
     void (async () => {
-      // 快照一次并落定指纹：提交前用同一指纹校验计划是否过期。
       const 指纹 = await variableStateFingerprint(snapshotVariableState(getState()));
       if (代已作废(扫描代Ref, 代)) return;
       const draft = 构建变量修复草稿(targets, 指纹);
@@ -257,7 +240,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
     }
     扫描代Ref.current += 1;
     const 代 = 扫描代Ref.current;
-    // 不重取指纹：草稿指纹是扫描起点的基态，全批计划与它同值；重取只会让两者漂移。
     const resumed: 变量修复草稿 = { ...draft, state: 'scanning', updatedAt: Date.now() };
     const controller = new AbortController();
     const holder: 扫描中止持有 = { controller, mode: 'pause' };
@@ -299,7 +281,6 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
     合并状态({ 提交中: true });
     const failures: string[] = [];
     try {
-      // 逐条独立事务：每条计划走自己的 提交变量修复计划（自带 variable_reparse 账本）。
       for (const item of targets) {
         const receipt: 变量修复回执 = await 提交变量修复计划({
           state: getState(),

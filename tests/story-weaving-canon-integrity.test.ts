@@ -32,10 +32,6 @@ const NEW_SERIES_IDS = [
   'story_canon_erxiang_paradise_5_whistle',
 ] as const;
 
-/**
- * 当前分支未提供对应开局章节锚点/官方预设的新增系列，仍随内置清单加载，
- * 供剧情推进与旧档回看使用。此处显式登记归档原因，附件测试会校验清单不会悄然扩张或过期。
- */
 const ARCHIVE_ONLY_SERIES: Record<string, string> = {
   story_canon_amphoreus_4_dawn_fall: '当前分支没有「在黎明升起时坠落」的开局章节锚点与官方预设，系列仅作为内置推进轨道加载。',
   story_canon_amphoreus_6_hero_undying: '当前分支没有「英雄未死之前」的开局章节锚点与官方预设，系列仅作为内置推进轨道加载。',
@@ -106,7 +102,6 @@ async function collectRuntimeSourceFiles(): Promise<string[]> {
   return files;
 }
 
-/** 去掉块注释与整行注释，避免把“退役说明”误判成运行时引用。 */
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//gu, '')

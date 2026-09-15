@@ -1,7 +1,3 @@
-/**
- * Cline API 文档列出可用模型 ID，但不提供 OpenAI 兼容的 `/models` 接口。
- * 这里保留文档示例作为便捷目录；用户仍可手填其账号支持的任意 `provider/model` ID。
- */
 export const CLINE_RECOMMENDED_MODELS = [
   'cline-pass/glm-5.2',
   'cline-pass/kimi-k3',

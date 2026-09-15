@@ -20,10 +20,6 @@ export interface LeafNodeResult {
   saveTree: 存档树元信息;
 }
 
-/**
- * 创建新叶子（工作区）节点：payload 必须是携带完整领域状态与 saveTree 的存档，
- * 本函数负责打上 unsealedHead 标记并强制全量存储（叶子行是 putHeadRow 原地写入目标）。
- */
 export async function createLeafNode(payload: 存档数据): Promise<LeafNodeResult> {
   const withMarker = {
     ...payload,
@@ -37,12 +33,7 @@ export async function createLeafNode(payload: 存档数据): Promise<LeafNodeRes
   return { saveId, saveTree: tree };
 }
 
-/**
- * 封版当前叶子：把叶子行就地转为不可变检查点（同 nodeId 身份转变），
- * 剥离 queueTasks、移除 unsealedHead 标记，刷新时间戳、目录摘要与 delta 记录。
- * 叶子已封版（幂等重放 / 崩溃窗口）时直接跳过并埋点。
- * sealedPayload 必须是 loadSave 恢复出的完整状态（含叶子原 saveTree / id）。
- */
+/** sealedPayload 必须是 loadSave 恢复出的完整状态（含叶子原 saveTree / id）。 */
 export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
   const saveId = sealedPayload.id;
   const db = await openDB();
@@ -63,9 +54,7 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
     id: saveId,
     saveRuntime: undefined,
   });
-  // reviewer P0-1：封版复核移入同一 readwrite 事务内完成——IndexedDB 对同一 store
-  // 的写事务串行化，事务内再次确认行仍未封版后才写入，杜绝「事务外预检通过、
-  // 事务内写入」的 TOCTOU 窗口覆盖已不可变检查点。
+  // 事务内二次确认未封版不可省：事务外预检到写入之间存在 TOCTOU 窗口，会覆写已封版检查点。
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction([SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE], 'readwrite');
     const saveStore = tx.objectStore(SAVES_STORE);
@@ -102,14 +91,8 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
   });
 }
 
-/**
- * 崩溃窗口恢复（reviewer P0）：提交协议「建叶 → 封版 → 写指针」若在「封版」后、
- * 「写指针」前崩溃，newest 仍指向已封版节点，但其未封版子叶子已创建（携带 queueTasks）。
- * 找出该子叶子（parentNodeId 匹配且 unsealedHead）。
- * 不假设单一线性链：读检查点分叉可让同一父节点下存在多个未封版子叶子，
- * 存在多个时按恢复日志持久化的目标 childNodeId 明确身份恢复；
- * 无法确定时报告冲突并返回 null，不再按保存 ID 猜测「最新子叶」。
- */
+// 同一父节点下可存在多个未封版子叶（读检查点分叉所致）；多叶歧义时返回 null 报告冲突，不按保存 ID 猜测。
+
 async function findUnsealedChildLeaf(
   parentNodeId: string,
   expectedChildNodeId?: string | null,
@@ -133,13 +116,7 @@ async function findUnsealedChildLeaf(
   return null;
 }
 
-/**
- * 采纳已创建的未封版子叶子并把 newest 指针重定向到它（保留 queueTasks）。
- * 用于 commitTurn 提交协议崩溃窗口恢复：head 指向已封版节点但子叶子已存在时，
- * 直接采纳而非分叉（分叉会把 queueTasks 重置为空）。无子叶子时返回 null。
- * 采纳身份来自 newest 记录内部字段 pendingChildNodeId（commitTurn 建叶前登记），
- * 多子叶歧义时按明确身份恢复，不按保存 ID 猜测。
- */
+/** 必须采纳已存在的子叶而非新建分叉：分叉会把 queueTasks 重置为空。 */
 export async function adoptUnsealedChildLeaf(
   parentNodeId: string,
 ): Promise<NewestStory记录 | null> {
@@ -157,18 +134,12 @@ export async function adoptUnsealedChildLeaf(
   return next;
 }
 
-/** 活跃叶子加载结果（reviewer P0-2 判别联合）。
- *  - ok：head 指向未封版叶子，或崩溃窗口明确采纳到未封版子叶（leaf 可写）；
- *  - no-leaf：head 缺失 / 节点或行缺失，根本不存在工作区；
- *  - sealed-conflict：head 指向已封版内部节点且无明确未封版子叶可采纳（无子叶 / 多子叶歧义），
- *    该状态不可写，调用方不得把检查点当作工作区水合。 */
+/** sealed-conflict 状态不可写，调用方不得把检查点当作工作区水合。 */
 export type ActiveLeafLoadResult =
   | { status: 'ok'; newest: NewestStory记录; leaf: 存档数据 }
   | { status: 'no-leaf'; newest: NewestStory记录 }
   | { status: 'sealed-conflict'; newest: NewestStory记录 };
 
-/** 读当前活跃叶子（工作区）全量状态；返回显式判别联合，调用方必须处理「不可写」情况。
- *  崩溃窗口采纳歧义用 newest 记录内部字段 pendingChildNodeId 明确身份。 */
 export async function loadActiveLeaf(): Promise<ActiveLeafLoadResult> {
   let newest = await loadNewestStory();
   if (!newest.headNodeId) return { status: 'no-leaf', newest };
@@ -177,8 +148,6 @@ export async function loadActiveLeaf(): Promise<ActiveLeafLoadResult> {
   const rawLeaf = await loadSave(saveId);
   if (!rawLeaf) return { status: 'no-leaf', newest };
   const leaf = rawLeaf;
-  // 崩溃窗口恢复：head 指向已封版节点且存在未封版子叶子（提交协议在封版后崩溃）时，
-  // 采纳子叶子并重定向指针，保证 queueTasks 不被丢失（分叉只会得到空队列）。
   if (!isUnsealedHeadSave(leaf)) {
     const fromNodeId = newest.headNodeId;
     const child = await findUnsealedChildLeaf(fromNodeId, newest.pendingChildNodeId);
@@ -196,8 +165,6 @@ export async function loadActiveLeaf(): Promise<ActiveLeafLoadResult> {
       });
       return { status: 'ok', newest, leaf: adoptedLeaf };
     }
-    // head 指向已封版内部节点且无明确未封版子叶可采纳（无子叶 / 多子叶歧义）：
-    // 返回冲突而非该检查点，绝不把不可变节点当作工作区返回（reviewer P0-2）。
     devLog('save', 'active-leaf-sealed-conflict', {
       fromNodeId,
       headNodeId: newest.headNodeId,
@@ -207,7 +174,6 @@ export async function loadActiveLeaf(): Promise<ActiveLeafLoadResult> {
   return { status: 'ok', newest, leaf };
 }
 
-/** 判定 headNodeId 指向的节点是否是可写（未封版）叶子。 */
 export async function isActiveLeafWritable(headNodeId: string): Promise<boolean> {
   const saveId = await loadSaveIdByNodeId(headNodeId);
   if (!saveId) return false;
@@ -217,14 +183,8 @@ export async function isActiveLeafWritable(headNodeId: string): Promise<boolean>
 }
 
 /**
- * 对当前未封版 head 行做轻量原地写入；不会经过资产抽取、delta、rotation 或 saveGameInternal。
- * 已封版的历史行一律拒绝改写。
- * 防御：目标行若为 delta-only 存储，先经 delta 链恢复全量再合并（叶子在正常路径恒为全量行，
- * 此分支只兜底历史数据 / 删除重定向后的边界态），并同步刷新 delta 记录。
- *
- * 并发安全（reviewer P1，TOCTOU）：delta 兜底恢复是只读预读（不参与封版竞争）；
- * 「复核未封版 + 写入」放在同一个串行化的 readwrite 事务内完成——IndexedDB 对同一 store
- * 的写事务串行化，sealLeafRow 不可能在本事务提交前改写该行，因此不会覆写已封版检查点。
+ * delta-only 存储的历史行需先经 delta 链恢复全量再合并。
+ * 「复核未封版 + 写入」必须在同一 readwrite 事务内完成，否则 sealLeafRow 可能在本事务提交前改写该行。
  */
 async function putHeadRow(saveId: number, patch: Partial<存档数据>): Promise<void> {
   const startedAt = Date.now();
@@ -285,7 +245,6 @@ async function putHeadRow(saveId: number, patch: Partial<存档数据>): Promise
   });
 }
 
-/** 回合阶段边界写：把补丁字段原地写入当前活跃叶子行（putHeadRow 的 nodeId 版入口）。 */
 export async function writeLeafNode(nodeId: string, patch: Partial<存档数据>): Promise<void> {
   const saveId = await loadSaveIdByNodeId(nodeId);
   if (!saveId) {
@@ -294,15 +253,11 @@ export async function writeLeafNode(nodeId: string, patch: Partial<存档数据>
   await putHeadRow(saveId, patch);
 }
 
-// ── 存档树基础设施（片 5d-1）：树查询最小集 + 分叉 API + 节点级删除 ──
-
-/** 树查询最小集：返回 nodeId 节点及其全部后代（含自身）的目录摘要，按时间升序。 */
 export async function getSaveTreeNodeSubtree(rootId: string, nodeId: string): Promise<SaveListItemSummary[]> {
   const subtree = await collectSaveTreeNodeSubtreeSummaries(rootId.trim(), nodeId.trim());
   return subtree.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
 }
 
-/** 最近存活祖先：沿 parentNodeId 上溯，跳过 excludedNodeIds（如被删子树），返回第一个存活节点；无则 null。 */
 async function getNearestLivingAncestor(
   rootId: string,
   nodeId: string,
@@ -332,13 +287,7 @@ export interface ForkSaveTreeLeafResult {
   headNodeId: string | null;
 }
 
-/**
- * 片 5d-1 分叉 API（子任务 A 重写）：从任意检查点分叉新叶子（读检查点 = 树操作）。
- * 目标检查点全量复制为新叶子行（saveRuntime.unsealedHead、全量存储、queueTasks 重置为空），
- * newest 指针直接指向新叶子——不再有「base + head + story 覆盖集」的延迟物化。
- * 目标节点在可见记录与历史备份中反查：目录按 visibility 把 type:'backup' 分流到
- * legacyBackups 而非 items，只查 items 会漏掉备份类恢复点。
- */
+/** 备份类检查点只在 legacyBackups 中，仅查 items 会漏掉。 */
 export async function forkSaveTreeLeaf(params: {
   rootId: string;
   targetNodeId: string;
@@ -410,11 +359,6 @@ export interface DeleteSaveTreeNodeResult {
   newestRedirected: boolean;
 }
 
-/**
- * 片 5d-1 节点级删除：删叶子仅删自身；删内部节点级联修剪整个子树。
- * 若当前叶子（newest base/head）落在被删集合内，newest 重定向到最近存活祖先；
- * 无存活祖先（整棵树被删）时 newest 归零。
- */
 export async function deleteSaveTreeNode(params: {
   rootId: string;
   nodeId: string;
@@ -454,7 +398,6 @@ async function deleteSaveTreeInternal(rootId: string): Promise<number> {
   return result.deletedCount;
 }
 
-/** 执行删除主体：目录行/存档/delta 清理（复用 deleteManagedSaveItems）+ newest 指针重定向。 */
 async function performTreeNodeDeletion(
   rootId: string,
   catalog: SaveCatalogSnapshot,
@@ -508,7 +451,6 @@ async function collectSaveTreeSummaries(rootId: string): Promise<SaveListItemSum
   return snapshot.items.filter((item) => item.saveTree?.rootId === rootId);
 }
 
-/** 收集子树目录摘要：从 nodeId 出发 BFS 全部后代（含自身）；节点不存在返回空数组。 */
 async function collectSaveTreeNodeSubtreeSummaries(rootId: string, nodeId: string): Promise<SaveListItemSummary[]> {
   const tree = await collectSaveTreeSummaries(rootId);
   const nodeById = new Map<string, SaveListItemSummary>();
@@ -568,9 +510,6 @@ export async function loadSaveTree(rootId: string): Promise<存档数据[]> {
   }
   return saves;
 }
-
-// ── NewestStory（全局头指针槽，片 5a-2 D1-A：单记录仅存 headNodeId，不携带任何数据，
-//    指向存档树中的活跃叶子或已封版节点；读叶子 = 水合，读检查点 = 分叉）──
 
 export async function loadNewestStory(): Promise<NewestStory记录> {
   const db = await openDB();

@@ -172,8 +172,6 @@ export function buildDeltaOnlyStoredSave(save: 存档数据, baseSaveId: number)
 
 export function isDeltaOnlyStoredSave(save: 存档数据 | null | undefined): boolean {
   if (!save) return false;
-  // saveStorage 是存档数据类型外的运行态字段（见 buildDeltaOnlyStoredSave），
-  // 用显式内联交叉类型断言访问，避免 no-unnecessary-type-assertion 误判（同 dbService.ts 模式）。
   return (save as 存档数据 & { saveStorage?: { mode: SaveNodeBaseMode; baseSaveId?: number } }).saveStorage?.mode === 'delta';
 }
 

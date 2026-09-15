@@ -45,18 +45,10 @@ export async function startSaveCatalogRepair(
 }
 
 export async function repairSaveDatabase(): Promise<void> {
-  // 单飞任务会自动等待当前进行中的修复结束，再以 full-validation 启动，
-  // 因此一次调用即保证全量校验真实执行，无需二次触发。
   await startSaveCatalogRepair('full-validation');
-  // 目录修复完成后顺带修复树完整性：把父指针指向不存在节点的行升格为根。
-  // 自动轮转删除已取消（rotate 是断链根因），这里兜底修复历史存量断链。
   await repairDanglingSaveTreeParents();
 }
 
-/** 悬垂父链修复：把 saveTree.parentNodeId 指向不存在节点的行升格为根（置 null）。
- * 同步 saves 行与目录行两处；delta-only 行的 saveTree 在 restoreSaveFromDelta 中
- * 以行内值为准（后写覆盖 deltaPayload.fields），delta 记录无需改动。
- * 幂等可重放；返回修复行数。 */
 export async function repairDanglingSaveTreeParents(): Promise<number> {
   return runWithSaveMutationPriority(async () => {
     const db = await openDB();

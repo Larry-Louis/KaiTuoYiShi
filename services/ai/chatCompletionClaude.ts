@@ -1,4 +1,3 @@
-// 由 docs/plans/chatCompletionClient-deepclean-slim.md S7 拆分生成。
 import type { API配置项 } from '@/models/settings';
 import { errorText, fetchWithApiErrorReport, throwApiError } from './chatCompletionOpenAICompat';
 import { normalizeClaudeBaseUrl } from './chatCompletionProvider';
@@ -62,9 +61,6 @@ export function buildClaudeRequestBody(
   if (claudePayload.system) {
     bodyObj.system = buildClaudeTextBlocks(claudePayload.system);
   }
-  // Phase 3：Claude 仅支持 max_context（通过 max_tokens 间接控制），
-  // 其他采样参数 Claude 故意不上传（参考 ST 行为，避免冲突）
-  // max_context 不直接发给 Claude，但可用于客户端侧裁剪历史（暂未实现）
   return bodyObj;
 }
 
@@ -114,8 +110,7 @@ function formatClaudeError(status: number, text: string): Error {
   return new Error(`Claude API Error ${status}: ${hint}\n${text}`);
 }
 
-export // ── Claude streaming (Anthropic Messages API) ──
-async function streamClaude(
+export async function streamClaude(
   config: API配置项,
   messages: Array<{ role: string; content: string }>,
   request: ChatCompletionRequest,
@@ -135,7 +130,6 @@ async function streamClaude(
     await throwApiError(config, 'Claude 聊天补全', url, 'stream', response.status, await errorText(response), formatClaudeError);
   }
 
-  // Claude extended thinking 用独立 content_block；readOpenAICompatibleStreamDelta 统一处理 thinking 状态
   return runSseStream(response, {
     provider: 'claude',
     config,

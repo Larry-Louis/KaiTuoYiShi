@@ -121,7 +121,7 @@ export function ScenarioAnchorCard({
         onClick={onClick}
         className="w-full p-[13px] text-left transition-shadow"
         style={{
-          // 左侧 4px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），必须排在 background 第一层。
+          // 垫片会丢弃内阴影，强调条只能画成背景条纹，且必须排在第一层。
           background: active
             ? `linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge)) 0 4px, transparent 4px), ${openingActiveCardBackground}`
             : openingCardBackground,

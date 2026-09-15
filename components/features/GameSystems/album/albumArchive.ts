@@ -334,7 +334,6 @@ export function resolveImportTargetPatch(target: AlbumImportTarget, entry: 相�
 }
 
 export async function loadAlbumAssetBytes(asset: Pick<图片资源, 'id' | 'dataUrl' | 'url' | 'originalUrl' | 'localRef' | 'mimeType'>): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
-  // Prefer runtime Blob cache (Package 2) so export works without base64 in React state.
   if (asset.id) {
     const cached = getAlbumAssetBlob(asset.id);
     if (cached) {

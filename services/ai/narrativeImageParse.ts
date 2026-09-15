@@ -1,5 +1,3 @@
-// 正文生图提示词解析服务：从剧情正文中提取画面信息，生成 AI 绘图提示词。
-
 import type { API配置项 } from '@/models/settings';
 import type { 解析上下文, 场景图解析结果, 故事快照解析结果 } from '@/contracts/ai';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
@@ -17,13 +15,10 @@ export interface 解析结果 {
   rawText: string;
 }
 
-/** 通用负面提示词：排除低质量、畸形、水印等 */
 const BASE_NEGATIVE = 'low quality, blurry, deformed, bad anatomy, extra limbs, missing limbs, watermark, text, signature, jpeg artifacts, 3d render, photorealistic, western cartoon style';
 
-/** HSR 风格负面提示词：排除非动漫/写实风格 */
 const HSR_STYLE_NEGATIVE = 'realistic, photographic, 3d model, cgi, western style, pixar style, disney style';
 
-// Legacy parser prompt retained only in source history; the canonical parsers below are used at runtime.
 export const PARSE_SYSTEM_PROMPT = `你是一个专业的插图提示词生成模型，服务于「崩坏：星穹铁道」风格的互动叙事游戏。你的任务是从剧情正文中提取画面信息，生成高质量的 AI 绘图提示词。
 
 ## 美术风格锚定
@@ -255,23 +250,20 @@ export function buildSceneImageParsePrompt(ctx: 解析上下文): string {
 }
 
 function extractJsonFromText(text: string): Record<string, unknown> | null {
-  // 尝试直接解析
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
-    // 尝试从 ```json ... ``` 中提取
     const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) {
       try {
         return JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>;
-      } catch { /* fall through */ }
+      } catch {}
     }
-    // 尝试找到第一个 { 到最后一个 }
     const braceMatch = text.match(/\{[\s\S]*\}/);
     if (braceMatch) {
       try {
         return JSON.parse(braceMatch[0]) as Record<string, unknown>;
-      } catch { /* fall through */ }
+      } catch {}
     }
     return null;
   }

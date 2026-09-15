@@ -101,7 +101,6 @@ function CharacterProfileGroup({
         onClick={onToggle}
         className="mb-1.5 w-full min-w-0 overflow-hidden px-2.5 py-2.5 text-left transition-all"
         style={{
-          // 左侧 3px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），排在 background 第一层。
           background: expanded
             ? `linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge-strong)) 0 3px, transparent 3px), linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.18), rgba(var(--tj-bg-secondary), 0.54))`
             : `linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge-tint-strong)) 0 3px, transparent 3px), linear-gradient(135deg, rgba(var(--tj-bg-primary), 0.18), rgba(var(--tj-bg-secondary), 0.4))`,
@@ -168,7 +167,6 @@ function CharacterProfileButton({ profile, active, onClick }: { profile: Charact
       onClick={onClick}
       className="w-full min-w-0 overflow-hidden px-2.5 py-2.5 text-left transition-all"
       style={{
-        // 左侧 2px 强调条由内阴影改为背景条纹（垫片会丢弃内阴影），排在 background 第一层。
         background: active
           ? `linear-gradient(90deg, rgba(var(--tj-btn-primary-start), var(--tj-edge-strong)) 0 2px, transparent 2px), rgba(var(--tj-btn-primary-start), 0.11)`
           : 'rgba(var(--tj-bg-secondary), 0.28)',

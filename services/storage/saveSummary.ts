@@ -19,9 +19,7 @@ export function isUnsealedHeadSave(save: 存档数据): boolean {
   return (save as StoredSaveMeta).saveRuntime?.unsealedHead === true;
 }
 
-/**
- * 剥离检查点队列任务：queueTasks 属主是可写叶子（工作区），检查点/导入恢复点不得携带。
- */
+/** queueTasks 属主是可写叶子（工作区），检查点/导入恢复点不得携带。 */
 export function 剥离检查点队列任务(save: 存档数据): 存档数据 {
   if (isUnsealedHeadSave(save)) return save;
   const { queueTasks: _queueTasks, ...sealed } = save;

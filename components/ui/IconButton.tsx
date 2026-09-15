@@ -14,7 +14,6 @@ interface IconButtonProps {
   onClick?: () => void;
 }
 
-/** Shared command icon button with an accessible tooltip and touch-sized hit target. */
 export function IconButton({ icon: Icon, label, description, disabledReason, active, disabled, pressed, onClick }: IconButtonProps) {
   return (
     <Tooltip label={label} description={disabled ? disabledReason ?? description : description}>

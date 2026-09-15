@@ -113,7 +113,7 @@ async function commitCloudMergeStagingTransaction(
     const fail = (error: unknown) => {
       if (settled) return;
       settled = true;
-      try { tx.abort(); } catch { /* transaction already inactive */ }
+      try { tx.abort(); } catch {}
       reject(error instanceof Error ? error : new Error('提交云备份合并事务失败。'));
     };
     request.onsuccess = () => {
@@ -138,7 +138,6 @@ async function commitCloudMergeStagingTransaction(
       }
 
       try {
-        // 最终兜底：写入 saves 前再次按节点类型剥离 queueTasks（暂存路径可能已剥，幂等）。
         const normalized = stripSaveAssetPayloadForStorage(剥离检查点队列任务({
           ...staged.save,
           type: normalizeSaveType(staged.save.type),

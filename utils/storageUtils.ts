@@ -15,7 +15,6 @@ export function toError(error: unknown, fallback = '存档数据库操作失败�
   return error instanceof Error ? error : new Error(fallback);
 }
 
-/** 返回浅拷贝并省略指定键；用于载荷剥离，不修改入参。 */
 export function omitKeys<T extends object, K extends keyof T>(payload: T, keys: readonly K[]): Omit<T, K> {
   const omitted = new Set<PropertyKey>(keys);
   const result: Record<string, unknown> = {};

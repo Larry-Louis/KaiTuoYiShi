@@ -54,8 +54,6 @@ function normalizeVisualTextSettings(input?: Partial<VisualTextSettings>): Visua
   };
 }
 
-// 三种行格式：【旁白】/【角色名】/【心声】。
-// 无前缀的行兜底为旁白渲染（容忍 AI 偶发不按格式输出）。
 type ParsedBodyLine =
   | { kind: 'narration'; text: string }
   | { kind: 'dialogue'; name: string; text: string }
@@ -238,16 +236,15 @@ function splitDialogueAndTrailingNarration(
   ];
 }
 
-// 角色名 → 颜色映射。同名角色每次都得到相同颜色；避开 UI 金色与心声暖色范围。
 const CHAR_COLORS = [
-  'rgb(140, 195, 230)', // 湖蓝（三月七风格）
-  'rgb(195, 175, 235)', // 冷紫
-  'rgb(155, 215, 175)', // 翠绿
-  'rgb(230, 165, 195)', // 玫红
-  'rgb(235, 180, 145)', // 橙
-  'rgb(180, 215, 220)', // 浅青
-  'rgb(220, 200, 155)', // 米黄（区别于主金色）
-  'rgb(200, 180, 240)', // 薰衣草
+  'rgb(140, 195, 230)',
+  'rgb(195, 175, 235)',
+  'rgb(155, 215, 175)',
+  'rgb(230, 165, 195)',
+  'rgb(235, 180, 145)',
+  'rgb(180, 215, 220)',
+  'rgb(220, 200, 155)',
+  'rgb(200, 180, 240)',
 ];
 
 function nameToColor(name: string): string {
@@ -258,16 +255,13 @@ function nameToColor(name: string): string {
   return CHAR_COLORS[hash % CHAR_COLORS.length];
 }
 
-// 把 rgb(r, g, b) 转成带 alpha 的 rgba，用于光晕/阴影。
 function withAlpha(rgb: string, alpha: number): string {
-  // 处理 CSS 变量格式：rgb(var(--tj-xxx)) → rgba(var(--tj-xxx), alpha)
   if (rgb.includes('var(')) {
     return rgb.replace('rgb(', 'rgba(').replace(/\)$/, `, ${alpha})`);
   }
   return rgb.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
 }
 
-// 名字/别名 → NPC 档案（BodyBlock 内建一次 Map，避免每行 linear find）
 function buildNpcLookupMap(records?: NPC记录[]): Map<string, NPC记录> {
   const map = new Map<string, NPC记录>();
   if (!records) return map;
@@ -288,7 +282,6 @@ function lookupNpc(name: string, map: Map<string, NPC记录>): NPC记录 | undef
   return builtinSet ? map.get(builtinSet.canonicalName) : undefined;
 }
 
-// 判断这一行的「角色」是不是主角自身（AI 可能写主角名字、也可能写「你」）
 function isProtagonist(name: string, traveler?: 角色数据结构): boolean {
   if (!traveler) return false;
   const n = name.trim();
@@ -302,11 +295,10 @@ function isProtagonist(name: string, traveler?: 角色数据结构): boolean {
 interface AvatarTileProps {
   name: string;
   url?: string;
-  color: string; // hash 色或主角金
-  size?: 'sm' | 'md'; // sm=对话；md=主角心声
+  color: string;
+  size?: 'sm' | 'md';
 }
 
-// 圆形头像 + 名牌：左上头像、下方一块小标签（fallback 用首字符）
 export const AvatarTile = memo(function AvatarTile({ name, url, color, size = 'sm' }: AvatarTileProps) {
   const dim = size === 'md' ? 'w-12 h-12 sm:w-14 sm:h-14' : 'w-11 h-11 sm:w-12 sm:h-12';
   const labelColor = withAlpha(color, 0.98);
@@ -357,7 +349,6 @@ interface DialogueBubbleProps {
 }
 
 export const DialogueBubble = memo(function DialogueBubble({ name, text, color, avatarUrl, fontSize = 15, isProtagonist = false, deferOffscreen = false }: DialogueBubbleProps & { fontSize?: number; isProtagonist?: boolean }) {
-  // 主角对话：淡底金边；NPC 对话：深底+角色色描边
   const bubbleBg = isProtagonist
     ? 'rgba(var(--tj-accent-primary), 0.08)'
     : 'rgba(var(--tj-chat-bubble), var(--tj-chat-bubble-alpha, 0.78))';
@@ -395,7 +386,6 @@ interface InnerVoiceBubbleProps {
   deferOffscreen?: boolean;
 }
 
-// 主角心声：圆头像 + 顶部「·心绪·」标签 + 虚线边气泡 + 暖橘斜体
 function InnerVoiceBubble({ text, traveler, album, fontSize = 15, deferOffscreen = false }: InnerVoiceBubbleProps & { fontSize?: number }) {
   const PEACH = 'rgb(var(--tj-accent-secondary))';
   const name = traveler?.姓名.trim() || '我';
@@ -404,7 +394,6 @@ function InnerVoiceBubble({ text, traveler, album, fontSize = 15, deferOffscreen
     <div className="group my-3 flex items-start gap-3" style={deferOffscreen ? DEFERRED_INNER_VOICE_STYLE : undefined}>
       <AvatarTile name={name} url={avatarUrl} color={PEACH} size="md" />
       <div className="relative flex-1 min-w-0 mt-1">
-        {/* 顶部「·心绪·」标签 */}
         <div className="mb-1 flex items-center gap-1.5">
           <span
             className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-serif tracking-[0.28em] italic"
@@ -439,7 +428,6 @@ function InnerVoiceBubble({ text, traveler, album, fontSize = 15, deferOffscreen
   );
 }
 
-// 旁白：全宽容器 + 两侧金色竖条 + 顶部小符号点缀（无头像、无气泡）
 export const NarrationLine = memo(function NarrationLine({ text, fontSize = 15, deferOffscreen = false }: { text: string; fontSize?: number; deferOffscreen?: boolean }) {
   return (
     <div
@@ -506,9 +494,6 @@ export function BodyBlock({ content, npcRecords, traveler, album, showInnerVoice
   );
 }
 
-// 流式阶段：剥出 <正文> 起始位置之后的内容，把 <thinking> 段藏在「开拓进行中.....」指示器下。
-// 一旦解析到 <正文>，就把 partial body 喂给 BodyBlock；正文之后的标签（短期记忆/动态世界/变量草稿/剧情规划/命令）
-// 出现就视为正文结束，从那里截断。
 const STREAM_BODY_START_RE = /<\s*(?:正文|body|content|text|内容)\s*>/i;
 const STREAM_AFTER_BODY_RE =
   /<\s*(?:\/\s*(?:正文|body|content|text|内容)|短期记忆|memory|summary|recap|记忆|回忆|动态世界|world|worldevent|世界|事件|行动选项|actions|options|choice|choices|选项|变量草稿|variableDraft|变量候选|变量线索|变量摘要|剧情规划|storyPlan|storyPlanning|剧情计划|剧情安排|后续规划|命令|command|commands|cmd)\s*>/i;

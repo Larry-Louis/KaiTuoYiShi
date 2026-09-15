@@ -175,14 +175,11 @@ export async function stage5_replyLanding(
     finalHistory = finalHistory.map((m, i) => i === userMsgIdx ? { ...m, preTurnSnapshot: undefined } : m);
   }
   finalHistory = compactChatHistoryForLongSession(finalHistory);
-  // 投影点（裁决 S06 保留）：助手正文须立即可见；存档只认 d，此 setter 仅刷新 UI
   state.setChatHistory(finalHistory);
-  // 投影点（B2 定性）：回合数须立即刷新 UI；管线读 ctx，不回读此 state
   state.setTurnCount((prev) => prev + 1);
   streamMessageSetter.flush('');
   state.activeWorkflow.setLoading(false);
   state.activeWorkflow.setPendingVariable(true);
-  // 投影点（B2 定性）：正文已落地、后台结算开始 —— 状态条进入 settling 相位
   state.activeWorkflow.setTurnStatus({ kind: 'settling', text: '正文已生成，正在结算记忆 / 变量 / 后台任务…' });
 
   return {

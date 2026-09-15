@@ -20,7 +20,6 @@ export function subscribeStreamingMessage(listener: () => void): () => void {
   };
 }
 
-/** Subscribe to stream preview text without fan-out through App / useGameState. */
 export function useStreamingMessage(): string {
   return useSyncExternalStore(subscribeStreamingMessage, getStreamingMessage, getStreamingMessage);
 }

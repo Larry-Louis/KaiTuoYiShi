@@ -1,4 +1,3 @@
-// 酒馆预设的 DOM 副作用：文件导入与导出。解析与状态转换逻辑在 utils/tavernPresetParsing.ts / tavernPresetTransitions.ts。
 import type { STPresetEntryV2, STRegexScript } from '@/models/stTypes';
 import type { 游戏设置 } from '@/models/settings';
 import type { 世界书 } from '@/models/worldbook';
@@ -24,7 +23,6 @@ export function importSTPreset(params: {
   onExtractTavernRegexScripts: (rawPreset: unknown) => STRegexScript[];
 }): void {
   const { settings, worldbooks, onWorldbooksChange, onChange, onExtractTavernRegexScripts } = params;
-  // 只保留 Tavern 原始结构（prompts + prompt_order），不再生成 V1 st_import_* 模块。
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json,application/json';
