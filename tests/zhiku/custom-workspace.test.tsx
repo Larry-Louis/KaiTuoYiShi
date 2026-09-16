@@ -130,7 +130,7 @@ describe('home 入口直达自制工作区', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('surface=ingame 时大厅可用且包含自制节点', () => {
+  it('surface=ingame 时大厅可用且不含自制节点，顶栏有工作台入口', () => {
     render(
       <ZhikuNextExperience
         zhikuSystem={buildSystem()}
@@ -141,6 +141,8 @@ describe('home 入口直达自制工作区', () => {
       />,
     );
     expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^自制，/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^自制，/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '打开自制工作台' }));
+    expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
   });
 });

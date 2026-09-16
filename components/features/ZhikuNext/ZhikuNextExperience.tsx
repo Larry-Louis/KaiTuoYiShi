@@ -1,9 +1,9 @@
-import { ArrowLeft, X } from 'lucide-react';
+import { ArrowLeft, PenLine, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import type { ZhikuCatalogStatus, 智库系统 } from '@/models/zhiku';
-import { buildZhikuArchiveView, type ZhikuArchiveLoreCategoryId } from '@/services/zhikuArchive';
+import { buildZhikuArchiveView, type ZhikuArchiveCategoryId, type ZhikuArchiveLoreCategoryId } from '@/services/zhikuArchive';
 import { devLogError } from '@/utils/devLog';
 import { CustomWorkspace } from './customWorkspace';
 import { Lobby } from './lobby';
@@ -98,9 +98,9 @@ export function ZhikuNextExperience({
   };
 
   const lobbyCategories = archive.categories
-    .filter((category) => surface === 'ingame' || category.id === 'custom')
+    .filter((category) => category.id !== 'custom' && surface === 'ingame')
     .map((category) => ({
-      id: category.id,
+      id: category.id as Exclude<ZhikuArchiveCategoryId, 'custom'>,
       label: category.label,
       description: category.description,
       count: category.count,
@@ -155,6 +155,12 @@ export function ZhikuNextExperience({
           <p className="zn-subtitle">{subtitle}</p>
         </div>
         <div className="zn-actions">
+          {surface === 'ingame' && view.kind !== 'custom' && (
+            <button type="button" className="tn-chip" onClick={() => setView({ kind: 'custom' })} aria-label="打开自制工作台" title="自制条目的新建与编辑">
+              <PenLine size={12} strokeWidth={1.7} aria-hidden="true" />
+              工作台
+            </button>
+          )}
           <ReaderControls
             fontSize={fontSize}
             onDecreaseFontSize={decreaseFontSize}
@@ -176,7 +182,7 @@ export function ZhikuNextExperience({
             categories={lobbyCategories}
             itemCount={archive.itemCount}
             chapterCount={archive.chapterCount}
-            onSelect={(id) => setView(id === 'story' ? { kind: 'story' } : id === 'custom' ? { kind: 'custom' } : { kind: 'category', id })}
+            onSelect={(id) => setView(id === 'story' ? { kind: 'story' } : { kind: 'category', id })}
           />
         ) : view.kind === 'story' ? (
           <StoryReader key="story" volumes={archive.volumes} fontSize={fontSize} />

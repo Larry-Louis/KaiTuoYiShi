@@ -28,6 +28,10 @@
   --tn-line-strong: rgba(233, 234, 238, 0.16);
   --tn-line-accent: rgba(245, 217, 122, 0.38);
 
+  /* 氛围层：辉光与环境动效（星尘、halo 等慢速层） */
+  --tn-glow: rgba(245, 217, 122, 0.16);
+  --tn-dur-ambient: 60s;
+
   /* 形状：内部圆角阶 + 页面级容器唯一的折角识别 */
   --tn-radius-s: 6px;
   --tn-radius-m: 10px;
@@ -202,9 +206,10 @@ textarea.tn-input {
   background: var(--tn-text-faint);
 }
 
-@keyframes tn-fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+/* 氛围动效只保留两族：纯 opacity 淡入与慢速环境层（位移/缩放类不进设计系统）。 */
+@keyframes tn-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
