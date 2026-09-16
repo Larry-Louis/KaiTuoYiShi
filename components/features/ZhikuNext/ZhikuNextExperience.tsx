@@ -42,7 +42,7 @@ export function ZhikuNextExperience({
   catalogStatus = 'ready',
   surface = 'ingame',
 }: ZhikuNextExperienceProps) {
-  const [view, setView] = useState<ZhikuView>(() => (surface === 'home' ? { kind: 'custom' } : { kind: 'lobby' }));
+  const [view, setView] = useState<ZhikuView>({ kind: 'lobby' });
   const [refreshStatus, setRefreshStatus] = useState<ReaderRefreshStatus>('idle');
   const refreshTimerRef = useRef<number | null>(null);
   const { fontSize, decreaseFontSize, increaseFontSize } = useZhikuReaderFontSize();
@@ -60,10 +60,6 @@ export function ZhikuNextExperience({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      if (surface === 'home') {
-        onClose?.();
-        return;
-      }
       if (view.kind !== 'lobby') {
         setView({ kind: 'lobby' });
         return;
@@ -72,7 +68,7 @@ export function ZhikuNextExperience({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, surface, view.kind]);
+  }, [onClose, view.kind]);
 
   const scheduleRefreshIdle = (delay: number) => {
     if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
@@ -98,7 +94,7 @@ export function ZhikuNextExperience({
   };
 
   const lobbyCategories = archive.categories
-    .filter((category) => category.id !== 'custom' && surface === 'ingame')
+    .filter((category) => category.id !== 'custom')
     .map((category) => ({
       id: category.id as Exclude<ZhikuArchiveCategoryId, 'custom'>,
       label: category.label,
@@ -125,7 +121,7 @@ export function ZhikuNextExperience({
       : view.kind === 'custom'
         ? '自制'
         : selectedCategory?.label ?? '智库档案';
-  const canGoBack = surface === 'ingame' && view.kind !== 'lobby';
+  const canGoBack = view.kind !== 'lobby' && view.kind !== 'custom';
 
   return (
     <div
@@ -155,12 +151,18 @@ export function ZhikuNextExperience({
           <p className="zn-subtitle">{subtitle}</p>
         </div>
         <div className="zn-actions">
-          {surface === 'ingame' && view.kind !== 'custom' && (
-            <button type="button" className="tn-chip" onClick={() => setView({ kind: 'custom' })} aria-label="打开自制工作台" title="自制条目的新建与编辑">
-              <PenLine size={12} strokeWidth={1.7} aria-hidden="true" />
-              工作台
-            </button>
-          )}
+          <button
+            type="button"
+            className="tn-chip"
+            data-active={view.kind === 'custom' ? 'true' : 'false'}
+            aria-pressed={view.kind === 'custom'}
+            onClick={() => setView(view.kind === 'custom' ? { kind: 'lobby' } : { kind: 'custom' })}
+            aria-label="切换自制工作台"
+            title="自制条目的新建与编辑"
+          >
+            <PenLine size={12} strokeWidth={1.7} aria-hidden="true" />
+            工作台
+          </button>
           <ReaderControls
             fontSize={fontSize}
             onDecreaseFontSize={decreaseFontSize}

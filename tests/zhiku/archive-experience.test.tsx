@@ -157,11 +157,12 @@ describe('智库档案大厅', () => {
     expect(lobby).toHaveTextContent(/档案尚未收录/);
   });
 
-  it('顶栏工作台入口进入自制工作区，可回到大厅', () => {
+  it('顶栏工作台开关进入自制工作区，再点回到大厅', () => {
     renderArchive();
-    fireEvent.click(screen.getByRole('button', { name: '打开自制工作台' }));
+    fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
     expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '返回分类大厅' }));
+    expect(screen.getByRole('button', { name: '切换自制工作台' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
     expect(screen.getByRole('button', { name: /^人物，/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('条目编辑器')).not.toBeInTheDocument();
   });

@@ -109,40 +109,47 @@ describe('CustomWorkspace 条目管理', () => {
   });
 });
 
-describe('home 入口直达自制工作区', () => {
-  it('surface=home 时跳过大厅，Escape 直接关闭', () => {
-    const onClose = vi.fn();
-    render(
-      <ZhikuNextExperience
-        zhikuSystem={buildSystem()}
-        storyWeavingSystem={归一化剧情编织系统(null)}
-        onZhikuSystemChange={vi.fn()}
-        onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
-        onClose={onClose}
-        surface="home"
-      />,
-    );
+describe('home 与 ingame 入口行为一致', () => {
+  const renderSurface = (surface: 'home' | 'ingame', onClose?: () => void) => render(
+    <ZhikuNextExperience
+      zhikuSystem={buildSystem()}
+      storyWeavingSystem={归一化剧情编织系统(null)}
+      onZhikuSystemChange={vi.fn()}
+      onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
+      onClose={onClose}
+      surface={surface}
+    />,
+  );
 
-    expect(screen.queryByLabelText('智库分类大厅')).toBeNull();
+  it('两个 surface 都默认大厅且不含自制节点，工作台 chip 可开关自制', () => {
+    for (const surface of ['home', 'ingame'] as const) {
+      const { unmount } = renderSurface(surface);
+      expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
+      expect(screen.queryByLabelText('条目编辑器')).toBeNull();
+      expect(screen.queryByRole('button', { name: /^自制，/ })).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
+      expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
+      expect(screen.queryByLabelText('条目编辑器')).toBeNull();
+      expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('Escape 链统一：自制先回大厅，再按才关闭', () => {
+    const onClose = vi.fn();
+    renderSurface('home', onClose);
+
+    fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
     expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('surface=ingame 时大厅可用且不含自制节点，顶栏有工作台入口', () => {
-    render(
-      <ZhikuNextExperience
-        zhikuSystem={buildSystem()}
-        storyWeavingSystem={归一化剧情编织系统(null)}
-        onZhikuSystemChange={vi.fn()}
-        onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
-        surface="ingame"
-      />,
-    );
+    expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^自制，/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '打开自制工作台' }));
-    expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
