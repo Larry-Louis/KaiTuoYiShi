@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { ZhikuArchiveExperience } from '@/components/features/ZhikuV3/ZhikuArchiveExperience';
+import { ZhikuNextExperience } from '@/components/features/ZhikuNext/ZhikuNextExperience';
 import { 归一化剧情编织系列, 归一化剧情编织系统 } from '@/models/storyWeaving';
 import { 创建空智库系统, 创建智库条目, 归一化智库系统 } from '@/models/zhiku';
 import type { 智库系统 } from '@/models/zhiku';
@@ -110,18 +110,18 @@ const defaultProps = {
   zhikuSystem: 归一化智库系统({ 条目: [baseCharacterEntry, termEntry, customStoryEntry] }),
   storyWeavingSystem: buildStorySystem(),
   onZhikuSystemChange: vi.fn(),
-  onManage: vi.fn(),
+  onSaveZhikuSystem: vi.fn(() => Promise.resolve()),
   onClose: vi.fn(),
 };
 
-type ArchiveProps = Parameters<typeof ZhikuArchiveExperience>[0];
+type ArchiveProps = Parameters<typeof ZhikuNextExperience>[0];
 
 function renderArchive(overrides?: Partial<ArchiveProps>) {
   const props: ArchiveProps = {
     ...(defaultProps as unknown as ArchiveProps),
     ...overrides,
   };
-  const view = render(<ZhikuArchiveExperience {...props} />);
+  const view = render(<ZhikuNextExperience {...props} />);
   return { view, props };
 }
 
@@ -156,6 +156,14 @@ describe('智库档案大厅', () => {
     expect(lobby.querySelector('[data-archive-state="empty"]')).toBeInTheDocument();
     expect(lobby).toHaveTextContent(/档案尚未收录/);
   });
+
+  it('自制节点进入自制工作区，可回到大厅', () => {
+    renderArchive();
+    fireEvent.click(screen.getByRole('button', { name: /^自制，/ }));
+    expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '返回分类大厅' }));
+    expect(screen.getByRole('button', { name: /^自制，/ })).toBeInTheDocument();
+  });
 });
 
 describe('人物形态切换', () => {
@@ -189,7 +197,7 @@ describe('注入内容面板', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '注入内容' }));
     expect(screen.getByText('列车')).toBeInTheDocument();
-    const pre = document.querySelector('pre.zj-terminal');
+    const pre = document.querySelector('pre.zn-terminal');
     expect(pre).toBeInTheDocument();
     expect(pre?.textContent).toContain('【人物】星｜常态');
     expect(pre?.textContent).toContain('关键词：列车');

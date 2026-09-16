@@ -72,13 +72,13 @@ function renderBlock(block: ProseBlock, key: string, withDropCap: boolean): Reac
   if (block.kind === 'voice') {
     return <span key={key} style={{ display: 'contents' }}>{block.lines.map((line, index) => <p key={`${line}-${index}`}>{formatVoiceLine(line)}</p>)}</span>;
   }
-  return <p key={key} className={withDropCap ? 'zj-dropcap' : undefined}>{block.text}</p>;
+  return <p key={key} className={withDropCap ? 'zn-dropcap' : undefined}>{block.text}</p>;
 }
 
-export function ArchiveProse({ source, dropCap = false, footer }: { source: string; dropCap?: boolean; footer?: ReactNode }) {
+export function Prose({ source, dropCap = false, footer }: { source: string; dropCap?: boolean; footer?: ReactNode }) {
   const trimmed = source.trim();
   if (!trimmed) {
-    return <p className="zj-paper__empty">该档案暂无可阅读正文。</p>;
+    return <div className="zn-prose"><p className="zn-prose__empty">该档案暂无可阅读正文。</p></div>;
   }
   const blocks = trimmed
     .split(/\n\s*\n/u)
@@ -86,7 +86,7 @@ export function ArchiveProse({ source, dropCap = false, footer }: { source: stri
     .filter((block) => block.length > 0)
     .map(parseBlock);
   return (
-    <div className="zj-paper">
+    <div className="zn-prose">
       {blocks.map((block, index) => renderBlock(block, `block-${index}`, dropCap && index === 0 && block.kind === 'paragraph'))}
       {footer}
     </div>

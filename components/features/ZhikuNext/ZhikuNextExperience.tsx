@@ -1,43 +1,48 @@
-import { ArrowLeft, Settings2, X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { ZhikuCatalogStatus } from '@/models/zhiku';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
-import type { 智库系统 } from '@/models/zhiku';
-import { buildZhikuArchiveView, type ZhikuArchiveCategoryId } from '@/services/zhikuArchive';
+import type { ZhikuCatalogStatus, 智库系统 } from '@/models/zhiku';
+import { buildZhikuArchiveView, type ZhikuArchiveLoreCategoryId } from '@/services/zhikuArchive';
 import { devLogError } from '@/utils/devLog';
-import { ArchiveCategoryView } from './ArchiveCategoryView';
-import { ArchiveLobby } from './ArchiveLobby';
-import { ArchiveReaderControls, type ReaderRefreshStatus } from './ArchiveReaderControls';
-import { ArchiveStoryView } from './ArchiveStoryView';
+import { CustomWorkspace } from './customWorkspace';
+import { Lobby } from './lobby';
+import { ReaderControls, type ReaderRefreshStatus } from './readerControls';
+import { CategoryReader } from './categoryReader';
+import { StoryReader } from './storyReader';
 import { useZhikuReaderFontSize } from './readerFontSize';
-import './zhiku-archive.css';
+import './zhiku-next.css';
 
-type ArchiveView =
+export type ZhikuSurface = 'home' | 'ingame';
+
+type ZhikuView =
   | { kind: 'lobby' }
-  | { kind: 'category'; id: ZhikuArchiveCategoryId }
-  | { kind: 'story' };
+  | { kind: 'category'; id: ZhikuArchiveLoreCategoryId }
+  | { kind: 'story' }
+  | { kind: 'custom' };
 
-interface ZhikuArchiveExperienceProps {
+interface ZhikuNextExperienceProps {
   zhikuSystem: 智库系统;
   storyWeavingSystem: 剧情编织系统;
   onZhikuSystemChange: Dispatch<SetStateAction<智库系统>>;
+  onSaveZhikuSystem: (system: 智库系统) => Promise<void>;
   onRefreshBundled?: (current: 智库系统) => Promise<智库系统>;
-  onManage?: () => void;
   onClose?: () => void;
   catalogStatus?: ZhikuCatalogStatus;
+  surface?: ZhikuSurface;
 }
 
-export function ZhikuArchiveExperience({
+export function ZhikuNextExperience({
   zhikuSystem,
   storyWeavingSystem,
   onZhikuSystemChange,
+  onSaveZhikuSystem,
   onRefreshBundled,
-  onManage,
   onClose,
   catalogStatus = 'ready',
-}: ZhikuArchiveExperienceProps) {
-  const [view, setView] = useState<ArchiveView>({ kind: 'lobby' });
+  surface = 'ingame',
+}: ZhikuNextExperienceProps) {
+  const [view, setView] = useState<ZhikuView>(() => (surface === 'home' ? { kind: 'custom' } : { kind: 'lobby' }));
   const [refreshStatus, setRefreshStatus] = useState<ReaderRefreshStatus>('idle');
   const refreshTimerRef = useRef<number | null>(null);
   const { fontSize, decreaseFontSize, increaseFontSize } = useZhikuReaderFontSize();
@@ -55,6 +60,10 @@ export function ZhikuArchiveExperience({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
+      if (surface === 'home') {
+        onClose?.();
+        return;
+      }
       if (view.kind !== 'lobby') {
         setView({ kind: 'lobby' });
         return;
@@ -63,7 +72,7 @@ export function ZhikuArchiveExperience({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, view.kind]);
+  }, [onClose, surface, view.kind]);
 
   const scheduleRefreshIdle = (delay: number) => {
     if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
@@ -82,44 +91,57 @@ export function ZhikuArchiveExperience({
       setRefreshStatus('done');
       scheduleRefreshIdle(2000);
     } catch (error) {
-      devLogError('ui', 'zhiku-archive-refresh-failed', error);
+      devLogError('ui', 'zhiku-next-refresh-failed', error);
       setRefreshStatus('error');
       scheduleRefreshIdle(3200);
     }
   };
 
+  const lobbyCategories = archive.categories
+    .filter((category) => surface === 'ingame' || category.id === 'custom')
+    .map((category) => ({
+      id: category.id,
+      label: category.label,
+      description: category.description,
+      count: category.count,
+      countLabel: category.id === 'story'
+        ? `${category.count} 卷 / ${archive.chapterCount} 章`
+        : `${category.count} 条`,
+    }));
   const selectedCategory = view.kind === 'category'
     ? archive.categories.find((category) => category.id === view.id)
     : undefined;
-  const lobbyCategories = archive.categories.map((category) => ({
-    id: category.id,
-    label: category.label,
-    count: category.count,
-    countLabel: category.id === 'story'
-      ? `${category.count} 卷 / ${archive.chapterCount} 章`
-      : `${category.count} 条`,
-  }));
   const subtitle = view.kind === 'lobby'
     ? `${archive.itemCount} 条资料 · ${archive.volumes.length} 部卷宗 · ${archive.chapterCount} 个章节`
     : view.kind === 'story'
       ? `${archive.volumes.length} 部卷宗 · ${archive.chapterCount} 个章节`
-      : '按条目翻阅档案与注入内容';
-  const title = view.kind === 'lobby' ? '智库档案' : view.kind === 'story' ? '剧情档案' : selectedCategory?.label ?? '智库档案';
+      : view.kind === 'custom'
+        ? '自制条目的新建、编辑与删除，保存到本地智库'
+        : '按条目翻阅档案与注入内容';
+  const title = view.kind === 'lobby'
+    ? '智库'
+    : view.kind === 'story'
+      ? '剧情档案'
+      : view.kind === 'custom'
+        ? '自制'
+        : selectedCategory?.label ?? '智库档案';
+  const canGoBack = surface === 'ingame' && view.kind !== 'lobby';
 
   return (
     <div
-      className="zj-root"
+      className="zn-root"
       data-view={view.kind}
+      data-surface={surface}
       data-catalog-status={catalogStatus}
     >
-      <header className="zj-topbar">
+      <header className="zn-topbar">
         <div className="min-w-0">
-          <div className="zj-kicker">ZHIKU // ARCHIVE</div>
+          <div className="tn-kicker">ZHIKU // {surface === 'home' ? 'STUDIO' : 'ARCHIVE'}</div>
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            {view.kind !== 'lobby' && (
+            {canGoBack && (
               <button
                 type="button"
-                className="zj-chip"
+                className="tn-chip"
                 onClick={() => setView({ kind: 'lobby' })}
                 aria-label="返回分类大厅"
                 title="返回分类大厅"
@@ -128,47 +150,47 @@ export function ZhikuArchiveExperience({
                 返回
               </button>
             )}
-            <h1 className="zj-title">{title}</h1>
+            <h1 className="zn-title">{title}</h1>
           </div>
-          <p className="zj-subtitle">{subtitle}</p>
+          <p className="zn-subtitle">{subtitle}</p>
         </div>
-        <div className="zj-actions">
-          <ArchiveReaderControls
+        <div className="zn-actions">
+          <ReaderControls
             fontSize={fontSize}
             onDecreaseFontSize={decreaseFontSize}
             onIncreaseFontSize={increaseFontSize}
             onRefresh={onRefreshBundled ? () => void handleRefreshBundled() : undefined}
             refreshStatus={refreshStatus}
           />
-          {onManage && (
-            <button type="button" className="zj-chip" onClick={onManage} aria-label="打开智库维护">
-              <Settings2 size={12} strokeWidth={1.7} aria-hidden="true" />
-              维护
-            </button>
-          )}
           {onClose && (
-            <button type="button" className="zj-chip" onClick={onClose} aria-label="关闭智库" title="关闭智库">
+            <button type="button" className="tn-chip" onClick={onClose} aria-label="关闭智库" title="关闭智库">
               <X size={13} strokeWidth={1.7} aria-hidden="true" />
             </button>
           )}
         </div>
       </header>
 
-      <div className="zj-stage">
+      <div className="zn-stage">
         {view.kind === 'lobby' ? (
-          <ArchiveLobby
+          <Lobby
             categories={lobbyCategories}
             itemCount={archive.itemCount}
             chapterCount={archive.chapterCount}
-            onSelect={(id) => setView(id === 'story' ? { kind: 'story' } : { kind: 'category', id })}
+            onSelect={(id) => setView(id === 'story' ? { kind: 'story' } : id === 'custom' ? { kind: 'custom' } : { kind: 'category', id })}
           />
         ) : view.kind === 'story' ? (
-          <ArchiveStoryView key="story" volumes={archive.volumes} fontSize={fontSize} />
+          <StoryReader key="story" volumes={archive.volumes} fontSize={fontSize} />
+        ) : view.kind === 'custom' ? (
+          <CustomWorkspace
+            zhikuSystem={zhikuSystem}
+            onZhikuSystemChange={onZhikuSystemChange}
+            onSaveZhikuSystem={onSaveZhikuSystem}
+          />
         ) : (
-          <ArchiveCategoryView
+          <CategoryReader
             key={view.id}
             category={{ id: view.id, label: selectedCategory?.label ?? '档案' }}
-            items={archive.itemsByCategory[view.id === 'story' ? 'character' : view.id]}
+            items={archive.itemsByCategory[view.id]}
             fontSize={fontSize}
           />
         )}

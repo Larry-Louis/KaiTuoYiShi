@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, renderHook, waitFor } from '@testing-library/react';
-import { ZhikuArchiveExperience } from '@/components/features/ZhikuV3/ZhikuArchiveExperience';
+import { ZhikuNextExperience } from '@/components/features/ZhikuNext/ZhikuNextExperience';
 import {
   buildPersistedZhikuSystem,
   fetchAllBundledZhikuPresetsText,
@@ -52,17 +52,18 @@ const termEntry = 创建智库条目({
 const emptyStory = () => 归一化剧情编织系统(undefined);
 
 const renderArchive = (overrides?: Record<string, unknown>) => render(
-  <ZhikuArchiveExperience
+  <ZhikuNextExperience
     zhikuSystem={归一化智库系统({ 条目: [charEntry, termEntry] })}
     storyWeavingSystem={emptyStory()}
     onZhikuSystemChange={vi.fn()}
+    onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
     {...overrides}
   />,
 );
 
 const rootOf = (container: HTMLElement): HTMLElement => {
-  const root = container.querySelector('.zj-root');
-  if (!(root instanceof HTMLElement)) throw new Error('missing .zj-root');
+  const root = container.querySelector('.zn-root');
+  if (!(root instanceof HTMLElement)) throw new Error('missing .zn-root');
   return root;
 };
 
@@ -80,10 +81,11 @@ beforeEach(async () => {
 describe('home 智库目录就绪信号', () => {
   it('boot 未完成时标注 pending，而不是静默 0 条', () => {
     const { container } = render(
-      <ZhikuArchiveExperience
+      <ZhikuNextExperience
         zhikuSystem={创建空智库系统()}
         storyWeavingSystem={emptyStory()}
         onZhikuSystemChange={vi.fn()}
+        onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
         catalogStatus="pending"
       />,
     );
@@ -101,10 +103,11 @@ describe('home 智库目录就绪信号', () => {
 
   it('目录失败时标注 failed 并保留空态提示', () => {
     const { container } = render(
-      <ZhikuArchiveExperience
+      <ZhikuNextExperience
         zhikuSystem={创建空智库系统()}
         storyWeavingSystem={emptyStory()}
         onZhikuSystemChange={vi.fn()}
+        onSaveZhikuSystem={vi.fn(() => Promise.resolve())}
         catalogStatus="failed"
       />,
     );

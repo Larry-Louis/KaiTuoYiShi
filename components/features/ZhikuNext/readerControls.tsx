@@ -3,7 +3,7 @@ import { ZHIKU_READER_FONT_SIZE_MAX, ZHIKU_READER_FONT_SIZE_MIN } from './reader
 
 export type ReaderRefreshStatus = 'idle' | 'loading' | 'done' | 'error';
 
-interface ArchiveReaderControlsProps {
+interface ReaderControlsProps {
   fontSize: number;
   onDecreaseFontSize: () => void;
   onIncreaseFontSize: () => void;
@@ -18,16 +18,16 @@ const REFRESH_LABELS: Record<ReaderRefreshStatus, string> = {
   error: '重载失败，已保留当前档案',
 };
 
-export function ArchiveReaderControls({
+export function ReaderControls({
   fontSize,
   onDecreaseFontSize,
   onIncreaseFontSize,
   onRefresh,
   refreshStatus = 'idle',
-}: ArchiveReaderControlsProps) {
+}: ReaderControlsProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="zj-chip" role="group" aria-label={`档案阅读字号，当前 ${fontSize} 像素`}>
+      <div className="tn-chip" role="group" aria-label={`档案阅读字号，当前 ${fontSize} 像素`}>
         <Type size={12} strokeWidth={1.6} aria-hidden="true" />
         <button
           type="button"
@@ -39,7 +39,7 @@ export function ArchiveReaderControls({
         >
           <Minus size={12} strokeWidth={1.9} aria-hidden="true" />
         </button>
-        <output aria-live="polite" aria-atomic="true" className="w-6 text-center" style={{ color: 'rgb(var(--tj-tech-cyan))' }}>
+        <output aria-live="polite" aria-atomic="true" className="w-6 text-center" style={{ color: 'var(--tn-signal)' }}>
           {fontSize}
         </output>
         <button
@@ -56,7 +56,7 @@ export function ArchiveReaderControls({
       {onRefresh && (
         <button
           type="button"
-          className="zj-chip"
+          className="tn-chip"
           data-refresh-status={refreshStatus}
           onClick={onRefresh}
           disabled={refreshStatus === 'loading'}
@@ -64,7 +64,7 @@ export function ArchiveReaderControls({
           aria-busy={refreshStatus === 'loading'}
           title={REFRESH_LABELS[refreshStatus]}
         >
-          <RefreshCw size={12} strokeWidth={1.8} aria-hidden="true" className={refreshStatus === 'loading' ? 'zj-spin' : undefined} />
+          <RefreshCw size={12} strokeWidth={1.8} aria-hidden="true" className={refreshStatus === 'loading' ? 'zn-spin' : undefined} />
           {REFRESH_LABELS[refreshStatus]}
         </button>
       )}

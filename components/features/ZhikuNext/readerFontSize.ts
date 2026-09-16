@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { devLogError } from '@/utils/devLog';
 
 export const ZHIKU_READER_FONT_SIZE_MIN = 14;
 export const ZHIKU_READER_FONT_SIZE_MAX = 24;
@@ -16,13 +17,14 @@ function readStoredReaderFontSize(): number {
   try {
     const stored = window.localStorage.getItem(ZHIKU_READER_FONT_SIZE_STORAGE_KEY);
     return stored === null ? ZHIKU_READER_FONT_SIZE_DEFAULT : clampZhikuReaderFontSize(Number(stored));
-  } catch {
+  } catch (error) {
+    devLogError('ui', 'zhiku-reader-fontsize-read-failed', error);
     return ZHIKU_READER_FONT_SIZE_DEFAULT;
   }
 }
 
 export function buildZhikuReaderStyle(fontSize: number): CSSProperties {
-  return { fontSize: `${clampZhikuReaderFontSize(fontSize)}px`, lineHeight: 2 };
+  return { fontSize: `${clampZhikuReaderFontSize(fontSize)}px` };
 }
 
 export function useZhikuReaderFontSize() {
@@ -31,7 +33,9 @@ export function useZhikuReaderFontSize() {
   useEffect(() => {
     try {
       window.localStorage.setItem(ZHIKU_READER_FONT_SIZE_STORAGE_KEY, String(fontSize));
-    } catch {
+    } catch (error) {
+      // 存储不可用（隐私模式 / 配额溢出）时放弃持久化，阅读体验不受影响。
+      devLogError('ui', 'zhiku-reader-fontsize-write-failed', error, { fontSize });
     }
   }, [fontSize]);
 

@@ -28,7 +28,8 @@ export function ZhikuManagerModal({
 }: Props) {
   return (
     <div
-      className="fixed inset-0 z-[100] min-h-0 min-w-0 overflow-hidden bg-[#090c0f]"
+      className="fixed inset-0 z-[100] min-h-0 min-w-0 overflow-hidden"
+      style={{ background: 'var(--tn-bg)' }}
       role="dialog"
       aria-modal="true"
       aria-label="智库"
@@ -42,6 +43,7 @@ export function ZhikuManagerModal({
         onZhikuMigration={onZhikuMigration}
         onClose={onClose}
         catalogStatus={catalogStatus}
+        surface="home"
       />
     </div>
   );

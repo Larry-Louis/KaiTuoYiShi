@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, Lock } from 'lucide-react';
 import { useState } from 'react';
 import type { ZhikuArchiveChapter, ZhikuArchiveChapterStatus, ZhikuArchiveVolume } from '@/services/zhikuArchive';
-import { ArchiveProse } from './ArchiveProse';
+import { Prose } from './prose';
 import { buildZhikuReaderStyle } from './readerFontSize';
+import { EmptyState } from './fields';
 
-interface ArchiveStoryViewProps {
+interface StoryReaderProps {
   volumes: ZhikuArchiveVolume[];
   fontSize: number;
 }
@@ -32,7 +33,7 @@ function getAvailableSibling(
   return undefined;
 }
 
-export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
+export function StoryReader({ volumes, fontSize }: StoryReaderProps) {
   const [selectedChapterId, setSelectedChapterId] = useState('');
   const [expandedVolumeId, setExpandedVolumeId] = useState('');
 
@@ -55,11 +56,11 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
   };
 
   return (
-    <div className="zj-view" data-archive-state={hasChapters ? 'ready' : 'empty'}>
-      <div className="zj-view__body" data-wide="true">
-        <div className="zj-index" aria-label="剧情卷宗与章节目录">
+    <div className="zn-view" data-archive-state={hasChapters ? 'ready' : 'empty'}>
+      <div className="zn-view__body" data-wide="true">
+        <div className="zn-index tn-scroll" aria-label="剧情卷宗与章节目录">
           {volumes.length === 0 ? (
-            <div className="zj-empty"><strong>暂无卷宗</strong><span>剧情尚未归档</span></div>
+            <EmptyState title="暂无卷宗" hint="剧情尚未归档" />
           ) : (
             volumes.map((volume) => {
               const volumeLocked = Boolean(volume.locked);
@@ -67,10 +68,10 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
               const volumeReadCount = volume.chapters.filter((chapter) => chapter.status === 'read' || chapter.status === 'current').length;
               const volumeProgress = volume.chapters.length ? Math.round((volumeReadCount / volume.chapters.length) * 100) : 0;
               return (
-                <section key={volume.id} className="zj-volume" data-locked={volumeLocked ? 'true' : 'false'}>
+                <section key={volume.id} className="zn-volume">
                   <button
                     type="button"
-                    className="zj-volume__head"
+                    className="zn-volume__head"
                     disabled={volumeLocked}
                     aria-expanded={volumeActive}
                     aria-label={volumeLocked ? `${volume.title}，尚未解锁` : `打开卷宗：${volume.title}`}
@@ -79,14 +80,14 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
                       selectChapter(getInitialChapter(volume));
                     }}
                   >
-                    <span style={{ color: volumeActive ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-btn-primary-start), 0.7)' }}>
+                    <span style={{ color: volumeActive ? 'var(--tn-accent)' : 'var(--tn-text-faint)' }}>
                       {volumeLocked ? <Lock size={14} strokeWidth={1.5} aria-hidden="true" /> : <FileText size={14} strokeWidth={1.5} aria-hidden="true" />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="zj-volume__title">{volumeLocked ? '未解锁卷宗' : volume.title}</span>
-                      <span className="zj-volume__sub">{volumeLocked ? '档案尚未开放' : `${volume.number} · ${volume.subtitle ?? `${volume.chapters.length} 个章节`}`}</span>
+                      <span className="zn-volume__title">{volumeLocked ? '未解锁卷宗' : volume.title}</span>
+                      <span className="zn-volume__sub">{volumeLocked ? '档案尚未开放' : `${volume.number} · ${volume.subtitle ?? `${volume.chapters.length} 个章节`}`}</span>
                     </span>
-                    {!volumeLocked && <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" className={volumeActive ? 'rotate-180 transition-transform' : 'transition-transform'} style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }} />}
+                    {!volumeLocked && <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" className={volumeActive ? 'rotate-180 transition-transform' : 'transition-transform'} style={{ color: 'var(--tn-text-faint)' }} />}
                   </button>
                   {volumeActive && !volumeLocked && (
                     <>
@@ -99,7 +100,7 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
                             <li key={chapter.id}>
                               <button
                                 type="button"
-                                className="zj-chapter"
+                                className="zn-chapter"
                                 data-status={chapter.status}
                                 data-active={active ? 'true' : 'false'}
                                 data-chapter-id={chapter.id}
@@ -108,19 +109,19 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
                                 aria-label={locked ? `${chapter.number}，尚未解锁` : `阅读${chapter.number}：${chapter.title}`}
                                 onClick={() => selectChapter(chapter)}
                               >
-                                <span className="zj-chapter__title">{locked ? '未解锁章节' : `${chapter.number} ${chapter.title}`}</span>
-                                <span className="zj-chapter__status">{status.glyph} {status.label}</span>
+                                <span className="zn-chapter__title">{locked ? '未解锁章节' : `${chapter.number} ${chapter.title}`}</span>
+                                <span className="zn-chapter__status">{status.glyph} {status.label}</span>
                               </button>
                             </li>
                           );
                         })}
                       </ol>
-                      <div className="zj-progress">
-                        <div className="flex items-center justify-between text-[10px] font-mono" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)', marginBottom: 6 }}>
+                      <div className="zn-progress">
+                        <div className="flex items-center justify-between text-[10px]" style={{ color: 'var(--tn-text-faint)', marginBottom: 6 }}>
                           <span>阅读进度</span>
                           <span>{String(volumeProgress).padStart(2, '0')}%</span>
                         </div>
-                        <div className="zj-progress__track"><i className="zj-progress__fill" style={{ width: `${volumeProgress}%` }} /></div>
+                        <div className="zn-progress__track"><i className="zn-progress__fill" style={{ width: `${volumeProgress}%` }} /></div>
                       </div>
                     </>
                   )}
@@ -130,25 +131,25 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
           )}
         </div>
 
-        <section className="zj-reader" aria-live="polite">
+        <section className="zn-reader" aria-live="polite">
           {selectedChapter && selectedVolume ? (
             <>
-              <header className="zj-reader__head">
-                <div className="zj-reader__kicker">STORY ARCHIVE // {selectedVolume.number}</div>
-                <h2 className="zj-reader__title">{selectedVolume.title}</h2>
-                <div className="zj-reader__meta">
+              <header className="zn-reader__head">
+                <div className="tn-kicker">STORY ARCHIVE // {selectedVolume.number}</div>
+                <h2 className="zn-reader__title">{selectedVolume.title}</h2>
+                <div className="zn-reader__meta">
                   <span>{selectedChapter.number}</span>
                   <span>{selectedChapter.category ?? '剧情章节'}</span>
                   {selectedChapter.location && <span>地点：{selectedChapter.location}</span>}
                   {selectedChapter.timeLabel && <span>时间：{selectedChapter.timeLabel}</span>}
                 </div>
               </header>
-              <div className="zj-reader__scroll" style={buildZhikuReaderStyle(fontSize)}>
-                <ArchiveProse
+              <div className="zn-reader__scroll tn-scroll" style={buildZhikuReaderStyle(fontSize)}>
+                <Prose
                   source={selectedChapter.body}
                   dropCap
                   footer={
-                    <nav className="zj-chapter-nav" aria-label="章节切换">
+                    <nav className="zn-chapter-nav" aria-label="章节切换">
                       <button
                         type="button"
                         disabled={!previousChapter}
@@ -179,10 +180,7 @@ export function ArchiveStoryView({ volumes, fontSize }: ArchiveStoryViewProps) {
               </div>
             </>
           ) : (
-            <div className="zj-empty" data-archive-state="empty">
-              <strong>暂无可阅读章节</strong>
-              <span>故事尚未归档</span>
-            </div>
+            <EmptyState title="暂无可阅读章节" hint="故事尚未归档" />
           )}
         </section>
       </div>

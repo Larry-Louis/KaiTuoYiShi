@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { InjectionContentFields } from '@/components/features/GameSystems/zhiku/injectionContent';
-import { ZhikuPanel } from '@/components/features/GameSystems/ZhikuPanel';
+import { InjectionContentFields } from '@/components/features/ZhikuNext/injectionContent';
+import { CustomWorkspace } from '@/components/features/ZhikuNext/customWorkspace';
 import type { 智库系统 } from '@/models/zhiku';
 import { 创建智库条目, 归一化智库系统 } from '@/models/zhiku';
-import { 创建默认智库系统设置 } from '@/models/settings';
 
 const LORE_FIELDS = ['核心定义', '关键事实', '叙事用途', '演绎边界'] as const;
 const CHARACTER_FIELDS = [
@@ -75,7 +74,7 @@ describe('InjectionContentFields', () => {
   });
 });
 
-describe('ZhikuPanel 自制条目保存硬门禁', () => {
+describe('CustomWorkspace 自制条目保存硬门禁', () => {
   const bundledEntry = 创建智库条目({
     标题: '内置术语',
     分类: 'term',
@@ -83,30 +82,26 @@ describe('ZhikuPanel 自制条目保存硬门禁', () => {
     builtin: true,
   });
 
-  const renderPanel = () => {
+  const renderWorkspace = () => {
     const onZhikuSystemChange = vi.fn();
     const onSaveZhikuSystem = vi.fn(() => Promise.resolve());
-    const onZhikuMigration = vi.fn(() => Promise.reject(new Error('unused')));
-    const view = render(
-      <ZhikuPanel
+    render(
+      <CustomWorkspace
         zhikuSystem={归一化智库系统({ 条目: [bundledEntry] })}
         onZhikuSystemChange={onZhikuSystemChange}
-        settings={创建默认智库系统设置()}
         onSaveZhikuSystem={onSaveZhikuSystem}
-        onZhikuMigration={onZhikuMigration}
       />,
     );
-    return { view, onZhikuSystemChange, onSaveZhikuSystem };
+    return { onZhikuSystemChange, onSaveZhikuSystem };
   };
 
   const openComposer = async () => {
-    fireEvent.click(screen.getByRole('button', { name: '自制' }));
-    const write = await screen.findByText('WRITE');
+    const write = await screen.findByRole('button', { name: '写入档案' });
     return write as unknown as HTMLButtonElement;
   };
 
   it('注入内容为空的自制条目必须显示错误并且不进入保存', async () => {
-    const { view, onZhikuSystemChange, onSaveZhikuSystem } = renderPanel();
+    const { onZhikuSystemChange, onSaveZhikuSystem } = renderWorkspace();
     const write = await openComposer();
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '自制术语条目' } });
@@ -119,11 +114,10 @@ describe('ZhikuPanel 自制条目保存硬门禁', () => {
     expect(onSaveZhikuSystem).not.toHaveBeenCalled();
     expect(onZhikuSystemChange).not.toHaveBeenCalled();
     expect(screen.getByLabelText('标题')).toBeInTheDocument();
-    view.unmount();
   });
 
   it('注入内容齐全的自制条目可以保存并持久化', async () => {
-    const { onZhikuSystemChange, onSaveZhikuSystem } = renderPanel();
+    const { onZhikuSystemChange, onSaveZhikuSystem } = renderWorkspace();
     await openComposer();
 
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: '自制术语条目' } });
@@ -137,7 +131,7 @@ describe('ZhikuPanel 自制条目保存硬门禁', () => {
       fireEvent.change(screen.getByLabelText(field), { target: { value } });
     }
     fireEvent.change(screen.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
-    fireEvent.click(screen.getByText('WRITE'));
+    fireEvent.click(screen.getByRole('button', { name: '写入档案' }));
 
     await waitFor(() => expect(onSaveZhikuSystem).toHaveBeenCalledTimes(1));
     expect(onZhikuSystemChange).toHaveBeenCalled();

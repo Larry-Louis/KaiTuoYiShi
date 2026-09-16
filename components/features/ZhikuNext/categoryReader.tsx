@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { ResilientImage } from '@/components/ui/ResilientImage';
 import type { ZhikuArchiveCategoryId, ZhikuArchiveItem } from '@/services/zhikuArchive';
 import { buildZhikuReaderStyle } from './readerFontSize';
-import { ArchiveProse } from './ArchiveProse';
+import { Prose } from './prose';
+import { EmptyState } from './fields';
 
-interface ArchiveCategoryViewProps {
+interface CategoryReaderProps {
   category: { id: ZhikuArchiveCategoryId; label: string };
   items: ZhikuArchiveItem[];
   fontSize: number;
@@ -15,7 +16,7 @@ type ReadingPane = 'archive' | 'injection';
 
 const formatSequence = (index: number): string => String(index + 1).padStart(2, '0');
 
-export function ArchiveCategoryView({ category, items, fontSize }: ArchiveCategoryViewProps) {
+export function CategoryReader({ category, items, fontSize }: CategoryReaderProps) {
   const [selectedItemId, setSelectedItemId] = useState('');
   const [selectedVariantId, setSelectedVariantId] = useState('');
   const [pane, setPane] = useState<ReadingPane>('archive');
@@ -26,11 +27,11 @@ export function ArchiveCategoryView({ category, items, fontSize }: ArchiveCatego
   const injectionPreview = (selectedVariant?.injectionPreview ?? selectedItem?.injectionPreview ?? '').trim();
 
   return (
-    <div className="zj-view" data-archive-state={items.length ? 'ready' : 'empty'}>
-      <div className="zj-view__body">
-        <div className="zj-index" aria-label={`${category.label}列表`}>
+    <div className="zn-view" data-archive-state={items.length ? 'ready' : 'empty'}>
+      <div className="zn-view__body">
+        <div className="zn-index tn-scroll" aria-label={`${category.label}列表`}>
           {items.length === 0 ? (
-            <div className="zj-empty"><strong>暂无档案</strong><span>当前分类没有玩家可见资料</span></div>
+            <EmptyState title="暂无档案" hint="当前分类没有玩家可见资料" />
           ) : (
             items.map((item, index) => {
               const active = item.id === selectedItem?.id;
@@ -38,7 +39,7 @@ export function ArchiveCategoryView({ category, items, fontSize }: ArchiveCatego
                 <button
                   key={item.id}
                   type="button"
-                  className="zj-index__item"
+                  className="zn-index__item"
                   data-active={active ? 'true' : 'false'}
                   data-item-id={item.id}
                   aria-pressed={active}
@@ -49,56 +50,57 @@ export function ArchiveCategoryView({ category, items, fontSize }: ArchiveCatego
                     setPane('archive');
                   }}
                 >
-                  <span className="zj-index__seq">{formatSequence(index)}</span>
+                  <span className="zn-index__seq">{formatSequence(index)}</span>
                   {category.id === 'character' && (
-                    <span className="zj-index__avatar">
+                    <span className="zn-index__avatar">
                       {item.avatarSrc ? (
                         <ResilientImage src={item.avatarSrc} alt={item.avatarAlt ?? `${item.title}头像`} className="h-full w-full object-cover" draggable={false} />
                       ) : (
-                        <span className="grid h-full w-full place-items-center font-serif text-sm" style={{ color: 'rgba(var(--tj-accent-primary), 0.8)' }}>{item.title.slice(0, 1)}</span>
+                        <span className="grid h-full w-full place-items-center text-sm" style={{ color: 'var(--tn-accent)' }}>{item.title.slice(0, 1)}</span>
                       )}
                     </span>
                   )}
-                  <span className="zj-index__copy">
-                    <span className="zj-index__title">{item.title}</span>
-                    <span className="zj-index__meta">{item.subtitle ?? item.meta ?? category.label}</span>
+                  <span className="zn-index__copy">
+                    <span className="zn-index__title">{item.title}</span>
+                    <span className="zn-index__meta">{item.subtitle ?? item.meta ?? category.label}</span>
                   </span>
-                  <ChevronRight size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }} />
+                  {!item.builtin && <span className="zn-index__badge">自制</span>}
+                  <ChevronRight size={13} strokeWidth={1.5} aria-hidden="true" style={{ color: 'var(--tn-text-faint)' }} />
                 </button>
               );
             })
           )}
         </div>
 
-        <section className="zj-reader" aria-live="polite">
+        <section className="zn-reader" aria-live="polite">
           {selectedItem ? (
             <>
-              <header className="zj-reader__head">
-                <div className="zj-reader__kicker">
+              <header className="zn-reader__head">
+                <div className="tn-kicker">
                   {category.id.toUpperCase()} // {formatSequence(items.findIndex((item) => item.id === selectedItem.id))}
                 </div>
-                <h2 className="zj-reader__title">{selectedItem.title}</h2>
-                <div className="zj-reader__meta">
+                <h2 className="zn-reader__title">{selectedItem.title}</h2>
+                <div className="zn-reader__meta">
                   <span>{selectedItem.meta ?? '已收录档案'}</span>
                   {selectedItem.subtitle && <span>{selectedItem.subtitle}</span>}
                   <span>{keywords.length} 个关键词</span>
                 </div>
-                <div className="zj-tabs" role="tablist" aria-label="档案内容视图">
-                  <button type="button" role="tab" className="zj-tab" aria-selected={pane === 'archive'} onClick={() => setPane('archive')}>
+                <div className="zn-tabs" role="tablist" aria-label="档案内容视图">
+                  <button type="button" role="tab" className="zn-tab" aria-selected={pane === 'archive'} onClick={() => setPane('archive')}>
                     档案预览
                   </button>
-                  <button type="button" role="tab" className="zj-tab" aria-selected={pane === 'injection'} onClick={() => setPane('injection')}>
+                  <button type="button" role="tab" className="zn-tab" aria-selected={pane === 'injection'} onClick={() => setPane('injection')}>
                     注入内容
                   </button>
                 </div>
                 {variants.length > 1 && (
-                  <div className="zj-variants" role="tablist" aria-label="选择档案形态">
+                  <div className="zn-variants" role="tablist" aria-label="选择档案形态">
                     {variants.map((variant) => (
                       <button
                         key={variant.id}
                         type="button"
                         role="tab"
-                        className="zj-variant"
+                        className="zn-variant"
                         aria-selected={variant.id === selectedVariant?.id}
                         onClick={() => setSelectedVariantId(variant.id)}
                       >
@@ -108,32 +110,29 @@ export function ArchiveCategoryView({ category, items, fontSize }: ArchiveCatego
                   </div>
                 )}
               </header>
-              <div className="zj-reader__scroll" role="tabpanel" aria-label="档案正文" style={buildZhikuReaderStyle(fontSize)}>
+              <div className="zn-reader__scroll tn-scroll" role="tabpanel" aria-label="档案正文" style={buildZhikuReaderStyle(fontSize)}>
                 {pane === 'archive' ? (
-                  <ArchiveProse source={selectedVariant?.body || selectedItem.body} />
+                  <Prose source={selectedVariant?.body || selectedItem.body} />
                 ) : (
                   <>
                     {keywords.length > 0 && (
-                      <div className="zj-keywords">
+                      <div className="zn-keywords">
                         {keywords.map((keyword, index) => (
-                          <span key={`${keyword}-${index}`} className="zj-keyword">{keyword}</span>
+                          <span key={`${keyword}-${index}`} className="zn-keyword">{keyword}</span>
                         ))}
                       </div>
                     )}
                     {injectionPreview ? (
-                      <pre className="zj-terminal">{injectionPreview}</pre>
+                      <pre className="zn-terminal">{injectionPreview}</pre>
                     ) : (
-                      <p style={{ color: 'rgba(var(--tj-text-secondary), 0.74)', fontSize: 12 }}>暂无可注入内容</p>
+                      <p style={{ color: 'var(--tn-text-faint)', fontSize: 12 }}>暂无可注入内容</p>
                     )}
                   </>
                 )}
               </div>
             </>
           ) : (
-            <div className="zj-empty" data-archive-state="empty">
-              <strong>暂无可阅读档案</strong>
-              <span>当前没有玩家可见资料</span>
-            </div>
+            <EmptyState title="暂无可阅读档案" hint="当前没有玩家可见资料" />
           )}
         </section>
       </div>

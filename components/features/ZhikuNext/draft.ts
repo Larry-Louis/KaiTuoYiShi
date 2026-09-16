@@ -1,29 +1,6 @@
 import type { 智库分类, 智库注入内容 } from '@/models/zhiku';
 import { 创建空智库注入内容 } from '@/models/zhiku';
 
-export type Bucket = 'all' | 'builtin' | 'custom';
-
-export { badgeClip as cardClip, mediumClip as smallClip } from '@/components/ui/clipPaths';
-
-export const categories: 智库分类[] = ['story', 'character', 'location', 'faction', 'term', 'event'];
-
-export const categoryDescriptions: Record<智库分类, string> = {
-  story: '主线 / 支线 / 续闻',
-  character: '角色 / NPC / 称呼',
-  npc: '常驻 NPC / 路人 / 联动对象',
-  location: '星球 / 区域 / 场所',
-  item: '道具 / 装备 / 遗物',
-  faction: '组织 / 立场 / 动向',
-  term: '命途 / 星神 / 专有名词',
-  event: '事件 / 历史 / 新闻苗头',
-  enemy: '敌对首领 / 强敌档案',
-  system: '项目规则 / 调用规范',
-};
-
-export const zhikuScopeOptions = ['主剧情', '手机', '新闻', '变量参考', '剧情编织', '通用', '只读'];
-
-export const isDevBuild = typeof import.meta !== 'undefined' && Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
-
 export type Draft = {
   标题: string; 分类: 智库分类; 来源: string; 关键词: string; 资料类型: string;
   关联角色ID: string; 关联形态ID: string; 解锁状态: string; 剧透等级: string;

@@ -5,9 +5,9 @@ import { 获取智库人物名列表, 获取智库显式触发词, 比较智库�
 import type { 智库治理分类 } from '@/models/zhikuGovernance';
 import { buildZhikuEntryInjectionPreview } from '@/services/zhikuRetrieval';
 
-export type ZhikuArchiveCategoryId = 'character' | 'story' | 'location' | 'faction' | 'event' | 'term';
+export type ZhikuArchiveCategoryId = 'character' | 'story' | 'location' | 'faction' | 'event' | 'term' | 'custom';
 
-export type ZhikuArchiveLoreCategoryId = Exclude<ZhikuArchiveCategoryId, 'story'>;
+export type ZhikuArchiveLoreCategoryId = Exclude<ZhikuArchiveCategoryId, 'story' | 'custom'>;
 
 export type ZhikuArchiveChapterStatus = 'read' | 'current' | 'unread' | 'locked';
 
@@ -37,6 +37,7 @@ export interface ZhikuArchiveItem {
   variants?: ZhikuArchiveVariant[];
   avatarSrc?: string;
   avatarAlt?: string;
+  builtin: boolean;
 }
 
 export interface ZhikuArchiveChapter {
@@ -50,6 +51,7 @@ export interface ZhikuArchiveChapter {
   summary?: string;
   body: string;
   status: ZhikuArchiveChapterStatus;
+  builtin: boolean;
 }
 
 export interface ZhikuArchiveVolume {
@@ -63,7 +65,7 @@ export interface ZhikuArchiveVolume {
 
 export interface ZhikuArchiveView {
   categories: ZhikuArchiveCategory[];
-  itemsByCategory: Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]>;
+  itemsByCategory: Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]> & { custom: ZhikuArchiveItem[] };
   volumes: ZhikuArchiveVolume[];
   itemCount: number;
   chapterCount: number;
@@ -76,6 +78,7 @@ const CATEGORY_DEFINITIONS: ReadonlyArray<Omit<ZhikuArchiveCategory, 'count'>> =
   { id: 'faction', label: '派系', description: '组织 / 立场 / 动向' },
   { id: 'event', label: '事件', description: '历史 / 编年 / 关键节点' },
   { id: 'term', label: '专有名词', description: '命途 / 星神 / 术语' },
+  { id: 'custom', label: '自制', description: '自制资料管理' },
 ];
 
 const LORE_CATEGORY_IDS: readonly ZhikuArchiveLoreCategoryId[] = [
@@ -91,13 +94,14 @@ const INTERNAL_ID_PATTERN = /^(?:[a-z][a-z0-9_-]*|[A-Z]{2}-\d{3})$/u;
 const ARCHIVED_STORY_STATES = new Set(['已经历', '已跳过', '已偏离']);
 const CHARACTER_VARIANT_ORDER = ['常态', '饮月', '腾荒'];
 
-function createEmptyItems(): Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]> {
+function createEmptyItems(): Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]> & { custom: ZhikuArchiveItem[] } {
   return {
     character: [],
     location: [],
     faction: [],
     event: [],
     term: [],
+    custom: [],
   };
 }
 
@@ -199,6 +203,7 @@ function toArchiveItem(
     body: entry.原文.trim() || entry.摘要.trim(),
     keywords: getZhikuArchiveEntryKeywords(entry),
     injectionPreview: buildZhikuEntryInjectionPreview(entry),
+    builtin: entry.builtin,
     ...(variants && variants.length > 1 ? { variants } : {}),
     ...(categoryId === 'character'
       ? {
@@ -209,7 +214,7 @@ function toArchiveItem(
   };
 }
 
-export function buildZhikuArchiveItems(system: 智库系统): Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]> {
+export function buildZhikuArchiveItems(system: 智库系统): Record<ZhikuArchiveLoreCategoryId, ZhikuArchiveItem[]> & { custom: ZhikuArchiveItem[] } {
   const result = createEmptyItems();
   const characterEntriesBySubject = new Map<string, 智库条目[]>();
 
@@ -225,16 +230,22 @@ export function buildZhikuArchiveItems(system: 智库系统): Record<ZhikuArchiv
       continue;
     }
     result[categoryId].push(toArchiveItem(entry, categoryId));
+    if (!entry.builtin) result.custom.push(toArchiveItem(entry, categoryId));
   }
 
   for (const entries of characterEntriesBySubject.values()) {
     const variants = entries.map(toArchiveVariant).sort(compareVariants);
     result.character.push(toArchiveItem(pickPrimaryCharacterEntry(entries), 'character', variants));
+    for (const entry of entries) {
+      if (entry.builtin) continue;
+      result.custom.push(toArchiveItem(entry, 'character'));
+    }
   }
 
   for (const categoryId of LORE_CATEGORY_IDS) {
     result[categoryId].sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'));
   }
+  result.custom.sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'));
   return result;
 }
 
@@ -297,6 +308,7 @@ function toStoryArchiveChapter(
     summary: segment?.本段概括.trim() || segment?.原文摘要.trim() || undefined,
     body: chapter.内容,
     status: getStoryChapterStatus(system, series, sequence, chapter.内容),
+    builtin: series.来源类型 !== 'custom',
   };
 }
 
@@ -348,6 +360,7 @@ function buildZhikuStoryVolumes(system: 智库系统 | undefined): ZhikuArchiveV
         summary: entry.摘要.trim() || undefined,
         body,
         status: body ? 'unread' : 'locked',
+        builtin: false,
       };
     });
     return {
