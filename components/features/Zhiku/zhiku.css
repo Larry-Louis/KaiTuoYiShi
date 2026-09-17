@@ -214,25 +214,32 @@
   height: 28px;
 }
 
-/* 手机顶栏的返回：屏幕上唯一的「上楼」动作，所以是白的、粗的、有体积的按钮，
-   而不是一个和工具图标长得一样的箭头。 */
+/* 手机顶栏的返回：使用规范的 36x36 尺寸与温暖的金色调，清晰自然。 */
 .zk-navback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   flex: none;
   padding: 0;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.09);
+  color: rgb(var(--zk-gold));
+  background: rgba(var(--zk-gold), 0.08);
   border: 1px solid var(--zk-hair-strong);
   border-radius: var(--zk-r-s);
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .zk-navback:hover {
-  background: rgba(255, 255, 255, 0.17);
+  background: rgba(var(--zk-gold), 0.2);
+  border-color: rgba(var(--zk-gold), 0.5);
+  color: #ffffff;
+  transform: translateX(-2px);
+}
+
+.zk-navback:active {
+  transform: translateX(-3px) scale(0.96);
 }
 
 /* 顶栏的当前位置：总览时是「智库」，进了分类或条目就换成那一层的名字。 */
@@ -630,49 +637,49 @@
 
 .zk-gauge {
   display: flex;
-  align-items: stretch;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
   width: 100%;
-  padding: 14px 14px 14px 8px;
+  padding: 14px 14px 14px 12px;
   text-align: left;
   background: transparent;
-  border: 0;
   border-bottom: 1px solid var(--zk-hair);
   color: inherit;
   font-family: inherit;
-  cursor: pointer;
   flex: none;
 }
 
-.zk-gauge:hover {
-  background: rgba(var(--zk-gold), 0.05);
-}
-
-/* 返回是全屏界面唯一的「上楼」动作：一支撑满高度的白色折角，高瘦而不是粗宽。
-   用 SVG 而不是字符，才能在不改变线宽的前提下把高度拉到与读数条齐平。 */
+/* 返回总览按钮：规范的 36x36 方形按钮，遵循通用实践并融入星轨暖金视觉 */
 .zk-gauge__back {
-  display: grid;
-  place-items: center;
-  width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   flex: none;
-  align-self: center;
-  padding: 6px 0;
+  padding: 0;
   border-radius: var(--zk-r-s);
+  color: rgb(var(--zk-gold));
+  background: rgba(var(--zk-gold), 0.08);
+  border: 1px solid var(--zk-hair-strong);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.zk-gauge__back:hover {
+  background: rgba(var(--zk-gold), 0.2);
+  border-color: rgba(var(--zk-gold), 0.5);
   color: #ffffff;
-  transition: background 140ms linear, color 140ms linear, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(-2px);
 }
 
-/* 等比缩放到 20×46：够高够白，但夹角仍然是能读出来的箭头，不是一根细线。 */
-.zk-gauge__back svg {
-  width: 20px;
-  height: 46px;
-  display: block;
-  overflow: visible;
+.zk-gauge__back:active {
+  transform: translateX(-3px) scale(0.96);
 }
 
-.zk-gauge:hover .zk-gauge__back {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateX(-3px);
+.zk-gauge__back:focus-visible {
+  outline: 2px solid rgb(var(--zk-gold));
+  outline-offset: 2px;
 }
 
 .zk-gauge__body {
@@ -1092,8 +1099,17 @@
   max-width: 68ch;
   line-height: 1.95;
   color: var(--zk-text);
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.zk-prose > :first-child,
+.zk-prose > div > :first-child {
+  margin-top: 0 !important;
+}
+
+.zk-prose > :last-child,
+.zk-prose > div > :last-child {
+  margin-bottom: 0 !important;
 }
 
 .zk-prose--dropcap::first-letter {

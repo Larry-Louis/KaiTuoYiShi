@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { marked } from 'marked';
 
 /* 预设原文用的是「章节名独占一行 + 段落」的固定写法，不是通用 markdown。
    这份表是照着 162 条内置资料的层结构拟的，改动前先确认预设原文没换写法。 */
@@ -11,6 +12,7 @@ const SECTION_HEADINGS = new Set([
   '表现锚点层',
   '语料层',
   '写法指导',
+  '语料参考',
   '语料参考：',
   '能力与职责模块',
   '人物概要',
@@ -24,61 +26,63 @@ const SECTION_HEADINGS = new Set([
   '地图地点档案',
 ]);
 
-const VOICE_LABEL_PATTERN = /^(?:初次见面|问候|道别|关于|闲谈|爱好|烦恼|分享|见闻|危机|提醒)/u;
+const VOICE_LINE_PATTERN = /^(#{2,4})\s+(.+?)(?:\s*[：:])?\s+([「『“"].*)$/u;
 
-type ProseBlock =
-  | { kind: 'heading'; level: 3 | 4; text: string }
-  | { kind: 'list'; items: string[] }
-  | { kind: 'voice'; lines: string[] }
-  | { kind: 'paragraph'; text: string };
+function preprocessSource(raw: string): string {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  const processed: string[] = [];
 
-function formatVoiceLine(line: string): string {
-  const normalized = line.replace(/^#{2,4}\s+/u, '').trim();
-  if (!VOICE_LABEL_PATTERN.test(normalized)) return normalized;
-  const match = normalized.match(/^(.+?)\s+([「『“"][\s\S]*)$/u);
-  if (!match) return normalized;
-  const label = match[1].replace(/[：:]$/u, '').trimEnd();
-  return `${label} ：${match[2]}`;
-}
+  for (const line of lines) {
+    const trimmed = line.trim();
 
-function parseBlock(lines: string[]): ProseBlock {
-  if (lines.length === 1) {
-    const line = lines[0].trim();
-    const markdown = line.match(/^(#{2,4})\s+(.+)$/u);
-    if (markdown && !/[「『“"]/u.test(markdown[2])) {
-      return { kind: 'heading', level: markdown[1].length <= 2 ? 3 : 4, text: markdown[2].trim() };
+    if (!trimmed) {
+      processed.push('');
+      continue;
     }
-    if (SECTION_HEADINGS.has(line)) return { kind: 'heading', level: 3, text: line.replace(/：$/u, '') };
+
+    // 1. 特殊语音台词处理：例如 `### 初次见面 「...」` 或 `### 问候 ： 「...」`
+    // 拆成标题和台词正文，避免将整段引言塞在标题标签内
+    const voiceMatch = trimmed.match(VOICE_LINE_PATTERN);
+    if (voiceMatch) {
+      processed.push(`\n${voiceMatch[1]} ${voiceMatch[2].trim()}\n\n${voiceMatch[3].trim()}\n`);
+      continue;
+    }
+
+    // 2. 纯文本章节标题标准化（无 # 的章节名）：如 `基础识别`、`角色详情`、`常驻事实层`
+    const cleanHeading = trimmed.replace(/：$/u, '');
+    if (SECTION_HEADINGS.has(cleanHeading) || SECTION_HEADINGS.has(trimmed)) {
+      processed.push(`\n### ${cleanHeading}\n`);
+      continue;
+    }
+
+    // 3. Markdown 标题标准化：确保标题前后有空行，防止在单行换行时被识别为普通段落文本
+    const mdHeadingMatch = trimmed.match(/^(#{1,4})\s+(.+)$/u);
+    if (mdHeadingMatch) {
+      processed.push(`\n${mdHeadingMatch[1]} ${mdHeadingMatch[2].trim()}\n`);
+      continue;
+    }
+
+    processed.push(line);
   }
-  if (lines.every((line) => line.trim().startsWith('- '))) {
-    return { kind: 'list', items: lines.map((line) => line.trim().slice(2)) };
-  }
-  if (lines.length > 1 && lines.every((line) => /^#{3,4}\s+/u.test(line.trim()) && /[「『“"]/u.test(line))) {
-    return { kind: 'voice', lines };
-  }
-  return { kind: 'paragraph', text: lines.map((line) => line.trim()).join('\n') };
+
+  return processed.join('\n');
 }
 
-function renderBlock(block: ProseBlock, key: string, withDropCap: boolean): ReactNode {
-  if (block.kind === 'heading') {
-    const Heading = block.level === 3 ? 'h3' : 'h4';
-    return <Heading key={key}>{block.text}</Heading>;
-  }
-  if (block.kind === 'list') {
-    return (
-      <ul key={key}>
-        {block.items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-      </ul>
-    );
-  }
-  if (block.kind === 'voice') {
-    return <span key={key} style={{ display: 'contents' }}>{block.lines.map((line, index) => <p key={`${line}-${index}`}>{formatVoiceLine(line)}</p>)}</span>;
-  }
-  return <p key={key} className={withDropCap ? 'zk-prose--dropcap' : undefined}>{block.text}</p>;
+export interface ProseProps {
+  source: string;
+  dropCap?: boolean;
+  footer?: ReactNode;
 }
 
-export function Prose({ source, dropCap = false, footer }: { source: string; dropCap?: boolean; footer?: ReactNode }) {
+export function Prose({ source, dropCap = false, footer }: ProseProps) {
   const trimmed = source.trim();
+
+  const html = useMemo(() => {
+    if (!trimmed) return '';
+    const preprocessed = preprocessSource(trimmed);
+    return marked.parse(preprocessed, { gfm: true, breaks: true }) as string;
+  }, [trimmed]);
+
   if (!trimmed) {
     return (
       <div className="zk-prose">
@@ -86,14 +90,10 @@ export function Prose({ source, dropCap = false, footer }: { source: string; dro
       </div>
     );
   }
-  const blocks = trimmed
-    .split(/\n\s*\n/u)
-    .map((block) => block.split(/\r?\n/u).filter((line) => line.trim()))
-    .filter((block) => block.length > 0)
-    .map(parseBlock);
+
   return (
-    <div className="zk-prose">
-      {blocks.map((block, index) => renderBlock(block, `block-${index}`, dropCap && index === 0 && block.kind === 'paragraph'))}
+    <div className={`zk-prose${dropCap ? ' zk-prose--dropcap' : ''}`}>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
       {footer}
     </div>
   );

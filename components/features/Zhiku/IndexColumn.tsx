@@ -1,5 +1,6 @@
 import { motion, useReducedMotion, useSpring, useTransform } from 'motion/react';
 import { useEffect, type ReactNode } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import type { ZhikuArchiveCategoryId, ZhikuArchiveItem } from '@/services/zhikuArchive';
 import { Avatar } from './Avatar';
 
@@ -53,29 +54,17 @@ export function IndexColumn({
 
   return (
     <aside className="zk-index" aria-label="智库分类索引">
-      <button
-        type="button"
-        className="zk-gauge"
-        onClick={onSelectAll}
-        aria-label="返回总览"
-        title="返回总览"
-      >
-        {/* 高瘦的白色折角：返回必须一眼可见，而且是形状不是字符。
-            等比缩放而不是拉伸——纵向拉长会把夹角挤成一根细线。 */}
-        <span className="zk-gauge__back" aria-hidden="true">
-          <svg viewBox="0 0 20 48" preserveAspectRatio="xMidYMid meet" focusable="false">
-            <path
-              d="M14.5 5 L5.5 24 L14.5 43"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={3.2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
-        </span>
-        <span className="zk-gauge__body">
+      <div className="zk-gauge">
+        <button
+          type="button"
+          className="zk-gauge__back"
+          onClick={onSelectAll}
+          aria-label="返回总览"
+          title="返回总览"
+        >
+          <ChevronLeft size={18} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+        <div className="zk-gauge__body">
           <span className="zk-gauge__label">{active ? active.label : '全部资料'}</span>
           <RollingNumber className="zk-gauge__value" value={active?.count ?? itemCount} />
           <span className="zk-gauge__denom">
@@ -89,8 +78,8 @@ export function IndexColumn({
               transition={soft}
             />
           </span>
-        </span>
-      </button>
+        </div>
+      </div>
 
       {/* 缩小的总览常驻：无论读到多深，都能看见自己在整座档案库的哪一格。 */}
       <nav className="zk-mini" aria-label="智库分类">

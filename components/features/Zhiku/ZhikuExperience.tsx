@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowLeft, Minus, PenLine, Plus, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, Minus, PenLine, Plus, RefreshCw, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
@@ -44,22 +44,9 @@ const STACK_VARIANTS = {
   exit: (dir: number) => ({ x: dir > 0 ? '-100%' : '100%', opacity: 0 }),
 };
 
-/* 顶栏返回键：白、粗、高瘦，和索引栏那支折角是同一个记号。
-   用 SVG 而不是字符，才能在不变线宽的前提下把它拉到按钮该有的高度。 */
+/* 顶栏返回键：统一使用规范的 ChevronLeft 图标，比例匀称自然。 */
 function BackGlyph() {
-  return (
-    <svg viewBox="0 0 20 48" preserveAspectRatio="xMidYMid meet" width={17} height={28} focusable="false" aria-hidden="true">
-      <path
-        d="M14.5 5 L5.5 24 L14.5 43"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={3.6}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
+  return <ChevronLeft size={18} strokeWidth={2.2} aria-hidden="true" />;
 }
 
 export interface ZhikuExperienceProps {
@@ -261,10 +248,10 @@ export function ZhikuExperience({
   const railSwap = reduced
     ? { duration: 0 }
     : { type: 'spring' as const, stiffness: 420, damping: 34, mass: 0.5 };
-  /* 整屏横扫：两个房间同时位移，扫出与跳入是一次连贯的换场。 */
+  /* 整屏横扫：两个房间同时位移，扫出与跳入是一次连贯敏捷的换场。 */
   const sweep = reduced
     ? { duration: 0 }
-    : { type: 'spring' as const, stiffness: 260, damping: 34, mass: 0.9 };
+    : { type: 'spring' as const, stiffness: 380, damping: 32, mass: 0.5 };
 
   /* 工具跟着层走：总览上摆工作台与重载，正文里摆字号——一屏只给这一屏用得上的东西。 */
   const showWorkbench = !compact || view === 'custom' || compactLevel === 1;
@@ -413,6 +400,7 @@ export function ZhikuExperience({
             <motion.div
               key="custom"
               className="zk-room"
+              data-view="custom"
               initial={reduced ? { x: 0 } : { x: '100%' }}
               animate={{ x: 0 }}
               exit={reduced ? { x: 0 } : { x: '100%' }}

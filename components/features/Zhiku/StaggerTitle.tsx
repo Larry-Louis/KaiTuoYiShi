@@ -6,6 +6,35 @@ import { motion, useReducedMotion } from 'motion/react';
  * 逐字位移则是重新排版，每个字都是清晰的。
  * 无障碍与测试都走 aria-label 的可访问名，不依赖被拆开的文本节点。
  */
+const charVariants = {
+  initial: { opacity: 0, y: 22, scale: 0.86 },
+  animate: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      type: 'spring' as const,
+      stiffness: 440,
+      damping: 28,
+      mass: 0.5,
+      delay: Math.min(index * 0.028, 0.32),
+    },
+  }),
+  enter: { opacity: 0, y: 22, scale: 0.86 },
+  center: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      type: 'spring' as const,
+      stiffness: 440,
+      damping: 28,
+      mass: 0.5,
+      delay: Math.min(index * 0.028, 0.32),
+    },
+  }),
+};
+
 export function StaggerTitle({
   text,
   className,
@@ -16,32 +45,27 @@ export function StaggerTitle({
   as?: 'h1' | 'h2';
 }) {
   const reduced = useReducedMotion();
-  const MotionTag = Tag === 'h1' ? motion.h1 : motion.h2;
 
   if (reduced) {
     return <Tag className={className}>{text}</Tag>;
   }
 
   return (
-    <MotionTag className={className} aria-label={text}>
+    <Tag className={className} aria-label={text}>
       {Array.from(text).map((char, index) => (
         <motion.span
           key={`${char}-${index}`}
           aria-hidden="true"
           style={{ display: 'inline-block', whiteSpace: 'pre' }}
-          initial={{ opacity: 0, y: 22, scale: 0.86 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{
-            type: 'spring',
-            stiffness: 430,
-            damping: 30,
-            mass: 0.6,
-            delay: Math.min(index * 0.028, 0.32),
-          }}
+          custom={index}
+          variants={charVariants}
+          initial="initial"
+          animate="animate"
         >
           {char}
         </motion.span>
       ))}
-    </MotionTag>
+    </Tag>
   );
 }
+

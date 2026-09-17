@@ -3,6 +3,7 @@ import { ZHIKU_BUNDLED_ENTRY_COUNT } from '@/data/zhikuPreset';
 import type { ZhikuArchiveCategoryId, ZhikuArchiveItem, ZhikuArchiveVolume } from '@/services/zhikuArchive';
 import { Avatar } from './Avatar';
 import { RollingNumber } from './IndexColumn';
+import { StaggerTitle } from './StaggerTitle';
 
 type LoreCategory = Exclude<ZhikuArchiveCategoryId, 'custom'>;
 
@@ -33,7 +34,7 @@ export function Overview({ categories, itemsByCategory, volumes, onSelectCategor
     <div className="zk-overview">
       <header className="zk-overview__head">
         <div className="zk-overview__title-wrap">
-          <h1 className="zk-overview__title">智库</h1>
+          <StaggerTitle as="h1" text="智库" className="zk-overview__title" />
           <span className="zk-overview__subtitle">ARCHIVE DATABASE</span>
         </div>
         <p className="zk-overview__stat">
