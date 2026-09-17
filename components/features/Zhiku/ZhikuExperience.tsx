@@ -39,9 +39,9 @@ type StackLevel = 1 | 2 | 3;
  * 而上次的方向很可能是上一趟的，退场就会朝错的方向滑。custom 在退场时读的是当下这个值。
  */
 const STACK_VARIANTS = {
-  enter: (dir: number) => ({ x: dir > 0 ? '100%' : '-34%' }),
-  center: { x: 0 },
-  exit: (dir: number) => ({ x: dir > 0 ? '-34%' : '100%' }),
+  enter: (dir: number) => ({ x: dir > 0 ? '100%' : '-100%', opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? '-100%' : '100%', opacity: 0 }),
 };
 
 /* 顶栏返回键：白、粗、高瘦，和索引栏那支折角是同一个记号。
@@ -448,7 +448,7 @@ export function ZhikuExperience({
                 <div className="zk-stack">
                   <AnimatePresence initial={false} custom={stackDir}>
                     {compactLevel === 1 && (
-                      <motion.div key="stack-overview" {...stackPaneProps}>
+                      <motion.div key="stack-overview" {...stackPaneProps} data-stack-level="1">
                         <Overview
                           categories={categories}
                           itemsByCategory={archive.itemsByCategory}
@@ -459,7 +459,7 @@ export function ZhikuExperience({
                     )}
 
                     {compactLevel === 2 && (
-                      <motion.div key="stack-list" {...stackPaneProps} className="zk-stack__pane zk-stack__pane--panel">
+                      <motion.div key="stack-list" {...stackPaneProps} data-stack-level="2" className="zk-stack__pane zk-stack__pane--panel">
                         <div className="zk-listpane">
                           {category === 'story' ? (
                             <VolumeList
@@ -480,7 +480,7 @@ export function ZhikuExperience({
                     )}
 
                     {compactLevel === 3 && (
-                      <motion.div key="stack-reader" {...stackPaneProps} className="zk-stack__pane zk-stack__pane--panel">
+                      <motion.div key="stack-reader" {...stackPaneProps} data-stack-level="3" className="zk-stack__pane zk-stack__pane--panel">
                         {category === 'story' ? (
                           <ChapterReader
                             volumes={archive.volumes}

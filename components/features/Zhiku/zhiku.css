@@ -292,6 +292,18 @@
   min-height: 0;
 }
 
+.zk-stack__pane[data-stack-level='1'] {
+  z-index: 1;
+}
+
+.zk-stack__pane[data-stack-level='2'] {
+  z-index: 2;
+}
+
+.zk-stack__pane[data-stack-level='3'] {
+  z-index: 3;
+}
+
 /* 列表与正文是悬浮面板，四周留边；总览自带留白，不再套一层。 */
 .zk-stack__pane--panel {
   padding: 10px;

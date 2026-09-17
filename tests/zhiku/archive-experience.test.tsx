@@ -360,16 +360,19 @@ describe('移动端/紧凑屏幕单屏推进栈 (Mobile Drill-Down Stack)', () =
     // Level 1: 总览便当盒
     expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '返回总览' })).toBeNull();
+    expect(document.querySelector('.zk-stack__pane')).toHaveAttribute('data-stack-level', '1');
 
     // 点击分类 -> 进入 Level 2 列表
     fireEvent.click(openCategory('人物'));
     expect(screen.getByRole('button', { name: '返回总览' })).toBeInTheDocument();
     expect(screen.getByRole('listitem', { name: '阅读星' })).toBeInTheDocument();
+    expect(document.querySelector('.zk-stack__pane[data-stack-level="2"]')).toBeInTheDocument();
 
     // 点击条目 -> 进入 Level 3 阅读器
     fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
     expect(screen.getByText('星河旅人的档案正文内容')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回条目列表' })).toBeInTheDocument();
+    expect(document.querySelector('.zk-stack__pane[data-stack-level="3"]')).toBeInTheDocument();
 
     // 点击返回条目列表 -> 回到 Level 2
     fireEvent.click(screen.getByRole('button', { name: '返回条目列表' }));
