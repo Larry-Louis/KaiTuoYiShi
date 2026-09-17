@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+/* 预设原文用的是「章节名独占一行 + 段落」的固定写法，不是通用 markdown。
+   这份表是照着 162 条内置资料的层结构拟的，改动前先确认预设原文没换写法。 */
 const SECTION_HEADINGS = new Set([
   '基础识别',
   '角色详情',
@@ -72,13 +74,17 @@ function renderBlock(block: ProseBlock, key: string, withDropCap: boolean): Reac
   if (block.kind === 'voice') {
     return <span key={key} style={{ display: 'contents' }}>{block.lines.map((line, index) => <p key={`${line}-${index}`}>{formatVoiceLine(line)}</p>)}</span>;
   }
-  return <p key={key} className={withDropCap ? 'zn-dropcap' : undefined}>{block.text}</p>;
+  return <p key={key} className={withDropCap ? 'zk-prose--dropcap' : undefined}>{block.text}</p>;
 }
 
 export function Prose({ source, dropCap = false, footer }: { source: string; dropCap?: boolean; footer?: ReactNode }) {
   const trimmed = source.trim();
   if (!trimmed) {
-    return <div className="zn-prose"><p className="zn-prose__empty">该档案暂无可阅读正文。</p></div>;
+    return (
+      <div className="zk-prose">
+        <p style={{ color: 'var(--zk-faint)' }}>该档案暂无可阅读正文。</p>
+      </div>
+    );
   }
   const blocks = trimmed
     .split(/\n\s*\n/u)
@@ -86,7 +92,7 @@ export function Prose({ source, dropCap = false, footer }: { source: string; dro
     .filter((block) => block.length > 0)
     .map(parseBlock);
   return (
-    <div className="zn-prose">
+    <div className="zk-prose">
       {blocks.map((block, index) => renderBlock(block, `block-${index}`, dropCap && index === 0 && block.kind === 'paragraph'))}
       {footer}
     </div>

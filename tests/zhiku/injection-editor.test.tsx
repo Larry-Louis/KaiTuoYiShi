@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { InjectionContentFields } from '@/components/features/ZhikuNext/injectionContent';
-import { CustomWorkspace } from '@/components/features/ZhikuNext/customWorkspace';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { InjectionContentFields } from '@/components/features/Zhiku/injectionContent';
+import { CustomWorkspace } from '@/components/features/Zhiku/CustomWorkspace';
 import type { 智库系统 } from '@/models/zhiku';
 import { 创建智库条目, 归一化智库系统 } from '@/models/zhiku';
 
@@ -82,6 +82,16 @@ describe('CustomWorkspace 自制条目保存硬门禁', () => {
     builtin: true,
   });
 
+  /**
+   * 右侧编辑器面板和左侧新建面板用的是同一批字段标签（标题/分类/原文/注入字段），
+   * 所以新建相关操作一律限定在 `data-side="composer"` 的新建面板里。
+   */
+  const composerOf = (): HTMLElement => {
+    const node = document.querySelector('[data-side="composer"]');
+    if (!(node instanceof HTMLElement)) throw new Error('missing composer panel');
+    return node;
+  };
+
   const renderWorkspace = () => {
     const onZhikuSystemChange = vi.fn();
     const onSaveZhikuSystem = vi.fn(() => Promise.resolve());
@@ -103,34 +113,36 @@ describe('CustomWorkspace 自制条目保存硬门禁', () => {
   it('注入内容为空的自制条目必须显示错误并且不进入保存', async () => {
     const { onZhikuSystemChange, onSaveZhikuSystem } = renderWorkspace();
     const write = await openComposer();
+    const composer = within(composerOf());
 
-    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '自制术语条目' } });
-    fireEvent.change(screen.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
-    fireEvent.change(screen.getByLabelText('分类'), { target: { value: 'term' } });
+    fireEvent.change(composer.getByLabelText('标题'), { target: { value: '自制术语条目' } });
+    fireEvent.change(composer.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
+    fireEvent.change(composer.getByLabelText('分类'), { target: { value: 'term' } });
     if (!write.disabled) {
       fireEvent.click(write);
     }
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(onSaveZhikuSystem).not.toHaveBeenCalled();
     expect(onZhikuSystemChange).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('标题')).toBeInTheDocument();
+    expect(composer.getByLabelText('标题')).toBeInTheDocument();
   });
 
   it('注入内容齐全的自制条目可以保存并持久化', async () => {
     const { onZhikuSystemChange, onSaveZhikuSystem } = renderWorkspace();
     await openComposer();
+    const composer = within(composerOf());
 
-    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '自制术语条目' } });
-    fireEvent.change(screen.getByLabelText('分类'), { target: { value: 'term' } });
+    fireEvent.change(composer.getByLabelText('标题'), { target: { value: '自制术语条目' } });
+    fireEvent.change(composer.getByLabelText('分类'), { target: { value: 'term' } });
     for (const [field, value] of [
       ['核心定义', '核心定义内容。'],
       ['关键事实', '关键事实内容。'],
       ['叙事用途', '叙事用途内容。'],
       ['演绎边界', '演绎边界内容。'],
     ] as const) {
-      fireEvent.change(screen.getByLabelText(field), { target: { value } });
+      fireEvent.change(composer.getByLabelText(field), { target: { value } });
     }
-    fireEvent.change(screen.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
+    fireEvent.change(composer.getByLabelText('原文'), { target: { value: '自制条目的正文内容足够长。' } });
     fireEvent.click(screen.getByRole('button', { name: '写入档案' }));
 
     await waitFor(() => expect(onSaveZhikuSystem).toHaveBeenCalledTimes(1));

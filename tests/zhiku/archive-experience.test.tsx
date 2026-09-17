@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { ZhikuNextExperience } from '@/components/features/ZhikuNext/ZhikuNextExperience';
+import { ZhikuExperience } from '@/components/features/Zhiku/ZhikuExperience';
 import { 归一化剧情编织系列, 归一化剧情编织系统 } from '@/models/storyWeaving';
 import { 创建空智库系统, 创建智库条目, 归一化智库系统 } from '@/models/zhiku';
 import type { 智库系统 } from '@/models/zhiku';
@@ -39,6 +39,9 @@ const waitForRefreshStatus = async (status: string) => {
     expect(getRefreshButton()).toHaveAttribute('data-refresh-status', status);
   });
 };
+
+/** 分类格子 / 迷你格子的可访问名是「展开{分类}，{计数}」或（当前分类）「收起{分类}，返回总览」。 */
+const openCategory = (label: string) => screen.getByRole('button', { name: new RegExp(`^展开${label}，`) });
 
 const baseCharacterEntry = 创建智库条目({
   标题: '星｜常态',
@@ -114,14 +117,14 @@ const defaultProps = {
   onClose: vi.fn(),
 };
 
-type ArchiveProps = Parameters<typeof ZhikuNextExperience>[0];
+type ArchiveProps = Parameters<typeof ZhikuExperience>[0];
 
 function renderArchive(overrides?: Partial<ArchiveProps>) {
   const props: ArchiveProps = {
     ...(defaultProps as unknown as ArchiveProps),
     ...overrides,
   };
-  const view = render(<ZhikuNextExperience {...props} />);
+  const view = render(<ZhikuExperience {...props} />);
   return { view, props };
 }
 
@@ -130,46 +133,47 @@ beforeEach(() => {
   getStorage().removeItem(FONT_SIZE_STORAGE_KEY);
 });
 
-describe('智库档案大厅', () => {
-  it('分类节点以按钮形式呈现，点击人物进入档案并阅读正文，返回回到大厅', () => {
+describe('智库档案总览', () => {
+  it('分类格子以按钮形式呈现，点击人物进入档案并阅读正文，返回总览收起索引', () => {
     renderArchive();
 
-    expect(screen.getByRole('button', { name: /^人物，/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^剧情档案，/ })).toBeInTheDocument();
+    expect(openCategory('人物')).toBeInTheDocument();
+    expect(openCategory('剧情档案')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^人物，/ }));
-    expect(screen.getByLabelText('人物列表')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '阅读星' }));
+    fireEvent.click(openCategory('人物'));
+    expect(screen.getByRole('button', { name: '返回总览' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
     expect(screen.getByText('星河旅人的档案正文内容')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '返回分类大厅' }));
-    expect(screen.getByRole('button', { name: /^人物，/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText('人物列表')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '返回总览' }));
+    expect(openCategory('人物')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '返回总览' })).not.toBeInTheDocument();
   });
 
-  it('空档案在大厅显示空态提示', () => {
+  it('空档案在总览显示空态提示', () => {
     renderArchive({
       zhikuSystem: 创建空智库系统(),
       storyWeavingSystem: 归一化剧情编织系统(null),
     });
+    expect(document.querySelector('.zk-root')).toHaveAttribute('data-archive-state', 'empty');
     const lobby = screen.getByLabelText('智库分类大厅');
-    expect(lobby.querySelector('[data-archive-state="empty"]')).toBeInTheDocument();
     expect(lobby).toHaveTextContent(/档案尚未收录/);
   });
 
-  it('顶栏工作台开关进入自制工作区，再点回到大厅', () => {
+  it('顶栏工作台开关进入自制工作区，再点回到总览', async () => {
     renderArchive();
     fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
     expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '切换自制工作台' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
-    expect(screen.getByRole('button', { name: /^人物，/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText('条目编辑器')).not.toBeInTheDocument();
+    // 档案室带着退场动画退回，等工作区真的离场再断言。
+    await waitFor(() => expect(screen.queryByLabelText('条目编辑器')).not.toBeInTheDocument());
+    expect(openCategory('人物')).toBeInTheDocument();
   });
 });
 
 describe('人物形态切换', () => {
-  it('同一关联角色ID的两个形态提供形态按钮，选中另一形态展示对应正文', () => {
+  it('同一关联角色ID的两个形态提供形态按钮，选中另一形态展示对应正文', async () => {
     const alternate = 创建智库条目({
       标题: '星｜饮月',
       分类: 'character',
@@ -181,25 +185,27 @@ describe('人物形态切换', () => {
       zhikuSystem: 归一化智库系统({ 条目: [baseCharacterEntry, alternate, termEntry] }),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^人物，/ }));
-    fireEvent.click(screen.getByRole('button', { name: '阅读星' }));
+    fireEvent.click(openCategory('人物'));
+    fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
     expect(screen.getByText('星河旅人的档案正文内容')).toBeInTheDocument();
 
     fireEvent.click(within(screen.getByLabelText('选择档案形态')).getByRole('tab', { name: '饮月' }));
-    expect(screen.getByText('饮月形态的档案正文')).toBeInTheDocument();
-    expect(screen.queryByText('星河旅人的档案正文内容')).not.toBeInTheDocument();
+    expect(await screen.findByText('饮月形态的档案正文')).toBeInTheDocument();
+    // 换形态走的是交叉淡入：旧正文在退场动画期间仍在文档里，等它退完再断言。
+    await waitFor(() => expect(screen.queryByText('星河旅人的档案正文内容')).not.toBeInTheDocument());
   });
 });
 
 describe('注入内容面板', () => {
-  it('切换到注入内容后展示关键词和注入预览文本块', () => {
+  it('切换到注入内容后展示关键词和注入预览文本块', async () => {
     renderArchive();
-    fireEvent.click(screen.getByRole('button', { name: /^人物，/ }));
-    fireEvent.click(screen.getByRole('button', { name: '阅读星' }));
+    fireEvent.click(openCategory('人物'));
+    fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
 
     fireEvent.click(screen.getByRole('tab', { name: '注入内容' }));
-    expect(screen.getByText('列车')).toBeInTheDocument();
-    const pre = document.querySelector('pre.zn-terminal');
+    // 面板换页有一次退场动画，注入内容不是同步挂载的。
+    expect(await screen.findByText('列车')).toBeInTheDocument();
+    const pre = document.querySelector('pre.zk-injection');
     expect(pre).toBeInTheDocument();
     expect(pre?.textContent).toContain('【人物】星｜常态');
     expect(pre?.textContent).toContain('关键词：列车');
@@ -209,11 +215,12 @@ describe('注入内容面板', () => {
 describe('剧情档案', () => {
   it('卷宗与章节：阅读正文、锁定章节不可点、下一章按钮存在', () => {
     renderArchive();
-    fireEvent.click(screen.getByRole('button', { name: /^剧情档案，/ }));
+    fireEvent.click(openCategory('剧情档案'));
 
     const index = screen.getByLabelText('剧情卷宗与章节目录');
     expect(within(index).getByText('开拓主线')).toBeInTheDocument();
 
+    fireEvent.click(within(index).getByRole('button', { name: '打开卷宗：开拓主线' }));
     const readable = within(index).getByRole('button', { name: '阅读第 1 章：第一幕' });
     expect(readable).toHaveAttribute('data-status', 'current');
     fireEvent.click(readable);
@@ -229,9 +236,10 @@ describe('剧情档案', () => {
 
   it('上一章 / 下一章在可读章节之间移动选中章节', () => {
     renderArchive({ storyWeavingSystem: buildNavigableStorySystem() });
-    fireEvent.click(screen.getByRole('button', { name: /^剧情档案，/ }));
+    fireEvent.click(openCategory('剧情档案'));
 
     const index = screen.getByLabelText('剧情卷宗与章节目录');
+    fireEvent.click(within(index).getByRole('button', { name: '打开卷宗：导航作品' }));
     expect(screen.getByText('起航章正文')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '下一章：抵达章' }));
@@ -256,15 +264,20 @@ describe('重载内置档案', () => {
     await waitForRefreshStatus('done');
     expect(onRefreshBundled).toHaveBeenCalledTimes(1);
     expect(defaultProps.onZhikuSystemChange).toHaveBeenCalledWith(nextSystem);
-    expect(getRefreshButton()).toHaveTextContent(/内置档案已更新/);
+
+    // REMOVED: 顶栏重载按钮不再有成功文案。
+    // 旧界面成功后把按钮文字换成「内置档案已更新」；新界面只在同一个按钮上写
+    // data-refresh-status="done"（已由上面的 waitForRefreshStatus 断言），
+    // 界面上不存在任何「内置档案已更新」的文本节点，这条断言没有可对齐的目标。
+    // expect(getRefreshButton()).toHaveTextContent(/内置档案已更新/);
   });
 
   it('重载失败显示 error 并保留当前档案正文', async () => {
     const onRefreshBundled = vi.fn((): Promise<智库系统> => Promise.reject(new Error('重载失败')));
     renderArchive({ onRefreshBundled });
 
-    fireEvent.click(screen.getByRole('button', { name: /^人物，/ }));
-    fireEvent.click(screen.getByRole('button', { name: '阅读星' }));
+    fireEvent.click(openCategory('人物'));
+    fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
 
     fireEvent.click(getRefreshButton());
     await waitForRefreshStatus('error');
@@ -290,14 +303,30 @@ describe('阅读字号', () => {
 });
 
 describe('键盘交互', () => {
-  it('分类内按 Escape 回到大厅，大厅内按 Escape 关闭智库', () => {
+  it('条目内按 Escape 退回分类，分类内再按才关闭智库', () => {
     const onClose = vi.fn();
-    renderArchive({ onClose });
+    const secondCharacter = 创建智库条目({
+      标题: '三月七｜常态',
+      分类: 'character',
+      关联角色ID: '三月七',
+      关联形态ID: '常态',
+      原文: '三月七的档案正文',
+    });
+    renderArchive({
+      zhikuSystem: 归一化智库系统({ 条目: [baseCharacterEntry, secondCharacter, termEntry] }),
+      onClose,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /^人物，/ }));
-    expect(screen.getByLabelText('人物列表')).toBeInTheDocument();
+    fireEvent.click(openCategory('人物'));
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(rows[1]);
+    expect(rows[1]).toHaveAttribute('aria-pressed', 'true');
+
+    // 第一层 Escape 只退出当前条目，分类索引还在，也没有关掉智库。
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByLabelText('人物列表')).not.toBeInTheDocument();
+    expect(rows[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '返回总览' })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.keyDown(window, { key: 'Escape' });

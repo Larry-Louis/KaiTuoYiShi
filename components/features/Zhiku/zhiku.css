@@ -1,0 +1,1885 @@
+/* ── 智库 · zk 设计系统 ──
+   世界：空间站仪表厅。面板悬浮在真实纵深里，背后是舷窗外的星野。
+   结构取自百科双栏（索引 + 阅读面），空间与动效取自第六代主机界面（纵深、前移、容器收放）。
+   动效纪律：位移 / 缩放 / 布局，绝不使用呼吸辉光。 */
+
+.zk-root {
+  /* 全部令牌都由 --tj-* 派生，因此智库随两套主题一起换色，而不是嵌进来的异物。 */
+  --zk-void: var(--tj-bg-primary);
+  --zk-panel: var(--tj-panel-bg-start);
+  --zk-raised: var(--tj-surface);
+  --zk-sunken: var(--tj-surface-strong);
+  --zk-gold: var(--tj-accent-primary);
+  --zk-cyan: var(--tj-tech-cyan);
+  --zk-blue: var(--tj-tech-blue);
+  --zk-danger: var(--tj-danger);
+  --zk-ok: var(--tj-ui-success);
+
+  --zk-text: var(--tj-text-primary);
+  --zk-dim: var(--tj-text-secondary);
+  --zk-faint: var(--tj-ui-faint);
+  --zk-ink: var(--tj-on-accent);
+
+  --zk-hair: rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak));
+  --zk-hair-strong: rgba(var(--tj-accent-primary), var(--tj-edge-tint));
+  --zk-edge: rgba(var(--tj-border), var(--tj-edge-weak));
+
+  --zk-r-s: 4px;
+  --zk-r-m: 8px;
+  --zk-r-l: 12px;
+
+  --zk-font: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --zk-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  /* 放大尺度的读数专用：更紧的字距，避免大字号下中文字松散。 */
+  --zk-tracking-num: -0.02em;
+
+  --zk-shadow-float:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 18px 48px -18px rgba(0, 0, 0, 0.9),
+    0 2px 8px rgba(0, 0, 0, 0.6);
+
+  position: fixed;
+  inset: 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: var(--zk-text);
+  font-family: var(--zk-font);
+  background: rgb(var(--zk-void));
+  isolation: isolate;
+}
+
+/* ── 星野：三层视差，只随指针/滚动位移，自身不漂移 ── */
+
+.zk-starfield {
+  position: absolute;
+  inset: -8%;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.zk-starfield canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 单一静止光源，来自原星图的「光」。它是光，不是动效。 */
+.zk-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 78% 108%, rgba(var(--zk-gold), 0.10), transparent 62%),
+    radial-gradient(90% 60% at 12% -12%, rgba(var(--zk-cyan), 0.05), transparent 60%);
+}
+
+.zk-root > *:not(.zk-starfield) {
+  position: relative;
+  z-index: 2;
+}
+
+/* ── 顶栏 ── */
+
+.zk-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--zk-hair);
+  background: linear-gradient(180deg, rgba(var(--zk-void), 0.96), rgba(var(--zk-void), 0.72));
+}
+
+.zk-top__id {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  /* 读数里带空格，不给 nowrap 就会在窄屏被逐词折成一竖列，把工具行挤爆。 */
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.zk-brand {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--zk-faint);
+}
+
+.zk-top__total {
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  color: var(--zk-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-top__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* ── 控件 ── */
+
+.zk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 11px;
+  font-family: var(--zk-font);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--zk-dim);
+  background: rgba(var(--zk-raised), 0.72);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-s);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.zk-btn:hover:not(:disabled) {
+  color: var(--zk-text);
+  border-color: var(--zk-hair-strong);
+}
+
+.zk-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.zk-btn[data-active='true'] {
+  color: var(--zk-gold);
+  border-color: rgba(var(--zk-gold), 0.45);
+}
+
+.zk-btn--primary {
+  color: rgb(var(--zk-ink));
+  background: rgb(var(--zk-gold));
+  border-color: rgb(var(--zk-gold));
+  font-weight: 600;
+}
+
+.zk-btn--danger {
+  color: rgb(var(--zk-danger));
+  border-color: rgba(var(--zk-danger), 0.35);
+  background: transparent;
+}
+
+/* 返回是全屏界面里唯一的「上楼」动作，做得比其它控件更响：更大、带金字、有边框重量。 */
+.zk-btn--back {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--zk-gold));
+  background: rgba(var(--zk-gold), 0.1);
+  border-color: rgba(var(--zk-gold), 0.45);
+}
+
+.zk-btn--back:hover:not(:disabled) {
+  color: rgb(var(--zk-ink));
+  background: rgb(var(--zk-gold));
+  border-color: rgb(var(--zk-gold));
+}
+
+.zk-iconbtn {
+  width: 28px;
+  padding: 0;
+  height: 28px;
+}
+
+/* 手机顶栏的返回：屏幕上唯一的「上楼」动作，所以是白的、粗的、有体积的按钮，
+   而不是一个和工具图标长得一样的箭头。 */
+.zk-navback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  padding: 0;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--zk-hair-strong);
+  border-radius: var(--zk-r-s);
+  cursor: pointer;
+}
+
+.zk-navback:hover {
+  background: rgba(255, 255, 255, 0.17);
+}
+
+/* 顶栏的当前位置：总览时是「智库」，进了分类或条目就换成那一层的名字。 */
+.zk-top__crumb {
+  font-size: 14px;
+  color: var(--zk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.zk-top__crumb[data-crumb='root'] {
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--zk-faint);
+}
+
+/* ── 主体：索引 + 阅读面 ── */
+
+/* 舞台：两个房间在切换期间并存并互相让位，所以都必须绝对定位才能重叠扫过。 */
+.zk-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.zk-room {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 14px;
+  padding: 14px 18px 18px;
+}
+
+.zk-room[data-solo='true'] {
+  padding: 0;
+}
+
+/* ── 手机栈：一次一屏 ──
+   手机不是把两栏压窄，而是把「总览 → 列表 → 正文」拉成一条纵向的路。
+   每层占满整屏（绝对定位重叠，换场时互相让位），来的时候从右边推进，回的时候原路退回。 */
+.zk-stack {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.zk-stack__pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 列表与正文是悬浮面板，四周留边；总览自带留白，不再套一层。 */
+.zk-stack__pane--panel {
+  padding: 10px;
+}
+
+/* ── 总览：整屏弹性便当盒 ── */
+
+.zk-overview {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  /* 版面不铺满整宽：六张卡片摊到 1560px 时，每张要么太大要么太空。
+     收到一个可读的版心宽度，卡片变窄、内容反而填得满，整页也安静下来。 */
+  --zk-board-max: 1140px;
+}
+
+.zk-overview__head {
+  width: 100%;
+  max-width: var(--zk-board-max);
+  margin: 0 auto;
+}
+
+.zk-overview__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.zk-overview__title {
+  font-size: clamp(22px, 2.4vw, 32px);
+  line-height: 1;
+  margin: 0;
+  letter-spacing: 0.04em;
+  color: var(--zk-dim);
+  font-weight: 500;
+}
+
+/* 收成一行安静的读数：它交代总量，但不跟格子里的数字抢音量。 */
+.zk-overview__stat {
+  margin: 0;
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--zk-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 格位由排名决定，不由数量换算——数量天天变，排名稳定得多。 */
+/* 行高完全由内容决定，整盘在剩余空间里居中。
+   只要这里写成 flex: 1，栅格就会被拉满屏幕高度，
+   每块格子于是只有上方一小截有内容、下面一大片是空的——
+   而且行内下发的 grid-template-rows 会盖住本文件的行高，让人误以为改这里没用。 */
+.zk-bento {
+  flex: none;
+  width: 100%;
+  max-width: var(--zk-board-max);
+  /* 列向弹性容器里，垂直居中靠 auto 外边距；align-self 管的是横向。 */
+  margin: auto;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: repeat(3, auto);
+  gap: 10px;
+}
+
+.zk-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow: hidden;
+  text-align: left;
+  color: var(--zk-text);
+  font-family: var(--zk-font);
+  background: rgba(var(--zk-panel), 0.86);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-l);
+  box-shadow: var(--zk-shadow-float);
+  cursor: pointer;
+}
+
+.zk-cell:hover {
+  border-color: rgba(var(--zk-gold), 0.42);
+  background: rgba(var(--zk-panel), 0.96);
+}
+
+/* 等大版式里，主次交给材质而不是尺寸：主体格顶边压一道金线。 */
+.zk-cell[data-rank='0'] {
+  border-top-color: rgba(var(--zk-gold), 0.55);
+}
+
+.zk-cell[data-rank='0']::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--zk-r-l) var(--zk-r-l) 0 0;
+  background: linear-gradient(90deg, rgba(var(--zk-gold), 0.75), rgba(var(--zk-gold), 0.08));
+}
+
+.zk-cell__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 分类名是这块格子的声音，读数只是它的注脚——主次反过来之后，
+   格子认得出是哪一类，而不是只报一个数。 */
+.zk-cell__label {
+  font-size: clamp(26px, 2.6vw, 42px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  color: var(--zk-text);
+  white-space: nowrap;
+}
+
+.zk-cell__n {
+  font-family: var(--zk-mono);
+  font-size: clamp(17px, 1.5vw, 23px);
+  line-height: 1;
+  letter-spacing: var(--zk-tracking-num);
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--zk-gold), 0.8);
+}
+
+/* 头名格只把标题再放大一档，读数跟着微微抬起——重点在名字上。 */
+.zk-cell[data-rank='0'] .zk-cell__label {
+  font-size: clamp(34px, 3.4vw, 56px);
+}
+
+.zk-cell[data-rank='0'] .zk-cell__n {
+  font-size: clamp(22px, 2vw, 30px);
+  color: rgb(var(--zk-gold));
+}
+
+.zk-cell[data-rank='0'] .zk-cell__ava {
+  width: 46px;
+  height: 46px;
+}
+
+/* 头名格子的读数再大一档：一眼就知道哪个分类是这座档案库的主体。 */
+
+
+
+
+.zk-cell__preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 7px 14px;
+  /* 预览吃掉格子里剩下的全部高度：格子给多大就摆多少，不靠「抽几张意思一下」。 */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* 底部渐隐：溢出读成「下面还有」，而不是被硬生生切断。
+     起点留到 90%，刚好排满的最后一行的不会被削掉。 */
+  mask-image: linear-gradient(to bottom, #000 90%, transparent 100%);
+}
+
+.zk-cell__ava {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(var(--zk-text), 0.08);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--zk-gold);
+}
+
+
+/* 名字只作「闻一闻」：更小、更淡、不描边，读起来是一行注脚而不是一排标签。 */
+.zk-cell__name {
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 0;
+  color: var(--zk-faint);
+  background: none;
+  white-space: nowrap;
+}
+
+/* 未解锁的卷宗是封条：只有编号、无内容色，读起来是一排待开的封口而不是一堵重复词。 */
+.zk-cell__name[data-sealed='true'] {
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--zk-faint);
+  background: transparent;
+  border: 1px dashed rgba(var(--zk-text), 0.16);
+}
+
+.zk-cell__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--zk-mono);
+  font-size: 10.5px;
+  color: var(--zk-faint);
+  flex: none;
+}
+
+.zk-cell__go {
+  color: rgba(var(--zk-gold), 0.5);
+  white-space: nowrap;
+}
+
+.zk-cell:hover .zk-cell__go {
+  color: rgb(var(--zk-gold));
+}
+
+/* 延迟加载的头像占位：位置先占住，图到了再换，不引起回流跳动。 */
+/* 头像槽：固定尺寸的定位上下文。占位与图片都绝对定位填满它，
+   因此无论图什么时候到，槽的尺寸与位置都不变，周边排版不会被顶动。 */
+.zk-entry__ava,
+.zk-cell__ava,
+.zk-reader__ava,
+.zk-tile__ava {
+  position: relative;
+  overflow: hidden;
+}
+
+.zk-ava-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 头像占位：一块有体积感的暗圆盘，加载时轻微呼吸。
+   纯空白圆圈会被读成「图坏了」，呼吸会被读成「在路上」——同一段时间，两种解读。 */
+.zk-ava-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  font-size: 0.5em;
+  color: rgba(var(--zk-gold), 0.55);
+  background:
+    radial-gradient(circle at 50% 34%, rgba(var(--zk-text), 0.15), rgba(var(--zk-text), 0.045) 64%),
+    rgba(var(--zk-text), 0.05);
+}
+
+.zk-railbody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.zk-index,
+.zk-reader {
+  background: rgba(var(--zk-panel), 0.9);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-l);
+  box-shadow: var(--zk-shadow-float);
+  min-height: 0;
+}
+
+.zk-index {
+  width: var(--zk-rail-w, 340px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.zk-reader {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 手机栈的列表层：与索引栏同一块面板，只是不再有固定宽度——它占满一整屏。 */
+.zk-listpane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(var(--zk-panel), 0.9);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-l);
+  box-shadow: var(--zk-shadow-float);
+}
+
+/* ── 索引：巨型读数 ── */
+
+.zk-gauge {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  padding: 14px 14px 14px 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--zk-hair);
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  flex: none;
+}
+
+.zk-gauge:hover {
+  background: rgba(var(--zk-gold), 0.05);
+}
+
+/* 返回是全屏界面唯一的「上楼」动作：一支撑满高度的白色折角，高瘦而不是粗宽。
+   用 SVG 而不是字符，才能在不改变线宽的前提下把高度拉到与读数条齐平。 */
+.zk-gauge__back {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  flex: none;
+  align-self: center;
+  padding: 6px 0;
+  border-radius: var(--zk-r-s);
+  color: #ffffff;
+  transition: background 140ms linear, color 140ms linear, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 等比缩放到 20×46：够高够白，但夹角仍然是能读出来的箭头，不是一根细线。 */
+.zk-gauge__back svg {
+  width: 20px;
+  height: 46px;
+  display: block;
+  overflow: visible;
+}
+
+.zk-gauge:hover .zk-gauge__back {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(-3px);
+}
+
+.zk-gauge__body {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+
+.zk-gauge__label {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--zk-dim);
+}
+
+.zk-gauge__value {
+  display: block;
+  font-family: var(--zk-mono);
+  font-size: clamp(38px, 5.4vw, 62px);
+  line-height: 0.92;
+  letter-spacing: var(--zk-tracking-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--zk-gold);
+  margin: 6px 0 2px;
+}
+
+.zk-gauge__denom {
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  color: var(--zk-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.zk-bar {
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 2px;
+  background: rgba(var(--zk-text), 0.08);
+  overflow: hidden;
+}
+
+.zk-bar__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: rgb(var(--zk-gold));
+  transform-origin: left center;
+}
+
+/* ── 索引：缩小的总览 ──
+   导轨不是另一套导航，它就是总览本身收小后的样子。
+   同一批分类、同一个排序、同一块版式——用户看到的是「我点开的那块还在这儿」。 */
+
+.zk-mini {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 9px;
+  border-bottom: 1px solid var(--zk-hair);
+}
+
+.zk-mini__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 9px;
+  text-align: left;
+  background: rgba(var(--zk-text), 0.035);
+  border: 1px solid transparent;
+  border-radius: var(--zk-r-s);
+  color: var(--zk-dim);
+  cursor: pointer;
+  font-family: var(--zk-font);
+}
+
+.zk-mini__cell:hover {
+  background: rgba(var(--zk-text), 0.07);
+  color: var(--zk-text);
+}
+
+/* 展开中的那一块：描金并加一条左侧标线，一眼看出「现在在这个分类里」。 */
+.zk-mini__cell[data-active='true'] {
+  background: rgba(var(--zk-gold), 0.13);
+  border-color: rgba(var(--zk-gold), 0.45);
+  box-shadow: inset 3px 0 0 rgb(var(--zk-gold));
+  color: var(--zk-text);
+}
+
+.zk-mini__name {
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-mini__n {
+  font-family: var(--zk-mono);
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: var(--zk-tracking-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--zk-gold);
+}
+
+.zk-mini__cell[data-active='true'] .zk-mini__n {
+  color: rgb(var(--zk-gold));
+}
+
+/* 比例条：99 与 4 的差别必须是能一眼看出来的宽度差，而不是两个相近的数字。 */
+.zk-cat__bar {
+  display: block;
+  height: 2px;
+  margin-top: 2px;
+  border-radius: 1px;
+  background: rgba(var(--zk-text), 0.09);
+  overflow: hidden;
+}
+
+.zk-cat__bar > i {
+  display: block;
+  height: 100%;
+  background: rgba(var(--zk-gold), 0.6);
+  transform-origin: left center;
+}
+
+.zk-mini__cell[data-active='true'] .zk-cat__bar > i {
+  background: rgb(var(--zk-gold));
+}
+
+/* ── 索引：条目 ── */
+
+.zk-entries {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.zk-entry {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--zk-r-s);
+  color: var(--zk-dim);
+  cursor: pointer;
+  font-family: var(--zk-font);
+}
+
+.zk-entry:hover {
+  background: rgba(var(--zk-text), 0.045);
+}
+
+.zk-entry[data-active='true'] {
+  background: rgba(var(--zk-gold), 0.09);
+}
+
+.zk-entry__seq {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  color: var(--zk-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 工作台的行没有头像/序号打头，若沿用三列栅格，标题会落进 26px 那一列被挤成一个字。 */
+.zk-entry--plain {
+  grid-template-columns: 1fr auto;
+}
+
+/* 选中时的序号位让给头像：格位不变，内容换掉，避免整行跳动。 */
+.zk-entry__ava {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(var(--zk-text), 0.06);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--zk-gold);
+}
+
+.zk-entry__ava img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.zk-entry__copy {
+  min-width: 0;
+}
+
+.zk-entry__title {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-entry[data-active='true'] .zk-entry__title {
+  color: var(--zk-text);
+}
+
+.zk-entry__meta {
+  display: block;
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  color: var(--zk-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-entry__flag {
+  font-family: var(--zk-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 2px 5px;
+  border-radius: 2px;
+  color: var(--zk-cyan);
+  border: 1px solid rgba(var(--zk-cyan), 0.3);
+}
+
+/* ── 阅读面 ── */
+
+.zk-reader__head {
+  flex: none;
+  padding: 20px 24px 0;
+  border-bottom: 1px solid var(--zk-hair);
+}
+
+.zk-reader__kicker {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--zk-faint);
+}
+
+.zk-reader__titlerow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0 8px;
+}
+
+/* 面包屑：总览可点。返回路径必须在版面上看得见，不能只存在于 Esc 键里。 */
+.zk-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--zk-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--zk-faint);
+  margin-bottom: 12px;
+}
+
+.zk-crumb__link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: rgba(var(--zk-gold), 0.72);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(var(--zk-gold), 0.28);
+  line-height: 1.5;
+}
+
+.zk-crumb__link:hover {
+  color: rgb(var(--zk-gold));
+  border-bottom-color: rgb(var(--zk-gold));
+}
+
+.zk-crumb__sep {
+  color: var(--zk-faint);
+  flex: none;
+}
+
+.zk-crumb__here {
+  color: var(--zk-dim);
+}
+
+.zk-reader__ava {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: var(--zk-r-l);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  color: rgb(var(--zk-cyan));
+  border: 1px solid rgba(var(--zk-cyan), 0.45);
+  background:
+    linear-gradient(158deg, rgba(var(--zk-cyan), 0.2), rgba(var(--zk-blue), 0.06) 58%),
+    rgba(var(--zk-text), 0.05);
+  box-shadow: var(--zk-shadow-float);
+}
+
+/* 占位盘跟着走蓝，否则加载中会先闪一下金再变蓝。 */
+.zk-reader__ava .zk-ava-ph {
+  color: rgba(var(--zk-cyan), 0.75);
+  background:
+    radial-gradient(circle at 50% 34%, rgba(var(--zk-cyan), 0.2), rgba(var(--zk-blue), 0.06) 64%),
+    rgba(var(--zk-text), 0.05);
+}
+
+.zk-reader__ava img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.zk-reader__title {
+  font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1.16;
+  letter-spacing: 0.01em;
+  color: var(--zk-text);
+  margin: 0;
+  min-width: 0;
+}
+
+.zk-reader__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--zk-mono);
+  font-size: 11px;
+  color: var(--zk-faint);
+  margin-bottom: 12px;
+}
+
+/* 标签页：下划线用 layoutId 共享元素滑动，不是给每个按钮单独加过渡。 */
+.zk-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.zk-tab {
+  position: relative;
+  padding: 9px 14px 11px;
+  background: transparent;
+  border: 0;
+  color: var(--zk-faint);
+  font-family: var(--zk-font);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.zk-tab:hover {
+  color: var(--zk-dim);
+}
+
+.zk-tab[aria-selected='true'] {
+  color: var(--zk-gold);
+}
+
+.zk-tab__rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: rgb(var(--zk-gold));
+  border-radius: 2px 2px 0 0;
+}
+
+.zk-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 24px 2px;
+}
+
+.zk-variant {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-family: var(--zk-font);
+  color: var(--zk-faint);
+  background: transparent;
+  border: 1px solid var(--zk-hair);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.zk-variant[aria-selected='true'] {
+  color: rgb(var(--zk-ink));
+  background: rgb(var(--zk-gold));
+  border-color: rgb(var(--zk-gold));
+}
+
+.zk-reader__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 24px 40px;
+}
+
+.zk-prose {
+  max-width: 68ch;
+  line-height: 1.95;
+  color: var(--zk-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.zk-prose--dropcap::first-letter {
+  float: left;
+  font-size: 3.1em;
+  line-height: 0.86;
+  padding: 0.06em 0.1em 0 0;
+  color: var(--zk-gold);
+}
+
+.zk-prose h1,
+.zk-prose h2,
+.zk-prose h3 {
+  line-height: 1.4;
+  margin: 1.6em 0 0.6em;
+  color: var(--zk-text);
+}
+
+.zk-prose h2 {
+  font-size: 1.16em;
+}
+
+.zk-prose h3 {
+  font-size: 1.04em;
+  color: var(--zk-dim);
+}
+
+.zk-prose p {
+  margin: 0 0 1.05em;
+}
+
+.zk-prose strong {
+  color: rgb(var(--zk-gold));
+  font-weight: 600;
+}
+
+.zk-prose code {
+  font-family: var(--zk-mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(var(--zk-text), 0.07);
+}
+
+.zk-prose blockquote {
+  margin: 0 0 1.05em;
+  padding-left: 14px;
+  border-left: 2px solid var(--zk-hair-strong);
+  color: var(--zk-dim);
+}
+
+.zk-prose hr {
+  border: 0;
+  border-top: 1px solid var(--zk-hair);
+  margin: 1.8em 0;
+}
+
+.zk-prose ul,
+.zk-prose ol {
+  margin: 0 0 1.05em;
+  padding-left: 1.4em;
+}
+
+.zk-prose li {
+  margin-bottom: 0.4em;
+}
+
+/* 交叉淡入：旧面板由 AnimatePresence 的 popLayout 摘出文档流（绝对定位）后淡出，
+   新面板正常占位。这样容器高度只由新内容决定——
+   若两块一起留在流里，容器高度会取两者的较大值，切换时内容会被顶下去再弹回来。 */
+.zk-swap {
+  position: relative;
+}
+
+.zk-swap__pane {
+  min-width: 0;
+}
+
+/* ── 关键词场 ── */
+
+.zk-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.zk-keyword {
+  font-family: var(--zk-mono);
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  color: var(--zk-dim);
+  background: rgba(var(--zk-text), 0.055);
+  border: 1px solid var(--zk-hair);
+}
+
+.zk-keyword--hot {
+  color: rgb(var(--zk-cyan));
+  border-color: rgba(var(--zk-cyan), 0.32);
+}
+
+/* 内置条目最多带 131 个关键词。全铺开会把注入内容顶出屏幕，所以超过阈值时收进可滚动区。 */
+.zk-keywords[data-many='true'] {
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+/* 注入内容：等宽、保留换行，是给机器读的那一面。 */
+.zk-injection {
+  font-family: var(--zk-mono);
+  font-size: 12.5px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--zk-dim);
+  padding: 16px 18px;
+  border-radius: var(--zk-r-m);
+  background: rgba(var(--zk-sunken), 0.7);
+  border: 1px solid var(--zk-hair);
+  max-width: 78ch;
+}
+
+.zk-injection__title {
+  color: rgb(var(--zk-gold));
+}
+
+/* ── 剧情档案 ── */
+
+.zk-volumes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zk-volume__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 12px 13px;
+  text-align: left;
+  background: rgba(var(--zk-text), 0.035);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-m);
+  color: var(--zk-dim);
+  cursor: pointer;
+  font-family: var(--zk-font);
+}
+
+.zk-volume__head:hover:not(:disabled) {
+  background: rgba(var(--zk-text), 0.07);
+  border-color: var(--zk-hair-strong);
+}
+
+.zk-volume__head:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.zk-volume__head[aria-expanded='true'] {
+  color: var(--zk-text);
+  background: rgba(var(--zk-gold), 0.1);
+  border-color: rgba(var(--zk-gold), 0.4);
+}
+
+.zk-volume__title {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--zk-text);
+}
+
+.zk-volume__sub {
+  display: block;
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  color: var(--zk-faint);
+}
+
+.zk-chapters {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.zk-chapter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--zk-r-s) var(--zk-r-s) 0;
+  color: var(--zk-faint);
+  cursor: pointer;
+  font-family: var(--zk-font);
+  font-size: 12.5px;
+}
+
+.zk-chapter:hover:not(:disabled) {
+  color: var(--zk-dim);
+  background: rgba(var(--zk-text), 0.035);
+}
+
+.zk-chapter[data-active='true'] {
+  color: var(--zk-text);
+  border-left-color: rgb(var(--zk-gold));
+  background: rgba(var(--zk-gold), 0.07);
+}
+
+.zk-chapter:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.zk-chapter__title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 章节状态是刻痕，不是换色：已阅是实心点，未读是空心，未解锁是短横。 */
+.zk-chapter__mark {
+  flex: none;
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  color: var(--zk-faint);
+}
+
+.zk-chapter[data-status='read'] .zk-chapter__mark {
+  color: rgba(var(--zk-gold), 0.55);
+}
+
+.zk-chapter[data-status='current'] .zk-chapter__mark {
+  color: rgb(var(--zk-gold));
+}
+
+.zk-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--zk-hair);
+}
+
+.zk-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  background: rgba(var(--zk-raised), 0.6);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-m);
+  color: var(--zk-dim);
+  cursor: pointer;
+  font-family: var(--zk-font);
+}
+
+.zk-nav button:hover:not(:disabled) {
+  color: var(--zk-text);
+  border-color: var(--zk-hair-strong);
+}
+
+.zk-nav button:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.zk-nav small {
+  display: block;
+  font-family: var(--zk-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--zk-faint);
+}
+
+.zk-nav strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-nav button:last-child {
+  text-align: right;
+  justify-content: flex-end;
+}
+
+/* ── 工作台 ── */
+
+/* 工作台是「整宽编辑器 + 下方分栏」，不是把一张十二字段的表单塞进侧栏。 */
+.zk-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* 下方工作区吸收剩余高度并在内部滚动；收缩不再算到上方表单头上。 */
+.zk-work__split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.zk-work__aside {
+  width: var(--zk-rail-w, 340px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.zk-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 24px 40px;
+}
+
+.zk-editor__title {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--zk-text);
+  font-family: var(--zk-font);
+  font-size: 24px;
+  padding: 2px 0;
+  outline: none;
+}
+
+.zk-editor__title:focus {
+  border-bottom-color: rgba(var(--zk-gold), 0.4);
+}
+
+.zk-editor__title:read-only {
+  color: var(--zk-dim);
+}
+
+/* ── 表单 ── */
+
+.zk-section {
+  margin-top: 24px;
+}
+
+.zk-section__label {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--zk-faint);
+  padding-bottom: 7px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--zk-hair);
+}
+
+.zk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.zk-field {
+  display: block;
+  min-width: 0;
+}
+
+.zk-field__label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--zk-faint);
+  margin-bottom: 5px;
+}
+
+/* 输入面必须比所在面板更亮：面板是近黑，再用更黑的输入框等于把字段沉进背景里。 */
+.zk-input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: var(--zk-font);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--zk-text);
+  background: rgba(var(--zk-text), 0.07);
+  border: 1px solid var(--zk-hair-strong);
+  border-radius: var(--zk-r-s);
+  outline: none;
+}
+
+.zk-input::placeholder {
+  color: var(--zk-faint);
+  opacity: 1;
+}
+
+.zk-input:focus {
+  background: rgba(var(--zk-text), 0.1);
+  border-color: rgba(var(--zk-gold), 0.55);
+}
+
+.zk-input:read-only,
+.zk-input:disabled {
+  color: var(--zk-faint);
+  background: rgba(var(--zk-text), 0.028);
+}
+
+textarea.zk-input {
+  resize: vertical;
+  font-family: var(--zk-font);
+}
+
+.zk-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--zk-r-s);
+  background: rgba(var(--zk-text), 0.035);
+  font-size: 12px;
+  color: var(--zk-dim);
+  cursor: pointer;
+}
+
+.zk-toggle input {
+  flex: none;
+  accent-color: rgb(var(--zk-gold));
+}
+
+.zk-note {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--zk-faint);
+}
+
+.zk-alert {
+  padding: 10px 12px;
+  border-radius: var(--zk-r-s);
+  font-size: 12px;
+  line-height: 1.7;
+  border: 1px solid;
+}
+
+.zk-alert[data-kind='error'] {
+  color: rgb(var(--zk-danger));
+  border-color: rgba(var(--zk-danger), 0.36);
+  background: rgba(var(--zk-danger), 0.07);
+}
+
+.zk-alert[data-kind='warn'] {
+  color: rgb(var(--zk-gold));
+  border-color: rgba(var(--zk-gold), 0.3);
+  background: rgba(var(--zk-gold), 0.06);
+}
+
+/* ── 空状态：首次进入是最常遇到的状态，不是一个兜底分支 ── */
+
+.zk-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 220px;
+  padding: 40px 28px;
+  text-align: center;
+}
+
+.zk-empty__title {
+  font-size: 15px;
+  color: var(--zk-dim);
+}
+
+.zk-empty__hint {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--zk-faint);
+  max-width: 44ch;
+}
+
+/* ── 工具 ── */
+
+.zk-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--zk-gold), 0.24) transparent;
+}
+
+.zk-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.zk-scroll::-webkit-scrollbar-thumb {
+  background: rgba(var(--zk-gold), 0.22);
+  border-radius: 4px;
+}
+
+.zk-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--zk-gold), 0.4);
+}
+
+.zk-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* ── 窄屏：分栏塌成单栏栈 ── */
+
+@media (max-width: 880px) {
+  .zk-room,
+  .zk-work,
+  /* .zk-work__split 是后加的一层包裹，漏掉它就会让列表和编辑器并排挤在手机上。 */
+  .zk-work__split {
+    flex-direction: column;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .zk-work__split {
+    padding: 0;
+  }
+
+  .zk-overview {
+    padding: 12px 12px 14px;
+    --zk-board-max: 100%;
+  }
+
+  .zk-overview__head {
+    align-items: flex-start;
+  }
+
+  .zk-overview__stat {
+    text-align: left;
+    min-width: 0;
+  }
+
+  /* 便当盒塌成单列：格子按排名依次排下去，头名仍然最大。
+     版式来自行内样式，这里必须 !important 才能盖过它。
+     桌面版让整盘在剩余空间里居中（flex: none + auto 外边距）；
+     单列时没有剩余空间可让，必须反过来撑满并在内部滚动，否则整页锁死、滚不动。 */
+  .zk-bento {
+    flex: 1 1 auto;
+    margin: 0;
+    min-height: 0;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none !important;
+    grid-template-areas: none !important;
+    grid-auto-rows: minmax(96px, auto);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .zk-cell {
+    grid-area: auto !important;
+    height: auto;
+    min-height: 96px;
+  }
+
+  .zk-cell[data-rank='0'] {
+    min-height: 148px;
+  }
+
+  .zk-cell[data-rank='0'] .zk-cell__label {
+    font-size: clamp(26px, 6vw, 40px);
+  }
+
+  /* 单列格子改为「长到装得下」：预览不再吃弹性高度，
+     否则行高按压扁后的预览算，内容会溢到下一张卡片上。 */
+  .zk-cell__preview {
+    flex: none;
+    overflow: visible;
+    mask-image: none;
+  }
+
+  .zk-index,
+  .zk-work__aside {
+    width: 100%;
+    max-height: 44vh;
+  }
+
+  .zk-work__split {
+    min-height: 0;
+  }
+
+  .zk-reader {
+    flex: 1;
+  }
+
+  .zk-gauge {
+    padding: 12px 14px 10px;
+  }
+
+  .zk-gauge__value {
+    font-size: 40px;
+  }
+
+  .zk-reader__head {
+    padding: 16px 16px 0;
+  }
+
+  .zk-reader__body,
+  .zk-editor {
+    padding: 18px 16px 32px;
+  }
+
+  .zk-nav {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 手机 ──
+   一屏装下全部分类。单列长卷在手机上要滚三屏，滚到第二屏就忘了第一屏有什么；
+   每格那面预览墙同样只是噪音——头像认不出，名单读不完。
+   所以手机不是「宽屏版变窄」，而是换成 2×3 的仪板：格子撑满可用高度，只留分类名与读数。
+
+   这一块必须写在 880 之后：两块都命中手机，靠顺序决定谁生效。
+   查询串必须与 useCompactSurface.ts 里的 COMPACT_SURFACE_QUERY 逐字一致——
+   两边各判各的，一处改了另一处没跟上，就会出现「JS 按单栈渲染、CSS 按分栏排版」的错版。 */
+@media (max-width: 620px), (max-width: 940px) and (max-height: 460px) {
+  .zk-top {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  /* 品牌字是纯装饰，第一个让位。 */
+  .zk-brand {
+    display: none;
+  }
+
+  .zk-top__total {
+    font-size: 10px;
+  }
+
+  /* 工作台与字号控件只留图标，标签靠 aria-label 保留可访问名。 */
+  .zk-top__actions .zk-btn {
+    padding: 7px 9px;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .zk-top__actions .zk-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* 返回档案的按钮在 ID 区，不在工具区——工具区那条选择器从来没命中过。
+     文字在手机顶栏里要吃掉半条空间，只留箭头，名字交给 aria-label。 */
+  .zk-top .zk-btn--back {
+    padding: 7px 9px;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .zk-top__actions output {
+    font-size: 11px;
+    min-width: 18px !important;
+  }
+
+  /* 三行等分：六块格子把可用高度分完，整屏就是全部目录，不需要滚动。 */
+  .zk-bento {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: repeat(3, 1fr) !important;
+    grid-template-areas: none !important;
+    grid-auto-rows: auto;
+    /* 矮到 1fr 都装不下内容时（横屏、极端小窗）仍可滚，而不是把最后一行切掉。 */
+    overflow-y: auto;
+  }
+
+  .zk-cell,
+  .zk-cell[data-rank='0'] {
+    min-height: 0;
+    padding: 11px 12px;
+    gap: 4px;
+  }
+
+  /* 头像墙与名单在手机上是噪音：每格只留名字与读数。 */
+  .zk-cell__preview {
+    display: none;
+  }
+
+  /* 名字封顶、读数落地，与索引栏那台仪表同一套读法。
+     两行都留在顶部会让格子中间空出一个大洞——洞是「删漏了」，不是「安静」；
+     把读数按到底边，格子才有上下两端，中间那段空白才是版面。
+     读数只是落在下面的读数：字号压住、金色收淡，声音仍然归名字。 */
+  .zk-cell__top {
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 4px;
+  }
+
+  .zk-cell__label,
+  .zk-cell[data-rank='0'] .zk-cell__label {
+    font-size: 19px;
+    line-height: 1.25;
+  }
+
+  .zk-cell__n,
+  .zk-cell[data-rank='0'] .zk-cell__n {
+    font-size: clamp(30px, 8.5vw, 38px);
+    color: rgba(var(--zk-gold), 0.72);
+  }
+
+  /* 「27 卷 · 0 章」在宽屏是补充，在手机上会把剧情格顶高半行、
+     让六块格子的读数落不到同一条线上。一屏六格要能横着读，就得同高。 */
+  .zk-cell__foot {
+    display: none;
+  }
+
+  /* 栈顶那一屏：总览自带留白，不再套面板。 */
+  .zk-stack__pane {
+    padding: 0;
+  }
+
+  .zk-stack__pane--panel {
+    padding: 10px;
+  }
+
+  /* 一条一行：每行就是一条。竖屏放得下一条，够宽了才并成两栏（见文件末尾那条）。 */
+  .zk-listpane .zk-entries {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 2px 6px;
+  }
+
+  /* 触控目标不短于 44px：手机上一行挨一行，38px 的行会点错。 */
+  .zk-entry {
+    padding: 11px 10px;
+  }
+
+  /* 副标题在手机上换来的是每条多出一倍高度，而它说的多半是分类名——那一层已经在顶栏上了。 */
+  .zk-entry__meta {
+    display: none;
+  }
+
+  /* 面包屑让给顶栏：同一屏上不放两个返回。 */
+  .zk-crumb {
+    display: none;
+  }
+
+  /* 返回键吃掉横向空间，正文的留白也该跟着收。 */
+  .zk-reader__head {
+    padding: 14px 14px 0;
+  }
+
+  .zk-variants {
+    padding: 10px 14px 2px;
+  }
+
+  .zk-reader__body,
+  .zk-editor {
+    padding: 16px 14px 28px;
+  }
+
+  .zk-nav {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 横屏手机：一屏只有九十来像素高，读数与内边距得跟着矮下去，
+   否则「19px 名字 + 38px 读数 + 22px 内边距」会比格子本身还高，读数被裁掉半个字。
+   查询串取手机断点的后半段，避免又宽又矮的桌面窗口被误伤。 */
+@media (max-width: 940px) and (max-height: 460px) {
+  .zk-cell,
+  .zk-cell[data-rank='0'] {
+    padding: 8px 10px;
+  }
+
+  .zk-cell__label,
+  .zk-cell[data-rank='0'] .zk-cell__label {
+    font-size: 16px;
+  }
+
+  .zk-cell__n,
+  .zk-cell[data-rank='0'] .zk-cell__n {
+    font-size: 24px;
+  }
+}
+
+/* 手机栈的列表：够宽了并成两栏。
+   只到两栏为止——一行三条在掌上设备上不是「更省空间」，是三倍的扫视成本。
+   这条写在手机块之后，靠顺序盖过上面那条单栏。 */
+@media (min-width: 560px) {
+  .zk-listpane .zk-entries {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* 动效全部是位移 / 缩放 / 布局。这里只关掉 CSS 过渡；Motion 侧由 useReducedMotion 处理。 */
+@media (prefers-reduced-motion: reduce) {
+  .zk-root *,
+  .zk-root *::before,
+  .zk-root *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

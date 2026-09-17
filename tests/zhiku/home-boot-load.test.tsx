@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, renderHook, waitFor } from '@testing-library/react';
-import { ZhikuNextExperience } from '@/components/features/ZhikuNext/ZhikuNextExperience';
+import { ZhikuExperience } from '@/components/features/Zhiku/ZhikuExperience';
 import {
   buildPersistedZhikuSystem,
   fetchAllBundledZhikuPresetsText,
@@ -52,7 +52,7 @@ const termEntry = 创建智库条目({
 const emptyStory = () => 归一化剧情编织系统(undefined);
 
 const renderArchive = (overrides?: Record<string, unknown>) => render(
-  <ZhikuNextExperience
+  <ZhikuExperience
     zhikuSystem={归一化智库系统({ 条目: [charEntry, termEntry] })}
     storyWeavingSystem={emptyStory()}
     onZhikuSystemChange={vi.fn()}
@@ -62,8 +62,8 @@ const renderArchive = (overrides?: Record<string, unknown>) => render(
 );
 
 const rootOf = (container: HTMLElement): HTMLElement => {
-  const root = container.querySelector('.zn-root');
-  if (!(root instanceof HTMLElement)) throw new Error('missing .zn-root');
+  const root = container.querySelector('.zk-root');
+  if (!(root instanceof HTMLElement)) throw new Error('missing .zk-root');
   return root;
 };
 
@@ -81,7 +81,7 @@ beforeEach(async () => {
 describe('home 智库目录就绪信号', () => {
   it('boot 未完成时标注 pending，而不是静默 0 条', () => {
     const { container } = render(
-      <ZhikuNextExperience
+      <ZhikuExperience
         zhikuSystem={创建空智库系统()}
         storyWeavingSystem={emptyStory()}
         onZhikuSystemChange={vi.fn()}
@@ -98,12 +98,13 @@ describe('home 智库目录就绪信号', () => {
     const { container } = renderArchive({ catalogStatus: 'ready' });
     const root = rootOf(container);
     expect(root).toHaveAttribute('data-catalog-status', 'ready');
-    expect(root.textContent ?? '').toContain('2 条资料');
+    // 条数读数从旧大厅的「N 条资料」改为顶栏的「N 条 · N 卷 · N 章」。
+    expect(root.textContent ?? '').toContain('2 条 · 0 卷 · 0 章');
   });
 
   it('目录失败时标注 failed 并保留空态提示', () => {
     const { container } = render(
-      <ZhikuNextExperience
+      <ZhikuExperience
         zhikuSystem={创建空智库系统()}
         storyWeavingSystem={emptyStory()}
         onZhikuSystemChange={vi.fn()}

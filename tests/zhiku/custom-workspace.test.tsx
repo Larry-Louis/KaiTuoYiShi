@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { CustomWorkspace } from '@/components/features/ZhikuNext/customWorkspace';
-import { ZhikuNextExperience } from '@/components/features/ZhikuNext/ZhikuNextExperience';
+import { CustomWorkspace } from '@/components/features/Zhiku/CustomWorkspace';
+import { ZhikuExperience } from '@/components/features/Zhiku/ZhikuExperience';
 import { 创建智库条目, 归一化智库系统 } from '@/models/zhiku';
 import type { 智库系统 } from '@/models/zhiku';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
@@ -33,6 +33,17 @@ const customEntry = 创建智库条目({
 
 const buildSystem = (): 智库系统 => 归一化智库系统({ 条目: [builtinEntry, customEntry] });
 
+/**
+ * 工作台条目行是 `<button class="zk-entry" role="listitem">`：
+ * 显式 role 覆盖了 button，行上也没有 aria-label，所以只能按行内标题定位。
+ */
+const getWorkspaceRow = (title: string): HTMLElement => {
+  const row = Array.from(document.querySelectorAll<HTMLElement>('button.zk-entry'))
+    .find((candidate) => candidate.textContent?.includes(title));
+  if (!row) throw new Error(`未找到工作台条目行：${title}`);
+  return row;
+};
+
 type WorkspaceProps = Parameters<typeof CustomWorkspace>[0];
 
 function renderWorkspace(overrides?: Partial<WorkspaceProps>) {
@@ -58,14 +69,14 @@ beforeEach(() => {
 describe('CustomWorkspace 条目管理', () => {
   it('默认展示自制条目列表，选择后进入编辑器', () => {
     renderWorkspace();
-    expect(screen.getByRole('button', { name: /自制术语/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /自制术语/ }));
+    expect(getWorkspaceRow('自制术语')).toBeInTheDocument();
+    fireEvent.click(getWorkspaceRow('自制术语'));
     expect(screen.getByLabelText('条目标题')).toHaveValue('自制术语');
   });
 
   it('编辑标题会持久化修改', async () => {
     const props = renderWorkspace();
-    fireEvent.click(screen.getByRole('button', { name: /自制术语/ }));
+    fireEvent.click(getWorkspaceRow('自制术语'));
     fireEvent.change(screen.getByLabelText('条目标题'), { target: { value: '改名后的自制条目' } });
 
     await waitFor(() => expect(props.onSaveZhikuSystem).toHaveBeenCalled());
@@ -76,7 +87,7 @@ describe('CustomWorkspace 条目管理', () => {
 
   it('删除自制条目会持久化移除', async () => {
     const props = renderWorkspace();
-    fireEvent.click(screen.getByRole('button', { name: /自制术语/ }));
+    fireEvent.click(getWorkspaceRow('自制术语'));
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
 
     await waitFor(() => expect(props.onSaveZhikuSystem).toHaveBeenCalled());
@@ -88,7 +99,7 @@ describe('CustomWorkspace 条目管理', () => {
   it('内置条目只写运行时解锁覆盖，不改资料字段', async () => {
     const props = renderWorkspace();
     fireEvent.click(screen.getByRole('button', { name: /^内置 1/ }));
-    fireEvent.click(screen.getByRole('button', { name: /内置角色/ }));
+    fireEvent.click(getWorkspaceRow('内置角色'));
 
     fireEvent.click(screen.getByRole('button', { name: '已解锁' }));
     await waitFor(() => expect(props.onSaveZhikuSystem).toHaveBeenCalled());
@@ -103,7 +114,7 @@ describe('CustomWorkspace 条目管理', () => {
   it('删除与编辑入口不会出现在内置条目上', () => {
     renderWorkspace();
     fireEvent.click(screen.getByRole('button', { name: /^内置 1/ }));
-    fireEvent.click(screen.getByRole('button', { name: /内置角色/ }));
+    fireEvent.click(getWorkspaceRow('内置角色'));
     expect(screen.queryByRole('button', { name: '删除' })).toBeNull();
     expect(screen.getByLabelText('条目标题')).toHaveAttribute('readonly');
   });
@@ -111,7 +122,7 @@ describe('CustomWorkspace 条目管理', () => {
 
 describe('home 与 ingame 入口行为一致', () => {
   const renderSurface = (surface: 'home' | 'ingame', onClose?: () => void) => render(
-    <ZhikuNextExperience
+    <ZhikuExperience
       zhikuSystem={buildSystem()}
       storyWeavingSystem={归一化剧情编织系统(null)}
       onZhikuSystemChange={vi.fn()}
@@ -121,24 +132,25 @@ describe('home 与 ingame 入口行为一致', () => {
     />,
   );
 
-  it('两个 surface 都默认大厅且不含自制节点，工作台 chip 可开关自制', () => {
+  it('两个 surface 都默认档案总览且不含自制节点，工作台 chip 可开关自制', async () => {
     for (const surface of ['home', 'ingame'] as const) {
       const { unmount } = renderSurface(surface);
-      expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
       expect(screen.queryByLabelText('条目编辑器')).toBeNull();
-      expect(screen.queryByRole('button', { name: /^自制，/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^展开自制/ })).toBeNull();
 
       fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
       expect(screen.getByLabelText('条目编辑器')).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: '切换自制工作台' }));
-      expect(screen.queryByLabelText('条目编辑器')).toBeNull();
-      expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
+      // 工作台是滑走的，等它退场完再断言总览。
+      await waitFor(() => expect(screen.queryByLabelText('条目编辑器')).toBeNull(), { timeout: 3000 });
+      expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
       unmount();
     }
   });
 
-  it('Escape 链统一：自制先回大厅，再按才关闭', () => {
+  it('Escape 链统一：自制先回档案总览，再按才关闭', async () => {
     const onClose = vi.fn();
     renderSurface('home', onClose);
 
@@ -147,7 +159,8 @@ describe('home 与 ingame 入口行为一致', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('智库分类大厅')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText('条目编辑器')).toBeNull(), { timeout: 3000 });
+    expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);

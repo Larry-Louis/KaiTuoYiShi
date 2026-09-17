@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import type { ZhikuCatalogStatus, 智库系统 } from '@/models/zhiku';
 import type { 智库系统设置 } from '@/models/settings';
-import { ZhikuNextExperience, type ZhikuSurface } from './ZhikuNextExperience';
+import { ZhikuExperience, type ZhikuSurface } from './ZhikuExperience';
 
 interface Props {
   zhikuSystem: 智库系统;
@@ -27,7 +27,7 @@ export function ZhikuSystemPanel({
   surface = 'ingame',
 }: Props) {
   return (
-    <ZhikuNextExperience
+    <ZhikuExperience
       zhikuSystem={zhikuSystem}
       storyWeavingSystem={storyWeavingSystem}
       onZhikuSystemChange={onZhikuSystemChange}

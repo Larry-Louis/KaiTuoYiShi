@@ -6,14 +6,14 @@ export const NewGameWizard = lazyWithRetry(() => import('@/components/features/N
 export const SettingsModal = lazyWithRetry(() => import('@/components/features/Settings/SettingsModal').then((module) => ({ default: module.SettingsModal })), '设置');
 export const SaveManager = lazyWithRetry(() => import('@/components/features/SaveLoad/SaveManager').then((module) => ({ default: module.SaveManager })), '存档系统');
 export const WorldbookManagerModal = lazyWithRetry(() => import('@/components/features/Worldbook/WorldbookManagerModal').then((module) => ({ default: module.WorldbookManagerModal })), '如我所书');
-export const ZhikuManagerModal = lazyWithRetry(() => import('@/components/features/ZhikuNext/ZhikuManagerModal').then((module) => ({ default: module.ZhikuManagerModal })), '智库');
+export const ZhikuManagerModal = lazyWithRetry(() => import('@/components/features/Zhiku/ZhikuManagerModal').then((module) => ({ default: module.ZhikuManagerModal })), '智库');
 export const GitHubCloudSaveModal = lazyWithRetry(() => import('@/components/features/CloudSave/GitHubCloudSaveModal').then((module) => ({ default: module.GitHubCloudSaveModal })), '云存档');
 export const ReleaseAnnouncementsModal = lazyWithRetry(() => import('@/components/features/Release/ReleaseAnnouncementsModal').then((module) => ({ default: module.ReleaseAnnouncementsModal })), '更新公告');
 
 export const PhoneModal = lazyWithRetry(() => import('@/components/features/Phone/PhoneModal').then((module) => ({ default: module.PhoneModal })), '手机');
 export const PlotPanel = lazyWithRetry(() => import('@/components/features/GameSystems/PlotPanel').then((module) => ({ default: module.PlotPanel })), '剧情');
 export const YitingPanel = lazyWithRetry(() => import('@/components/features/GameSystems/YitingPanel').then((module) => ({ default: module.YitingPanel })), '忆庭');
-export const ZhikuSystemPanel = lazyWithRetry(() => import('@/components/features/ZhikuNext/ZhikuSystemPanel').then((module) => ({ default: module.ZhikuSystemPanel })), '智库');
+export const ZhikuSystemPanel = lazyWithRetry(() => import('@/components/features/Zhiku/ZhikuSystemPanel').then((module) => ({ default: module.ZhikuSystemPanel })), '智库');
 export const MemoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MemoryPanel').then((module) => ({ default: module.MemoryPanel })), '记忆');
 export const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems/AlbumPanel').then((module) => ({ default: module.AlbumPanel })), '相册');
 export const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })), '战技');

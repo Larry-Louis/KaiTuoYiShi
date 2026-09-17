@@ -1,0 +1,194 @@
+import { motion, useReducedMotion, useSpring, useTransform } from 'motion/react';
+import { useEffect, type ReactNode } from 'react';
+import type { ZhikuArchiveCategoryId, ZhikuArchiveItem } from '@/services/zhikuArchive';
+import { Avatar } from './Avatar';
+
+export interface CategoryRow {
+  id: Exclude<ZhikuArchiveCategoryId, 'custom'>;
+  label: string;
+  description: string;
+  count: number;
+  countLabel: string;
+}
+
+/** 读数是个会滚的仪表：值变化时弹到位，而不是瞬切。初值即终值，首帧就是正确数字。 */
+export function RollingNumber({ value, className }: { value: number; className?: string }) {
+  const reduced = useReducedMotion();
+  const spring = useSpring(value, { stiffness: 110, damping: 18, mass: 0.7 });
+  const rounded = useTransform(spring, (v) => Math.round(v));
+  useEffect(() => {
+    spring.set(value);
+  }, [spring, value]);
+  if (reduced) return <span className={className}>{value}</span>;
+  return <motion.span className={className}>{rounded}</motion.span>;
+}
+
+const SOFT_SPRING = { type: 'spring' as const, stiffness: 210, damping: 26 };
+
+interface IndexColumnProps {
+  categories: CategoryRow[];
+  activeCategory: Exclude<ZhikuArchiveCategoryId, 'custom'> | 'all';
+  onSelectCategory: (id: Exclude<ZhikuArchiveCategoryId, 'custom'>) => void;
+  onSelectAll: () => void;
+  itemCount: number;
+  chapterCount: number;
+  children: ReactNode;
+}
+
+export function IndexColumn({
+  categories,
+  activeCategory,
+  onSelectCategory,
+  onSelectAll,
+  itemCount,
+  chapterCount,
+  children,
+}: IndexColumnProps) {
+  const reduced = useReducedMotion();
+  const active = categories.find((category) => category.id === activeCategory);
+  const share = active ? active.count / Math.max(1, itemCount + chapterCount) : 1;
+  /* 与总览同一套排序：迷你格的位置和大格子一一对应，缩小的总览才认得出来。 */
+  const ranked = [...categories].sort((a, b) => b.count - a.count);
+  const soft = reduced ? { duration: 0 } : SOFT_SPRING;
+
+  return (
+    <aside className="zk-index" aria-label="智库分类索引">
+      <button
+        type="button"
+        className="zk-gauge"
+        onClick={onSelectAll}
+        aria-label="返回总览"
+        title="返回总览"
+      >
+        {/* 高瘦的白色折角：返回必须一眼可见，而且是形状不是字符。
+            等比缩放而不是拉伸——纵向拉长会把夹角挤成一根细线。 */}
+        <span className="zk-gauge__back" aria-hidden="true">
+          <svg viewBox="0 0 20 48" preserveAspectRatio="xMidYMid meet" focusable="false">
+            <path
+              d="M14.5 5 L5.5 24 L14.5 43"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={3.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        </span>
+        <span className="zk-gauge__body">
+          <span className="zk-gauge__label">{active ? active.label : '全部资料'}</span>
+          <RollingNumber className="zk-gauge__value" value={active?.count ?? itemCount} />
+          <span className="zk-gauge__denom">
+            / {itemCount} 条{chapterCount > 0 ? ` · ${chapterCount} 章` : ''}
+          </span>
+          <span className="zk-bar">
+            <motion.i
+              className="zk-bar__fill"
+              initial={false}
+              animate={{ scaleX: Math.max(share, 0.004) }}
+              transition={soft}
+            />
+          </span>
+        </span>
+      </button>
+
+      {/* 缩小的总览常驻：无论读到多深，都能看见自己在整座档案库的哪一格。 */}
+      <nav className="zk-mini" aria-label="智库分类">
+            {ranked.map((category) => {
+              const isActive = category.id === activeCategory;
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  className="zk-mini__cell"
+                  data-active={isActive ? 'true' : 'false'}
+                  data-category-id={category.id}
+                  aria-pressed={isActive}
+                  /* 当前分类再点一次就收回总览——返回不需要额外按钮，它就是「把展开的合上」。 */
+                  aria-label={isActive ? `收起${category.label}，返回总览` : `展开${category.label}，${category.countLabel}`}
+                  title={isActive ? '再次点击收起，返回总览' : category.label}
+                  onClick={() => (isActive ? onSelectAll() : onSelectCategory(category.id))}
+                >
+                  <span className="zk-mini__name">{category.label}</span>
+                  <RollingNumber className="zk-mini__n" value={category.count} />
+                </button>
+              );
+            })}
+      </nav>
+
+      {children}
+    </aside>
+  );
+}
+
+const formatSequence = (index: number): string => String(index + 1).padStart(2, '0');
+
+interface EntryListProps {
+  items: ZhikuArchiveItem[];
+  activeItemId: string;
+  onSelectItem: (id: string) => void;
+  showCustomFlag?: boolean;
+  emptyTitle?: string;
+  emptyHint?: string;
+}
+
+export function EntryList({
+  items,
+  activeItemId,
+  onSelectItem,
+  showCustomFlag = false,
+  emptyTitle = '暂无档案',
+  emptyHint = '当前分类还没有玩家可见资料。',
+}: EntryListProps) {
+  if (items.length === 0) {
+    return (
+      <div className="zk-entries zk-scroll">
+        <div className="zk-empty">
+          <strong className="zk-empty__title">{emptyTitle}</strong>
+          <span className="zk-empty__hint">{emptyHint}</span>
+        </div>
+      </div>
+    );
+  }
+
+  {
+    /* 行本身不做动画：整表替换时让 99 行各自淡入位移既吵又贵。
+       换分类的动效交给外层容器一次性完成。 */
+  }
+  return (
+    <div className="zk-entries zk-scroll" role="list">
+      {items.map((item, index) => {
+        const isActive = item.id === activeItemId;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="listitem"
+            className="zk-entry"
+            data-active={isActive ? 'true' : 'false'}
+            data-item-id={item.id}
+            aria-pressed={isActive}
+            aria-label={`阅读${item.title}`}
+            onClick={() => onSelectItem(item.id)}
+          >
+            {item.avatarSrc ? (
+              <Avatar
+                className="zk-entry__ava"
+                src={item.avatarSrc}
+                alt={item.avatarAlt ?? `${item.title}头像`}
+                fallback={item.title.slice(0, 1)}
+              />
+            ) : (
+              <span className="zk-entry__seq">{formatSequence(index)}</span>
+            )}
+            <span className="zk-entry__copy">
+              <span className="zk-entry__title">{item.title}</span>
+              <span className="zk-entry__meta">{item.subtitle ?? item.meta ?? ''}</span>
+            </span>
+            {showCustomFlag && !item.builtin && <span className="zk-entry__flag">自制</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

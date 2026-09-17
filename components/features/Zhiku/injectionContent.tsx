@@ -27,12 +27,12 @@ export function InjectionContentFields({ category, value, editable, onChange }: 
     : ZHIKU_LORE_INJECTION_FIELDS;
 
   return (
-    <div className="zn-section">
+    <section className="zk-section">
       <SectionLabel>注入内容</SectionLabel>
-      <p className="zn-note mb-3">
+      <p className="zk-note" style={{ marginBottom: 12 }}>
         结构化注入是召回时真正送给模型的内容；任一字段为空，该条目都不会参与主剧情注入。
       </p>
-      <div className="zn-form-grid">
+      <div className="zk-grid">
         {fields.map((field) => (
           <PerformanceTextarea
             key={field}
@@ -43,6 +43,6 @@ export function InjectionContentFields({ category, value, editable, onChange }: 
           />
         ))}
       </div>
-    </div>
+    </section>
   );
 }

@@ -29,7 +29,7 @@ export function ZhikuManagerModal({
   return (
     <div
       className="fixed inset-0 z-[100] min-h-0 min-w-0 overflow-hidden"
-      style={{ background: 'var(--tn-bg)' }}
+      style={{ background: 'rgb(var(--tj-bg-primary))' }}
       role="dialog"
       aria-modal="true"
       aria-label="智库"
