@@ -283,8 +283,7 @@ export function ZhikuExperience({
     ? (category === 'story' ? '返回章节列表' : '返回条目列表')
     : '返回总览';
 
-  const stackPaneProps = (key: string) => ({
-    key,
+  const stackPaneProps = {
     className: 'zk-stack__pane',
     custom: stackDir,
     variants: STACK_VARIANTS,
@@ -292,7 +291,7 @@ export function ZhikuExperience({
     animate: 'center',
     exit: 'exit',
     transition: sweep,
-  });
+  };
 
   return (
     <div
@@ -423,6 +422,7 @@ export function ZhikuExperience({
                 zhikuSystem={zhikuSystem}
                 onZhikuSystemChange={onZhikuSystemChange}
                 onSaveZhikuSystem={onSaveZhikuSystem}
+                compact={compact}
               />
             </motion.div>
           ) : (
@@ -448,7 +448,7 @@ export function ZhikuExperience({
                 <div className="zk-stack">
                   <AnimatePresence initial={false} custom={stackDir}>
                     {compactLevel === 1 && (
-                      <motion.div {...stackPaneProps('stack-overview')}>
+                      <motion.div key="stack-overview" {...stackPaneProps}>
                         <Overview
                           categories={categories}
                           itemsByCategory={archive.itemsByCategory}
@@ -459,7 +459,7 @@ export function ZhikuExperience({
                     )}
 
                     {compactLevel === 2 && (
-                      <motion.div {...stackPaneProps('stack-list')} className="zk-stack__pane zk-stack__pane--panel">
+                      <motion.div key="stack-list" {...stackPaneProps} className="zk-stack__pane zk-stack__pane--panel">
                         <div className="zk-listpane">
                           {category === 'story' ? (
                             <VolumeList
@@ -480,7 +480,7 @@ export function ZhikuExperience({
                     )}
 
                     {compactLevel === 3 && (
-                      <motion.div {...stackPaneProps('stack-reader')} className="zk-stack__pane zk-stack__pane--panel">
+                      <motion.div key="stack-reader" {...stackPaneProps} className="zk-stack__pane zk-stack__pane--panel">
                         {category === 'story' ? (
                           <ChapterReader
                             volumes={archive.volumes}

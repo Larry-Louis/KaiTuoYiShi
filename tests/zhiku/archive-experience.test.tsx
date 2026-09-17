@@ -333,3 +333,51 @@ describe('键盘交互', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('移动端/紧凑屏幕单屏推进栈 (Mobile Drill-Down Stack)', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  });
+
+  it('手机端按三级推进导航：总览 -> 列表 -> 阅读器，通过返回键逐级回退', async () => {
+    renderArchive();
+    const root = document.querySelector('.zk-root');
+    expect(root).toHaveAttribute('data-compact', 'true');
+
+    // Level 1: 总览便当盒
+    expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '返回总览' })).toBeNull();
+
+    // 点击分类 -> 进入 Level 2 列表
+    fireEvent.click(openCategory('人物'));
+    expect(screen.getByRole('button', { name: '返回总览' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: '阅读星' })).toBeInTheDocument();
+
+    // 点击条目 -> 进入 Level 3 阅读器
+    fireEvent.click(screen.getByRole('listitem', { name: '阅读星' }));
+    expect(screen.getByText('星河旅人的档案正文内容')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回条目列表' })).toBeInTheDocument();
+
+    // 点击返回条目列表 -> 回到 Level 2
+    fireEvent.click(screen.getByRole('button', { name: '返回条目列表' }));
+    expect(screen.getByRole('button', { name: '返回总览' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: '阅读星' })).toBeInTheDocument();
+
+    // 点击返回总览 -> 回到 Level 1
+    fireEvent.click(screen.getByRole('button', { name: '返回总览' }));
+    expect(screen.getByRole('heading', { name: '智库' })).toBeInTheDocument();
+  });
+});

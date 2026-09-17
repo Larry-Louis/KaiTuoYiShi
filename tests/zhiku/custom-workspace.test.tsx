@@ -166,3 +166,32 @@ describe('home 与 ingame 入口行为一致', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CustomWorkspace 移动端单屏栈', () => {
+  it('紧凑屏幕下：在列表与详情间单屏切换，顶部提供返回按钮', async () => {
+    renderWorkspace({ compact: true });
+
+    // 默认展示列表
+    expect(getWorkspaceRow('自制术语')).toBeInTheDocument();
+    expect(screen.queryByLabelText('条目标题')).toBeNull();
+
+    // 点击自制条目 -> 进入详情
+    fireEvent.click(getWorkspaceRow('自制术语'));
+    expect(screen.getByLabelText('条目标题')).toHaveValue('自制术语');
+    expect(screen.getByRole('button', { name: '返回条目列表' })).toBeInTheDocument();
+
+    // 点击返回条目列表 -> 回到列表
+    fireEvent.click(screen.getByRole('button', { name: '返回条目列表' }));
+    expect(getWorkspaceRow('自制术语')).toBeInTheDocument();
+    expect(screen.queryByLabelText('条目标题')).toBeNull();
+
+    // 点击新建 -> 进入草稿编辑
+    fireEvent.click(screen.getByRole('button', { name: '新建' }));
+    expect(screen.getByRole('button', { name: '写入档案' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回条目列表' })).toBeInTheDocument();
+
+    // 点击返回条目列表 -> 回到列表
+    fireEvent.click(screen.getByRole('button', { name: '返回条目列表' }));
+    expect(getWorkspaceRow('自制术语')).toBeInTheDocument();
+  });
+});

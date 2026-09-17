@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
  * 横屏手机 (844×390) 宽度超过 620，但高度根本放不下上下分栏，所以按「矮」也算手机。
  * 第二段限定在 940 宽以内，免得把又宽又矮的桌面窗口也拖进手机版。
  */
-export const COMPACT_SURFACE_QUERY = '(max-width: 620px), (max-width: 940px) and (max-height: 460px)';
+export const COMPACT_SURFACE_QUERY = '(max-width: 768px), (max-width: 940px) and (max-height: 500px)';
 
 function matchesNow(query: string): boolean {
   /* jsdom 与老浏览器可能没有 matchMedia：一律按宽屏处理，桌面排版才是默认。 */

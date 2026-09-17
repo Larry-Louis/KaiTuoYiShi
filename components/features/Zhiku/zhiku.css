@@ -1589,22 +1589,53 @@ textarea.zk-input {
   clip-path: inset(50%);
 }
 
-/* ── 窄屏：分栏塌成单栏栈 ── */
-
-@media (max-width: 880px) {
-  .zk-room,
-  .zk-work,
-  /* .zk-work__split 是后加的一层包裹，漏掉它就会让列表和编辑器并排挤在手机上。 */
-  .zk-work__split {
-    flex-direction: column;
-    padding: 10px;
-    gap: 10px;
+/* ── 紧凑视口（手机与紧凑窄屏）：单屏全高推进栈，彻底告别 44vh 钥匙孔压迫 ──
+   查询串与 useCompactSurface.ts 里的 COMPACT_SURFACE_QUERY 保持严格一致。 */
+@media (max-width: 768px), (max-width: 940px) and (max-height: 500px) {
+  .zk-top {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+    min-height: 50px;
   }
 
-  .zk-work__split {
-    padding: 0;
+  /* 品牌字在紧凑屏上让位给面包屑与返回导航 */
+  .zk-brand {
+    display: none;
   }
 
+  .zk-top__total {
+    font-size: 11px;
+  }
+
+  .zk-top__actions {
+    gap: 6px;
+  }
+
+  /* 移动端保证触控热区符合人体工学 */
+  .zk-top__actions .zk-btn {
+    padding: 8px 10px;
+    min-height: 38px;
+    min-width: 38px;
+  }
+
+  .zk-navback {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .zk-top .zk-btn--back {
+    padding: 8px 12px;
+    min-height: 38px;
+    gap: 6px;
+  }
+
+  .zk-top__actions output {
+    font-size: 12px;
+    min-width: 22px !important;
+  }
+
+  /* 手机端总览：2×3 仪板格局，整屏可用高度分完，不产生冗余滚动 */
   .zk-overview {
     padding: 12px 12px 14px;
     --zk-board-max: 100%;
@@ -1619,137 +1650,13 @@ textarea.zk-input {
     min-width: 0;
   }
 
-  /* 便当盒塌成单列：格子按排名依次排下去，头名仍然最大。
-     版式来自行内样式，这里必须 !important 才能盖过它。
-     桌面版让整盘在剩余空间里居中（flex: none + auto 外边距）；
-     单列时没有剩余空间可让，必须反过来撑满并在内部滚动，否则整页锁死、滚不动。 */
-  .zk-bento {
-    flex: 1 1 auto;
-    margin: 0;
-    min-height: 0;
-    grid-template-columns: 1fr !important;
-    grid-template-rows: none !important;
-    grid-template-areas: none !important;
-    grid-auto-rows: minmax(96px, auto);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-
-  .zk-cell {
-    grid-area: auto !important;
-    height: auto;
-    min-height: 96px;
-  }
-
-  .zk-cell[data-rank='0'] {
-    min-height: 148px;
-  }
-
-  .zk-cell[data-rank='0'] .zk-cell__label {
-    font-size: clamp(26px, 6vw, 40px);
-  }
-
-  /* 单列格子改为「长到装得下」：预览不再吃弹性高度，
-     否则行高按压扁后的预览算，内容会溢到下一张卡片上。 */
-  .zk-cell__preview {
-    flex: none;
-    overflow: visible;
-    mask-image: none;
-  }
-
-  .zk-index,
-  .zk-work__aside {
-    width: 100%;
-    max-height: 44vh;
-  }
-
-  .zk-work__split {
-    min-height: 0;
-  }
-
-  .zk-reader {
-    flex: 1;
-  }
-
-  .zk-gauge {
-    padding: 12px 14px 10px;
-  }
-
-  .zk-gauge__value {
-    font-size: 40px;
-  }
-
-  .zk-reader__head {
-    padding: 16px 16px 0;
-  }
-
-  .zk-reader__body,
-  .zk-editor {
-    padding: 18px 16px 32px;
-  }
-
-  .zk-nav {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ── 手机 ──
-   一屏装下全部分类。单列长卷在手机上要滚三屏，滚到第二屏就忘了第一屏有什么；
-   每格那面预览墙同样只是噪音——头像认不出，名单读不完。
-   所以手机不是「宽屏版变窄」，而是换成 2×3 的仪板：格子撑满可用高度，只留分类名与读数。
-
-   这一块必须写在 880 之后：两块都命中手机，靠顺序决定谁生效。
-   查询串必须与 useCompactSurface.ts 里的 COMPACT_SURFACE_QUERY 逐字一致——
-   两边各判各的，一处改了另一处没跟上，就会出现「JS 按单栈渲染、CSS 按分栏排版」的错版。 */
-@media (max-width: 620px), (max-width: 940px) and (max-height: 460px) {
-  .zk-top {
-    padding: 10px 12px;
-    gap: 8px;
-    flex-wrap: nowrap;
-  }
-
-  /* 品牌字是纯装饰，第一个让位。 */
-  .zk-brand {
-    display: none;
-  }
-
-  .zk-top__total {
-    font-size: 10px;
-  }
-
-  /* 工作台与字号控件只留图标，标签靠 aria-label 保留可访问名。 */
-  .zk-top__actions .zk-btn {
-    padding: 7px 9px;
-    font-size: 0;
-    gap: 0;
-  }
-
-  .zk-top__actions .zk-btn svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  /* 返回档案的按钮在 ID 区，不在工具区——工具区那条选择器从来没命中过。
-     文字在手机顶栏里要吃掉半条空间，只留箭头，名字交给 aria-label。 */
-  .zk-top .zk-btn--back {
-    padding: 7px 9px;
-    font-size: 0;
-    gap: 0;
-  }
-
-  .zk-top__actions output {
-    font-size: 11px;
-    min-width: 18px !important;
-  }
-
-  /* 三行等分：六块格子把可用高度分完，整屏就是全部目录，不需要滚动。 */
   .zk-bento {
     grid-template-columns: 1fr 1fr !important;
     grid-template-rows: repeat(3, 1fr) !important;
     grid-template-areas: none !important;
     grid-auto-rows: auto;
-    /* 矮到 1fr 都装不下内容时（横屏、极端小窗）仍可滚，而不是把最后一行切掉。 */
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .zk-cell,
@@ -1758,6 +1665,55 @@ textarea.zk-input {
     padding: 11px 12px;
     gap: 4px;
   }
+
+  .zk-cell__preview {
+    display: none;
+  }
+
+  /* 工坊在紧凑端全屏切换，不再拆成上下 44vh 双滚动 */
+  .zk-work[data-compact='true'] .zk-work__split {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .zk-work[data-compact='true'] .zk-work__aside {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+
+  .zk-work[data-compact='true'] .zk-editor {
+    width: 100%;
+    height: 100%;
+    padding: 14px 14px 48px;
+  }
+
+  /* 单列格子改为长到装得下 */
+  .zk-index {
+    width: 100%;
+    max-height: none;
+  }
+
+  .zk-reader {
+    flex: 1;
+    width: 100%;
+  }
+
+  .zk-reader__head {
+    padding: 14px 14px 0;
+  }
+
+  .zk-reader__body,
+  .zk-editor {
+    padding: 16px 14px 36px;
+  }
+
+  .zk-nav {
+    grid-template-columns: 1fr;
+  }
+
 
   /* 头像墙与名单在手机上是噪音：每格只留名字与读数。 */
   .zk-cell__preview {
