@@ -167,11 +167,23 @@
   border-color: rgba(var(--zk-gold), 0.45);
 }
 
-.zk-btn--primary {
-  color: rgb(var(--zk-ink));
-  background: rgb(var(--zk-gold));
-  border-color: rgb(var(--zk-gold));
-  font-weight: 600;
+.zk-btn--primary,
+.zk-btn.zk-btn--primary,
+.zk-btn--primary[data-active='true'],
+.zk-btn.zk-btn--primary[data-active='true'],
+.zk-btn--primary:hover,
+.zk-btn--primary:focus {
+  color: #0b0d13 !important;
+  background: rgb(var(--zk-gold)) !important;
+  border-color: rgb(var(--zk-gold)) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 14px rgba(var(--zk-gold), 0.25);
+}
+
+.zk-btn--primary svg,
+.zk-btn.zk-btn--primary svg {
+  stroke: #0b0d13 !important;
+  color: #0b0d13 !important;
 }
 
 .zk-btn--danger {
@@ -293,62 +305,70 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px 18px;
-  /* 版面不铺满整宽：六张卡片摊到 1560px 时，每张要么太大要么太空。
-     收到一个可读的版心宽度，卡片变窄、内容反而填得满，整页也安静下来。 */
-  --zk-board-max: 1140px;
+  gap: 16px;
+  padding: 24px 28px 36px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  --zk-board-max: 1180px;
 }
 
 .zk-overview__head {
   width: 100%;
   max-width: var(--zk-board-max);
   margin: 0 auto;
-}
-
-.zk-overview__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 20px;
   flex: none;
   flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.zk-overview__title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
 }
 
 .zk-overview__title {
-  font-size: clamp(22px, 2.4vw, 32px);
-  line-height: 1;
+  font-size: clamp(26px, 2.6vw, 36px);
+  line-height: 1.15;
   margin: 0;
   letter-spacing: 0.04em;
-  color: var(--zk-dim);
-  font-weight: 500;
+  color: var(--zk-text);
+  font-weight: 600;
+  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.75) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-/* 收成一行安静的读数：它交代总量，但不跟格子里的数字抢音量。 */
+.zk-overview__subtitle {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: var(--zk-faint);
+  text-transform: uppercase;
+}
+
 .zk-overview__stat {
   margin: 0;
   font-family: var(--zk-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
-  color: var(--zk-faint);
+  color: var(--zk-dim);
   font-variant-numeric: tabular-nums;
 }
 
-/* 格位由排名决定，不由数量换算——数量天天变，排名稳定得多。 */
-/* 行高完全由内容决定，整盘在剩余空间里居中。
-   只要这里写成 flex: 1，栅格就会被拉满屏幕高度，
-   每块格子于是只有上方一小截有内容、下面一大片是空的——
-   而且行内下发的 grid-template-rows 会盖住本文件的行高，让人误以为改这里没用。 */
+/* 纯 CSS 栅格：稳定 3 列 × 2 行，永远不坍塌，永远不堆叠到单个单元格 */
 .zk-bento {
-  flex: none;
   width: 100%;
   max-width: var(--zk-board-max);
-  /* 列向弹性容器里，垂直居中靠 auto 外边距；align-self 管的是横向。 */
-  margin: auto;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  grid-template-rows: repeat(3, auto);
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: minmax(175px, auto);
+  gap: 16px;
 }
 
 .zk-cell {
@@ -356,29 +376,35 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  min-height: 0;
-  padding: 14px 16px;
+  min-height: 170px;
+  padding: 18px 20px;
   overflow: hidden;
   text-align: left;
   color: var(--zk-text);
   font-family: var(--zk-font);
-  background: rgba(var(--zk-panel), 0.86);
+  background: rgba(var(--zk-panel), 0.94);
   border: 1px solid var(--zk-hair);
   border-radius: var(--zk-r-l);
   box-shadow: var(--zk-shadow-float);
   cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .zk-cell:hover {
-  border-color: rgba(var(--zk-gold), 0.42);
-  background: rgba(var(--zk-panel), 0.96);
+  border-color: rgba(var(--zk-gold), 0.55);
+  background: rgba(var(--zk-panel), 0.98);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 20px 50px -16px rgba(0, 0, 0, 0.95),
+    0 0 20px rgba(var(--zk-gold), 0.12);
 }
 
-/* 等大版式里，主次交给材质而不是尺寸：主体格顶边压一道金线。 */
 .zk-cell[data-rank='0'] {
-  border-top-color: rgba(var(--zk-gold), 0.55);
+  border-top-color: rgba(var(--zk-gold), 0.65);
 }
 
 .zk-cell[data-rank='0']::before {
@@ -387,45 +413,44 @@
   inset: 0 0 auto 0;
   height: 2px;
   border-radius: var(--zk-r-l) var(--zk-r-l) 0 0;
-  background: linear-gradient(90deg, rgba(var(--zk-gold), 0.75), rgba(var(--zk-gold), 0.08));
+  background: linear-gradient(90deg, rgba(var(--zk-gold), 0.9), rgba(var(--zk-gold), 0.12));
 }
 
 .zk-cell__top {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+  flex: none;
 }
 
-/* 分类名是这块格子的声音，读数只是它的注脚——主次反过来之后，
-   格子认得出是哪一类，而不是只报一个数。 */
 .zk-cell__label {
-  font-size: clamp(26px, 2.6vw, 42px);
+  font-size: clamp(20px, 1.8vw, 26px);
   font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1.1;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
   color: var(--zk-text);
   white-space: nowrap;
 }
 
 .zk-cell__n {
   font-family: var(--zk-mono);
-  font-size: clamp(17px, 1.5vw, 23px);
+  font-size: clamp(22px, 2.2vw, 32px);
   line-height: 1;
   letter-spacing: var(--zk-tracking-num);
   font-variant-numeric: tabular-nums;
-  color: rgba(var(--zk-gold), 0.8);
+  color: rgb(var(--zk-gold));
+  font-weight: 700;
+  display: inline-block;
 }
 
-/* 头名格只把标题再放大一档，读数跟着微微抬起——重点在名字上。 */
 .zk-cell[data-rank='0'] .zk-cell__label {
-  font-size: clamp(34px, 3.4vw, 56px);
+  font-size: clamp(22px, 2vw, 30px);
 }
 
 .zk-cell[data-rank='0'] .zk-cell__n {
-  font-size: clamp(22px, 2vw, 30px);
-  color: rgb(var(--zk-gold));
+  font-size: clamp(26px, 2.6vw, 38px);
 }
 
 .zk-cell[data-rank='0'] .zk-cell__ava {
@@ -1391,6 +1416,90 @@
   min-height: 0;
 }
 
+/* ── 分段控制器 ── */
+.zk-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--zk-hair);
+  border-radius: var(--zk-r-s);
+  padding: 2px;
+  gap: 2px;
+}
+
+.zk-segmented__btn {
+  padding: 6px 12px;
+  font-family: var(--zk-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--zk-dim);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--zk-r-s) - 1px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.16s ease;
+}
+
+.zk-segmented__btn:hover {
+  color: var(--zk-text);
+}
+
+.zk-segmented__btn[data-active='true'] {
+  color: rgb(var(--zk-gold));
+  background: rgba(var(--zk-gold), 0.16);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ── 过滤药丸 ── */
+.zk-work-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.zk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-family: var(--zk-font);
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--zk-dim);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--zk-hair);
+  border-radius: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.zk-chip:hover {
+  color: var(--zk-text);
+  border-color: var(--zk-hair-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.zk-chip[data-active='true'] {
+  color: rgb(var(--zk-gold));
+  border-color: rgba(var(--zk-gold), 0.5);
+  background: rgba(var(--zk-gold), 0.12);
+  font-weight: 500;
+}
+
+.zk-chip__n {
+  font-family: var(--zk-mono);
+  font-size: 10px;
+  color: var(--zk-faint);
+}
+
+.zk-chip[data-active='true'] .zk-chip__n {
+  color: rgba(var(--zk-gold), 0.8);
+}
+
 .zk-editor {
   flex: 1;
   min-width: 0;
@@ -1635,39 +1744,43 @@ textarea.zk-input {
     min-width: 22px !important;
   }
 
-  /* 手机端总览：2×3 仪板格局，整屏可用高度分完，不产生冗余滚动 */
+  /* 手机端总览：2×3 仪板格局，自然流式双列，整屏可用高度分完，不产生冗余滚动 */
   .zk-overview {
-    padding: 12px 12px 14px;
+    padding: 14px 14px 20px;
     --zk-board-max: 100%;
+    gap: 12px;
   }
 
   .zk-overview__head {
     align-items: flex-start;
+    padding-bottom: 2px;
+  }
+
+  .zk-overview__title {
+    font-size: 22px;
   }
 
   .zk-overview__stat {
-    text-align: left;
-    min-width: 0;
+    font-size: 11px;
   }
 
   .zk-bento {
-    grid-template-columns: 1fr 1fr !important;
-    grid-template-rows: repeat(3, 1fr) !important;
-    grid-template-areas: none !important;
-    grid-auto-rows: auto;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-auto-rows: minmax(110px, auto) !important;
+    gap: 10px !important;
+    margin: 0 auto !important;
+    overflow-y: visible !important;
   }
 
   .zk-cell,
   .zk-cell[data-rank='0'] {
-    min-height: 0;
-    padding: 11px 12px;
-    gap: 4px;
+    min-height: 110px !important;
+    padding: 12px 14px !important;
+    gap: 6px !important;
   }
 
   .zk-cell__preview {
-    display: none;
+    display: none !important;
   }
 
   /* 工坊在紧凑端全屏切换，不再拆成上下 44vh 双滚动 */

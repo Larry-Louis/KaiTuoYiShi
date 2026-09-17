@@ -203,7 +203,7 @@ export function CustomWorkspace({
       分类: selected.分类,
       来源: selected.来源 || '原著参考',
       关键词: selected.关键词.join('、'),
-      注入内容: { ...selected.注入内容 },
+      注入内容: selected.注入内容 ? { ...selected.注入内容 } : 创建空智库注入内容(selected.分类),
       摘要: selected.摘要,
       原文: selected.原文,
       重要度: selected.重要度,
@@ -230,35 +230,44 @@ export function CustomWorkspace({
         {(!compact || mobilePane === 'list') && (
           <aside className="zk-work__aside" aria-label="条目列表">
             <div className="zk-index" style={{ flex: 1, width: '100%' }}>
-              <div style={{ padding: 10, flex: 'none', borderBottom: '1px solid var(--zk-hair)' }}>
+              <div style={{ padding: 12, flex: 'none', borderBottom: '1px solid var(--zk-hair)' }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="zk-btn"
-                    data-active={bucket === 'custom' ? 'true' : 'false'}
-                    onClick={() => {
-                      setBucket('custom');
-                      if (mode === 'draft' && customEntries.length > 0) setMode('entry');
-                    }}
-                  >
-                    自制 {customEntries.length}
-                  </button>
-                  <button
-                    type="button"
-                    className="zk-btn"
-                    data-active={bucket === 'builtin' ? 'true' : 'false'}
-                    onClick={() => {
-                      setBucket('builtin');
-                      if (mode === 'draft') setMode('entry');
-                    }}
-                  >
-                    内置 {builtinEntries.length}
-                  </button>
+                  <div className="zk-segmented">
+                    <button
+                      type="button"
+                      className="zk-segmented__btn"
+                      data-active={bucket === 'custom' ? 'true' : 'false'}
+                      onClick={() => {
+                        setBucket('custom');
+                        if (customEntries.length > 0) {
+                          setSelectedId((prev) => (customEntries.some((e) => e.id === prev) ? prev : customEntries[0].id));
+                          setMode('entry');
+                        } else {
+                          setMode('draft');
+                        }
+                      }}
+                    >
+                      自制 {customEntries.length}
+                    </button>
+                    <button
+                      type="button"
+                      className="zk-segmented__btn"
+                      data-active={bucket === 'builtin' ? 'true' : 'false'}
+                      onClick={() => {
+                        setBucket('builtin');
+                        if (builtinEntries.length > 0) {
+                          setSelectedId((prev) => (builtinEntries.some((e) => e.id === prev) ? prev : builtinEntries[0].id));
+                          setMode('entry');
+                        }
+                      }}
+                    >
+                      内置 {builtinEntries.length}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="zk-btn zk-btn--primary"
                     style={{ marginLeft: 'auto', gap: 4 }}
-                    data-active={mode === 'draft' ? 'true' : 'false'}
                     onClick={startNewDraft}
                   >
                     <Plus size={13} strokeWidth={2} />
@@ -271,14 +280,14 @@ export function CustomWorkspace({
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="搜索条目…"
                   className="zk-input"
-                  style={{ marginTop: 8 }}
+                  style={{ marginTop: 10 }}
                   aria-label="搜索条目"
                 />
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                <div className="zk-work-filters">
                   <button
                     type="button"
-                    className="zk-btn"
+                    className="zk-chip"
                     data-active={activeCategory === 'all' ? 'true' : 'false'}
                     onClick={() => setActiveCategory('all')}
                   >
@@ -288,11 +297,11 @@ export function CustomWorkspace({
                     <button
                       key={cat}
                       type="button"
-                      className="zk-btn"
+                      className="zk-chip"
                       data-active={activeCategory === cat ? 'true' : 'false'}
                       onClick={() => setActiveCategory(cat)}
                     >
-                      {ZHIKU_CATEGORY_LABELS[cat]} {counts[cat]}
+                      {ZHIKU_CATEGORY_LABELS[cat]} <span className="zk-chip__n">{counts[cat]}</span>
                     </button>
                   ))}
                 </div>
@@ -358,7 +367,7 @@ export function CustomWorkspace({
 
             {mode === 'draft' ? (
               /* ── 专注创作草稿模式 ── */
-              <div style={{ maxWidth: 840, margin: '0 auto' }}>
+              <div style={{ maxWidth: 900 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <div>
                     <div className="zk-reader__kicker">NEW CUSTOM ENTRY</div>
@@ -660,6 +669,7 @@ export function CustomWorkspace({
                           category={selected.分类}
                           value={selected.注入内容}
                           editable={false}
+                          onChange={() => {}}
                         />
                       </div>
                     )}
