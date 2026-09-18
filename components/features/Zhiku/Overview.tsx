@@ -1,17 +1,15 @@
 import { motion, useReducedMotion } from 'motion/react';
 import { ZHIKU_BUNDLED_ENTRY_COUNT } from '@/data/zhikuPreset';
-import type { ZhikuArchiveCategoryId, ZhikuArchiveItem, ZhikuArchiveVolume } from '@/services/zhikuArchive';
+import type { ZhikuArchiveItem, ZhikuArchiveVolume } from '@/services/zhikuArchive';
 import { Avatar } from './Avatar';
-import { RollingNumber } from './IndexColumn';
+import { rankCategories, RollingNumber, type CategoryRow, type LoreCategory } from './IndexColumn';
 import { StaggerTitle } from './StaggerTitle';
-
-type LoreCategory = Exclude<ZhikuArchiveCategoryId, 'custom'>;
 
 const AVATAR_CAP = 18;
 const NAME_CAP = 8;
 
 interface OverviewProps {
-  categories: { id: LoreCategory; label: string; description: string; count: number; countLabel: string }[];
+  categories: CategoryRow[];
   itemsByCategory: Record<string, ZhikuArchiveItem[]>;
   volumes: ZhikuArchiveVolume[];
   onSelectCategory: (id: LoreCategory) => void;
@@ -21,7 +19,7 @@ interface OverviewProps {
 export function Overview({ categories, itemsByCategory, volumes, onSelectCategory }: OverviewProps) {
   const reduced = useReducedMotion();
 
-  const ranked = [...categories].sort((a, b) => b.count - a.count);
+  const ranked = rankCategories(categories);
   /* 收录进度只算条目：卷宗是章节，不混进条目分母。 */
   const loreTotal = categories.reduce((sum, row) => sum + (row.id === 'story' ? 0 : row.count), 0);
 
@@ -72,7 +70,6 @@ export function Overview({ categories, itemsByCategory, volumes, onSelectCategor
               whileTap={tap}
               className="zk-cell"
               data-rank={rank}
-              data-category-id={row.id}
               aria-label={`展开${row.label}，${row.countLabel}`}
               onClick={() => onSelectCategory(row.id)}
             >

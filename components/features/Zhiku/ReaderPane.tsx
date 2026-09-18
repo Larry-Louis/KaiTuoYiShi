@@ -1,5 +1,5 @@
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { ZhikuArchiveItem } from '@/services/zhikuArchive';
 import { Prose } from './Prose';
@@ -23,11 +23,9 @@ export function ReaderPane({ item, categoryLabel, fontSize, onBack, keywordScrol
   const [variantId, setVariantId] = useState('');
   const reduced = useReducedMotion();
 
+  /* 不用 useMemo：`?? []` 每次都给出新数组，包起来也只是每次重算。 */
   const variants = item?.variants ?? [];
-  const variant = useMemo(
-    () => variants.find((candidate) => candidate.id === variantId) ?? variants.at(0),
-    [variantId, variants],
-  );
+  const variant = variants.find((candidate) => candidate.id === variantId) ?? variants.at(0);
   const keywords = variant?.keywords ?? item?.keywords ?? [];
   const injection = (variant?.injectionPreview ?? item?.injectionPreview ?? '').trim();
   const body = variant?.body || item?.body || '';
@@ -47,7 +45,7 @@ export function ReaderPane({ item, categoryLabel, fontSize, onBack, keywordScrol
 
   return (
     <LayoutGroup id="zk-reader">
-      <section className="zk-reader" aria-live="polite" data-current-item={item.id}>
+      <section className="zk-reader" aria-live="polite">
         <header className="zk-reader__head">
           {/* 面包屑：总览是可点的，返回不需要靠猜。 */}
           <nav className="zk-crumb" aria-label="位置">

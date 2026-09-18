@@ -46,7 +46,7 @@ export function Avatar({
   const showImage = Boolean(thumb) && !failed;
 
   return (
-    <span className={className} data-loaded={showImage ? 'true' : 'false'}>
+    <span className={className}>
       {/* 永远在场：先占好位，图到了也只是盖上去。 */}
       <span className="zk-ava-ph" aria-hidden="true">
         {showImage ? null : failed || !src ? fallback : null}

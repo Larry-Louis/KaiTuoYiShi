@@ -3,13 +3,22 @@ import { useEffect, type ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import type { ZhikuArchiveCategoryId, ZhikuArchiveItem } from '@/services/zhikuArchive';
 import { Avatar } from './Avatar';
+import { EmptyState } from './fields';
+
+/** 档案面陈列的分类：除「自制」外的全部。注意它不是 services 的 ZhikuArchiveLoreCategoryId——那个还排除了 story。 */
+export type LoreCategory = Exclude<ZhikuArchiveCategoryId, 'custom'>;
 
 export interface CategoryRow {
-  id: Exclude<ZhikuArchiveCategoryId, 'custom'>;
+  id: LoreCategory;
   label: string;
   description: string;
   count: number;
   countLabel: string;
+}
+
+/** 总览与缩小的总览共用同一套排序：大格子和小格子的位置一一对应，读的人才能认出自己在哪一格。 */
+export function rankCategories(categories: CategoryRow[]): CategoryRow[] {
+  return [...categories].sort((a, b) => b.count - a.count);
 }
 
 /** 读数是个会滚的仪表：值变化时弹到位，而不是瞬切。初值即终值，首帧就是正确数字。 */
@@ -28,8 +37,8 @@ const SOFT_SPRING = { type: 'spring' as const, stiffness: 210, damping: 26 };
 
 interface IndexColumnProps {
   categories: CategoryRow[];
-  activeCategory: Exclude<ZhikuArchiveCategoryId, 'custom'> | 'all';
-  onSelectCategory: (id: Exclude<ZhikuArchiveCategoryId, 'custom'>) => void;
+  activeCategory: LoreCategory | 'all';
+  onSelectCategory: (id: LoreCategory) => void;
   onSelectAll: () => void;
   itemCount: number;
   chapterCount: number;
@@ -48,8 +57,7 @@ export function IndexColumn({
   const reduced = useReducedMotion();
   const active = categories.find((category) => category.id === activeCategory);
   const share = active ? active.count / Math.max(1, itemCount + chapterCount) : 1;
-  /* 与总览同一套排序：迷你格的位置和大格子一一对应，缩小的总览才认得出来。 */
-  const ranked = [...categories].sort((a, b) => b.count - a.count);
+  const ranked = rankCategories(categories);
   const soft = reduced ? { duration: 0 } : SOFT_SPRING;
 
   return (
@@ -91,7 +99,6 @@ export function IndexColumn({
                   type="button"
                   className="zk-mini__cell"
                   data-active={isActive ? 'true' : 'false'}
-                  data-category-id={category.id}
                   aria-pressed={isActive}
                   /* 当前分类再点一次就收回总览——返回不需要额外按钮，它就是「把展开的合上」。 */
                   aria-label={isActive ? `收起${category.label}，返回总览` : `展开${category.label}，${category.countLabel}`}
@@ -116,34 +123,19 @@ interface EntryListProps {
   items: ZhikuArchiveItem[];
   activeItemId: string;
   onSelectItem: (id: string) => void;
-  showCustomFlag?: boolean;
-  emptyTitle?: string;
-  emptyHint?: string;
 }
 
-export function EntryList({
-  items,
-  activeItemId,
-  onSelectItem,
-  showCustomFlag = false,
-  emptyTitle = '暂无档案',
-  emptyHint = '当前分类还没有玩家可见资料。',
-}: EntryListProps) {
+export function EntryList({ items, activeItemId, onSelectItem }: EntryListProps) {
   if (items.length === 0) {
     return (
       <div className="zk-entries zk-scroll">
-        <div className="zk-empty">
-          <strong className="zk-empty__title">{emptyTitle}</strong>
-          <span className="zk-empty__hint">{emptyHint}</span>
-        </div>
+        <EmptyState title="暂无档案" hint="当前分类还没有玩家可见资料。" />
       </div>
     );
   }
 
-  {
-    /* 行本身不做动画：整表替换时让 99 行各自淡入位移既吵又贵。
-       换分类的动效交给外层容器一次性完成。 */
-  }
+  /* 行本身不做动画：整表替换时让 99 行各自淡入位移既吵又贵。
+     换分类的动效交给外层容器一次性完成。 */
   return (
     <div className="zk-entries zk-scroll" role="list">
       {items.map((item, index) => {
@@ -155,7 +147,6 @@ export function EntryList({
             role="listitem"
             className="zk-entry"
             data-active={isActive ? 'true' : 'false'}
-            data-item-id={item.id}
             aria-pressed={isActive}
             aria-label={`阅读${item.title}`}
             onClick={() => onSelectItem(item.id)}
@@ -174,7 +165,6 @@ export function EntryList({
               <span className="zk-entry__title">{item.title}</span>
               <span className="zk-entry__meta">{item.subtitle ?? item.meta ?? ''}</span>
             </span>
-            {showCustomFlag && !item.builtin && <span className="zk-entry__flag">自制</span>}
           </button>
         );
       })}

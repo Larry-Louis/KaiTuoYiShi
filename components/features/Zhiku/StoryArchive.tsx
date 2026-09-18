@@ -13,7 +13,16 @@ const CHAPTER_STATUS: Record<ZhikuArchiveChapterStatus, { label: string; glyph: 
   locked: { label: '未解锁', glyph: '·' },
 };
 
-function getInitialChapter(volume: ZhikuArchiveVolume): ZhikuArchiveChapter | undefined {
+const CHAPTER_ORDINAL = /^第\s*[0-9０-９一二三四五六七八九十百零两]+\s*[章节回]/u;
+
+export function formatChapterTitle(chapter: ZhikuArchiveChapter): string {
+  return CHAPTER_ORDINAL.test(chapter.title.trim())
+    ? chapter.title
+    : `${chapter.number} ${chapter.title}`;
+}
+
+/** 一卷默认落到哪一章：优先「阅读中」，其次第一个已解锁的。总览入口与卷宗展开共用这一条。 */
+export function getInitialChapter(volume: ZhikuArchiveVolume): ZhikuArchiveChapter | undefined {
   return volume.chapters.find((chapter) => chapter.status === 'current')
     ?? volume.chapters.find((chapter) => chapter.status !== 'locked');
 }
@@ -39,7 +48,6 @@ export function VolumeList({
   volumes: ZhikuArchiveVolume[];
   activeChapterId: string;
   onSelectChapter: (chapter: ZhikuArchiveChapter) => void;
-  /** 展开卷宗时顺带把首章送进阅读面。分栏时这是必需的；手机上一屏只有列表，展开就只是展开。 */
   autoSelectOnOpen?: boolean;
 }) {
   const reduced = useReducedMotion();
@@ -129,7 +137,6 @@ export function VolumeList({
                               className="zk-chapter"
                               data-status={chapter.status}
                               data-active={active ? 'true' : 'false'}
-                              data-chapter-id={chapter.id}
                               disabled={chapterLocked}
                               aria-pressed={active}
                               aria-label={chapterLocked ? `${chapter.number}，尚未解锁` : `阅读${chapter.number}：${chapter.title}`}
@@ -137,7 +144,7 @@ export function VolumeList({
                             >
                               <span className="zk-chapter__mark" aria-hidden="true">{status.glyph}</span>
                               <span className="zk-chapter__title">
-                                {chapterLocked ? '未解锁章节' : `${chapter.number} ${chapter.title}`}
+                                {chapterLocked ? '未解锁章节' : formatChapterTitle(chapter)}
                               </span>
                               <span className="zk-chapter__mark">{status.label}</span>
                             </button>
@@ -202,7 +209,7 @@ export function ChapterReader({
   }
 
   return (
-    <section className="zk-reader" aria-live="polite" data-current-item={selectedChapter.id}>
+    <section className="zk-reader" aria-live="polite">
       <header className="zk-reader__head">
         <nav className="zk-crumb" aria-label="位置">
           <button type="button" className="zk-crumb__link" onClick={onBack}>总览</button>

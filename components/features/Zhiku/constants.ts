@@ -7,5 +7,3 @@ export const zhikuScopeOptions = ['主剧情', '手机', '新闻', '变量参考
 export const zhikuUnlockStatuses = ['未解锁', '可预热', '已解锁', '手动启用', '默认可用', '只读'];
 
 export const ZHIKU_SPOILER_LEVELS = ['无', '轻微', '中等', '重大'];
-
-export const isDevBuild = typeof import.meta !== 'undefined' && Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);

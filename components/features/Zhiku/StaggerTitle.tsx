@@ -20,19 +20,6 @@ const charVariants = {
       delay: Math.min(index * 0.028, 0.32),
     },
   }),
-  enter: { opacity: 0, y: 22, scale: 0.86 },
-  center: (index: number) => ({
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: {
-      type: 'spring' as const,
-      stiffness: 440,
-      damping: 28,
-      mass: 0.5,
-      delay: Math.min(index * 0.028, 0.32),
-    },
-  }),
 };
 
 export function StaggerTitle({

@@ -56,11 +56,18 @@ export function Starfield() {
   }, [pointerX, pointerY, reduced]);
 
   useEffect(() => {
+    /* 尺寸没变就不要再画一遍：iOS 收起地址栏也会发 resize，那一次重排三块
+       上千颗星的画布纯属白烧。 */
+    let painted = '';
     const draw = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = window.innerWidth;
       const h = window.innerHeight;
-      refs.current.forEach((canvas, index) => {
+      const stamp = `${w}x${h}@${dpr}`;
+      if (stamp === painted) return;
+      painted = stamp;
+      refs.current.forEach((_, index) => {
+        const canvas = refs.current[index];
         if (!canvas) return;
         const layer = LAYERS[index];
         canvas.width = Math.round(w * dpr);

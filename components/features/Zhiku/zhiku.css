@@ -28,6 +28,9 @@
   --zk-r-m: 8px;
   --zk-r-l: 12px;
 
+  /* 宽屏左侧导轨的固定宽度。 */
+  --zk-rail-w: 340px;
+
   --zk-font: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   --zk-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
@@ -59,7 +62,6 @@
   inset: -8%;
   z-index: 0;
   pointer-events: none;
-  will-change: transform;
 }
 
 .zk-starfield canvas {
@@ -282,9 +284,6 @@
   padding: 0;
 }
 
-/* ── 手机栈：一次一屏 ──
-   手机不是把两栏压窄，而是把「总览 → 列表 → 正文」拉成一条纵向的路。
-   每层占满整屏（绝对定位重叠，换场时互相让位），来的时候从右边推进，回的时候原路退回。 */
 .zk-stack {
   position: absolute;
   inset: 0;
@@ -311,7 +310,6 @@
   z-index: 3;
 }
 
-/* 列表与正文是悬浮面板，四周留边；总览自带留白，不再套一层。 */
 .zk-stack__pane--panel {
   padding: 10px;
 }
@@ -357,7 +355,7 @@
   letter-spacing: 0.04em;
   color: var(--zk-text);
   font-weight: 600;
-  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.75) 100%);
+  background: linear-gradient(180deg, rgb(var(--zk-text)) 30%, rgba(var(--zk-text), 0.75) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -409,8 +407,6 @@
   box-shadow: var(--zk-shadow-float);
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .zk-cell:hover {
@@ -557,8 +553,7 @@
    因此无论图什么时候到，槽的尺寸与位置都不变，周边排版不会被顶动。 */
 .zk-entry__ava,
 .zk-cell__ava,
-.zk-reader__ava,
-.zk-tile__ava {
+.zk-reader__ava {
   position: relative;
   overflow: hidden;
 }
@@ -605,7 +600,7 @@
 }
 
 .zk-index {
-  width: var(--zk-rail-w, 340px);
+  width: var(--zk-rail-w);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -620,7 +615,6 @@
   overflow: hidden;
 }
 
-/* 手机栈的列表层：与索引栏同一块面板，只是不再有固定宽度——它占满一整屏。 */
 .zk-listpane {
   flex: 1;
   min-height: 0;
@@ -1112,14 +1106,6 @@
   margin-bottom: 0 !important;
 }
 
-.zk-prose--dropcap::first-letter {
-  float: left;
-  font-size: 3.1em;
-  line-height: 0.86;
-  padding: 0.06em 0.1em 0 0;
-  color: var(--zk-gold);
-}
-
 .zk-prose h1,
 .zk-prose h2,
 .zk-prose h3 {
@@ -1207,11 +1193,6 @@
   border: 1px solid var(--zk-hair);
 }
 
-.zk-keyword--hot {
-  color: rgb(var(--zk-cyan));
-  border-color: rgba(var(--zk-cyan), 0.32);
-}
-
 /* 内置条目最多带 131 个关键词。全铺开会把注入内容顶出屏幕，所以超过阈值时收进可滚动区。 */
 .zk-keywords[data-many='true'] {
   max-height: 168px;
@@ -1233,10 +1214,6 @@
   background: rgba(var(--zk-sunken), 0.7);
   border: 1px solid var(--zk-hair);
   max-width: 78ch;
-}
-
-.zk-injection__title {
-  color: rgb(var(--zk-gold));
 }
 
 /* ── 剧情档案 ── */
@@ -1436,7 +1413,7 @@
 }
 
 .zk-work__aside {
-  width: var(--zk-rail-w, 340px);
+  width: var(--zk-rail-w);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -1718,14 +1695,6 @@ textarea.zk-input {
   background: rgba(var(--zk-gold), 0.4);
 }
 
-.zk-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-
 /* ── 紧凑视口（手机与紧凑窄屏）：单屏全高推进栈，彻底告别 44vh 钥匙孔压迫 ──
    查询串与 useCompactSurface.ts 里的 COMPACT_SURFACE_QUERY 保持严格一致。 */
 @media (max-width: 768px), (max-width: 940px) and (max-height: 500px) {
@@ -1811,21 +1780,23 @@ textarea.zk-input {
     display: none !important;
   }
 
-  /* 工坊在紧凑端全屏切换，不再拆成上下 44vh 双滚动 */
-  .zk-work[data-compact='true'] .zk-work__split {
+  /* 工坊在紧凑端全屏切换，不再拆成上下 44vh 双滚动。
+     这里不再挂 [data-compact]：能进到这一块，媒体查询已经判定了紧凑，
+     再问一遍 JS 侧的同一个条件只是第三份「什么算手机」的写法。 */
+  .zk-work__split {
     display: block;
     width: 100%;
     height: 100%;
     overflow: hidden;
   }
 
-  .zk-work[data-compact='true'] .zk-work__aside {
+  .zk-work__aside {
     width: 100%;
     height: 100%;
     max-height: none;
   }
 
-  .zk-work[data-compact='true'] .zk-editor {
+  .zk-editor {
     width: 100%;
     height: 100%;
     padding: 14px 14px 48px;
@@ -1861,10 +1832,6 @@ textarea.zk-input {
     display: none;
   }
 
-  /* 名字封顶、读数落地，与索引栏那台仪表同一套读法。
-     两行都留在顶部会让格子中间空出一个大洞——洞是「删漏了」，不是「安静」；
-     把读数按到底边，格子才有上下两端，中间那段空白才是版面。
-     读数只是落在下面的读数：字号压住、金色收淡，声音仍然归名字。 */
   .zk-cell__top {
     flex: 1;
     flex-direction: column;
@@ -1885,13 +1852,10 @@ textarea.zk-input {
     color: rgba(var(--zk-gold), 0.72);
   }
 
-  /* 「27 卷 · 0 章」在宽屏是补充，在手机上会把剧情格顶高半行、
-     让六块格子的读数落不到同一条线上。一屏六格要能横着读，就得同高。 */
   .zk-cell__foot {
     display: none;
   }
 
-  /* 栈顶那一屏：总览自带留白，不再套面板。 */
   .zk-stack__pane {
     padding: 0;
   }
@@ -1900,7 +1864,6 @@ textarea.zk-input {
     padding: 10px;
   }
 
-  /* 一条一行：每行就是一条。竖屏放得下一条，够宽了才并成两栏（见文件末尾那条）。 */
   .zk-listpane .zk-entries {
     display: grid;
     grid-template-columns: 1fr;
@@ -1908,22 +1871,18 @@ textarea.zk-input {
     gap: 2px 6px;
   }
 
-  /* 触控目标不短于 44px：手机上一行挨一行，38px 的行会点错。 */
   .zk-entry {
     padding: 11px 10px;
   }
 
-  /* 副标题在手机上换来的是每条多出一倍高度，而它说的多半是分类名——那一层已经在顶栏上了。 */
   .zk-entry__meta {
     display: none;
   }
 
-  /* 面包屑让给顶栏：同一屏上不放两个返回。 */
   .zk-crumb {
     display: none;
   }
 
-  /* 返回键吃掉横向空间，正文的留白也该跟着收。 */
   .zk-reader__head {
     padding: 14px 14px 0;
   }
@@ -1942,9 +1901,6 @@ textarea.zk-input {
   }
 }
 
-/* 横屏手机：一屏只有九十来像素高，读数与内边距得跟着矮下去，
-   否则「19px 名字 + 38px 读数 + 22px 内边距」会比格子本身还高，读数被裁掉半个字。
-   查询串取手机断点的后半段，避免又宽又矮的桌面窗口被误伤。 */
 @media (max-width: 940px) and (max-height: 460px) {
   .zk-cell,
   .zk-cell[data-rank='0'] {
@@ -1962,9 +1918,6 @@ textarea.zk-input {
   }
 }
 
-/* 手机栈的列表：够宽了并成两栏。
-   只到两栏为止——一行三条在掌上设备上不是「更省空间」，是三倍的扫视成本。
-   这条写在手机块之后，靠顺序盖过上面那条单栏。 */
 @media (min-width: 560px) {
   .zk-listpane .zk-entries {
     grid-template-columns: 1fr 1fr;

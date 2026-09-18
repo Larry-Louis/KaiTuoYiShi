@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { 智库分类, 智库注入内容 } from '@/models/zhiku';
 import {
   创建空智库注入内容,
@@ -20,7 +21,11 @@ function readField(content: 智库注入内容, field: string): string {
 }
 
 export function InjectionContentFields({ category, value, editable, onChange }: InjectionContentFieldsProps) {
-  const normalized = 归一化智库注入内容(value, category) ?? 创建空智库注入内容(category);
+  /* 归一化会重新分配整个对象；工作台每敲一个字都会重渲这里，不能放在渲染体里裸跑。 */
+  const normalized = useMemo(
+    () => 归一化智库注入内容(value, category) ?? 创建空智库注入内容(category),
+    [category, value],
+  );
   if (!normalized) return null;
   const fields = normalized.类型 === 'character'
     ? ZHIKU_CHARACTER_INJECTION_FIELDS

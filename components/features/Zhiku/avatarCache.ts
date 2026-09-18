@@ -17,7 +17,6 @@ const MAX_CONCURRENT = 6;
 const cache = new Map<string, string>();
 const failed = new Set<string>();
 const inflight = new Map<string, Promise<string | null>>();
-const listeners = new Map<string, Set<(value: string | null) => void>>();
 
 let active = 0;
 const queue: (() => void)[] = [];
@@ -37,12 +36,6 @@ function release(): void {
   if (next) next();
 }
 
-function notify(url: string, value: string | null): void {
-  const set = listeners.get(url);
-  if (!set) return;
-  set.forEach((listener) => listener(value));
-}
-
 /** 居中裁切到正方形并缩到 THUMB：头像本来就是方图，cover 裁切不会切掉脸。 */
 function drawThumb(image: HTMLImageElement): string | null {
   const canvas = document.createElement('canvas');
@@ -58,7 +51,7 @@ function drawThumb(image: HTMLImageElement): string | null {
   ctx.drawImage(image, (THUMB - dw) / 2, (THUMB - dh) / 2, dw, dh);
   try {
     return canvas.toDataURL('image/webp', 0.85);
-  } catch (error) {
+  } catch {
     /* 画布被跨域污染时会抛错；退回 png，再不行就放弃缓存。 */
     try {
       return canvas.toDataURL('image/png');
@@ -87,16 +80,6 @@ export function getCachedThumb(src: string | undefined): string | undefined {
   return cache.get(url);
 }
 
-export function subscribeThumb(url: string, listener: (value: string | null) => void): () => void {
-  const set = listeners.get(url) ?? new Set();
-  set.add(listener);
-  listeners.set(url, set);
-  return () => {
-    set.delete(listener);
-    if (set.size === 0) listeners.delete(url);
-  };
-}
-
 export function loadThumb(src: string): Promise<string | null> {
   const url = resolveStaticAssetReference(src) ?? src;
   const hit = cache.get(url);
@@ -111,14 +94,12 @@ export function loadThumb(src: string): Promise<string | null> {
         .then((dataUrl) => {
           if (dataUrl) cache.set(url, dataUrl);
           else failed.add(url);
-          notify(url, dataUrl);
           inflight.delete(url);
           resolve(dataUrl);
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           devLogError('ui', 'zhiku-avatar-thumb-failed', error, { url });
           failed.add(url);
-          notify(url, null);
           inflight.delete(url);
           resolve(null);
         })

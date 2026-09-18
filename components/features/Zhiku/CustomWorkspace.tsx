@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { ArrowLeft, Copy, Plus, Trash2 } from 'lucide-react';
 import type { 智库系统, 智库分类, 智库条目 } from '@/models/zhiku';
@@ -29,6 +29,119 @@ interface CustomWorkspaceProps {
 
 type Bucket = 'custom' | 'builtin';
 type WorkspaceMode = 'entry' | 'draft';
+
+/**
+ * 自制条目的编辑区。整个面板只读一个 entry——调用方已经把「缓冲条目优先，否则用选中条目」
+ * 合并好了，这里不再逐字段二次兜底，也就不会有半个面板读缓冲、半个面板读存档的错版。
+ */
+function CustomEntryEditor({
+  entry,
+  onUpdate,
+}: {
+  entry: 智库条目;
+  onUpdate: (patch: Partial<智库条目>) => void;
+}) {
+  return (
+    <>
+      {entry.分类 === 'character' ? (
+        <StructuredCharacterFields entry={entry} editable onUpdate={onUpdate} />
+      ) : (
+        <section className="zk-section">
+          <SectionLabel>资料字段</SectionLabel>
+          <div className="zk-grid">
+            <Field label="分类">
+              <select
+                value={entry.分类}
+                onChange={(e) => onUpdate({ 分类: e.target.value as 智库分类 })}
+                className="zk-input"
+              >
+                {ZHIKU_CREATE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {ZHIKU_CATEGORY_LABELS[cat]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="重要度">
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={entry.重要度}
+                onChange={(e) => onUpdate({ 重要度: Number(e.target.value) || 3 })}
+                className="zk-input"
+              />
+            </Field>
+            <Field label="来源">
+              <input
+                value={entry.来源 ?? ''}
+                onChange={(e) => onUpdate({ 来源: e.target.value })}
+                className="zk-input"
+              />
+            </Field>
+            <Field label="关键词">
+              <input
+                value={entry.关键词.join('、')}
+                onChange={(e) =>
+                  onUpdate({
+                    关键词: e.target.value
+                      .split(/[,，、\n]/)
+                      .map((k) => k.trim())
+                      .filter(Boolean),
+                  })
+                }
+                className="zk-input"
+              />
+            </Field>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <ToggleRow
+              label="允许剧情 / 周报联动检索"
+              checked={entry.可用于联动}
+              onChange={(checked) => onUpdate({ 可用于联动: checked })}
+            />
+          </div>
+        </section>
+      )}
+
+      {entry.分类 !== 'story' && (
+        <>
+          {!智库条目注入内容完整(entry) && (
+            <div className="zk-alert" data-kind="warn" role="status" style={{ marginTop: 20 }}>
+              注入内容不完整，该条目不会参与主剧情召回；补齐后立即生效。
+            </div>
+          )}
+          <InjectionContentFields
+            category={entry.分类}
+            value={entry.注入内容}
+            editable
+            onChange={(注入内容) => onUpdate({ 注入内容 })}
+          />
+        </>
+      )}
+
+      <section className="zk-section" style={{ paddingBottom: 40 }}>
+        <SectionLabel>档案正文</SectionLabel>
+        <div className="zk-grid">
+          <PerformanceTextarea
+            label="摘要"
+            value={entry.摘要}
+            editable
+            rows={4}
+            onChange={(value) => onUpdate({ 摘要: value })}
+          />
+          <PerformanceTextarea
+            label="原文"
+            value={entry.原文}
+            editable
+            rows={10}
+            onChange={(value) => onUpdate({ 原文: value })}
+          />
+        </div>
+      </section>
+    </>
+  );
+}
 
 export function CustomWorkspace({
   zhikuSystem,
@@ -69,17 +182,20 @@ export function CustomWorkspace({
   const [saveFlash, setSaveFlash] = useState(false);
 
   const pool = bucket === 'builtin' ? builtinEntries : customEntries;
+  /* 召回要逐条扫原文，162 条下去就是每敲一个字几 MB 的打分。延后一帧再算，
+     输入框仍然跟着手指走，只有列表晚一拍。 */
+  const deferredQuery = useDeferredValue(query);
   const activeEntries = useMemo(() => {
     let result = pool;
-    const hasQuery = !!query.trim();
+    const hasQuery = !!deferredQuery.trim();
     if (hasQuery) {
-      result = 搜索智库条目({ 条目: result }, query, 200);
+      result = 搜索智库条目({ 条目: result }, deferredQuery, 200);
     }
     if (activeCategory !== 'all') {
       result = result.filter((entry) => entry.分类 === activeCategory);
     }
     return hasQuery ? result : [...result].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [activeCategory, pool, query]);
+  }, [activeCategory, deferredQuery, pool]);
 
   const counts = useMemo(() => 智库分类计数({ 条目: pool }), [pool]);
   const selected: 智库条目 | null =
@@ -88,21 +204,30 @@ export function CustomWorkspace({
   /* 本地编辑缓冲条目：用于 60fps 顺滑输入，防抖后写盘，杜绝打字卡顿与 I/O 轰炸。 */
   const [bufferedEntry, setBufferedEntry] = useState<智库条目 | null>(selected);
   const saveDebounceTimerRef = useRef<number | null>(null);
+  const saveFlashTimerRef = useRef<number | null>(null);
 
-  /* 当选中的条目切换时，同步本地缓冲。 */
-  useEffect(() => {
-    setBufferedEntry(selected);
-  }, [selected?.id]);
+  /* 两支护栏都必须在卸载时熄火：否则关掉工作台后定时器仍会回来 setState。 */
+  useEffect(() => () => {
+    for (const timer of [saveDebounceTimerRef.current, saveFlashTimerRef.current]) {
+      if (timer !== null) window.clearTimeout(timer);
+    }
+  }, []);
 
   const persistSystem = useCallback(
     async (nextEntries: 智库条目[]) => {
-      const next = 归一化智库系统({ 条目: nextEntries });
+      /* 必须带上原系统的目录标识：只传条目会让 目录版本/目录修订 归一化成空，
+         而它们会被内置目录的合并与校验读到。 */
+      const next = 归一化智库系统({ ...zhikuSystem, 条目: nextEntries });
       onZhikuSystemChange(next);
       await onSaveZhikuSystem(next);
       setSaveFlash(true);
-      window.setTimeout(() => setSaveFlash(false), 1200);
+      if (saveFlashTimerRef.current !== null) window.clearTimeout(saveFlashTimerRef.current);
+      saveFlashTimerRef.current = window.setTimeout(() => {
+        saveFlashTimerRef.current = null;
+        setSaveFlash(false);
+      }, 1200);
     },
-    [onSaveZhikuSystem, onZhikuSystemChange],
+    [onSaveZhikuSystem, onZhikuSystemChange, zhikuSystem],
   );
 
   const flushSave = useCallback(
@@ -221,10 +346,12 @@ export function CustomWorkspace({
     if (compact) setMobilePane('detail');
   };
 
-  const activeOrBuffered = bufferedEntry ?? selected;
+  /* 只在 id 对得上时采用缓冲：换条目就当场回落，不必等 effect 跑完再纠正，
+     否则点开 B 会先渲一帧 A 的标题与正文。 */
+  const activeOrBuffered = bufferedEntry && bufferedEntry.id === selected?.id ? bufferedEntry : selected;
 
   return (
-    <div className="zk-work" data-compact={compact ? 'true' : 'false'}>
+    <div className="zk-work">
       <div className="zk-work__split">
         {/* 左侧导轨：在紧凑端按栈展示，在桌面端常驻左侧 */}
         {(!compact || mobilePane === 'list') && (
@@ -695,113 +822,7 @@ export function CustomWorkspace({
                     </section>
                   </div>
                 ) : (
-                  /* 自制条目编辑区 */
-                  <>
-                    {selected.分类 === 'character' ? (
-                      <StructuredCharacterFields
-                        entry={activeOrBuffered ?? selected}
-                        editable
-                        onUpdate={(patch) => handleUpdateEntry(patch)}
-                      />
-                    ) : (
-                      <section className="zk-section">
-                        <SectionLabel>资料字段</SectionLabel>
-                        <div className="zk-grid">
-                          <Field label="分类">
-                            <select
-                              value={activeOrBuffered?.分类 ?? selected.分类}
-                              onChange={(e) =>
-                                handleUpdateEntry({ 分类: e.target.value as 智库分类 })
-                              }
-                              className="zk-input"
-                            >
-                              {ZHIKU_CREATE_CATEGORIES.map((cat) => (
-                                <option key={cat} value={cat}>
-                                  {ZHIKU_CATEGORY_LABELS[cat]}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                          <Field label="重要度">
-                            <input
-                              type="number"
-                              min={1}
-                              max={5}
-                              value={activeOrBuffered?.重要度 ?? selected.重要度}
-                              onChange={(e) =>
-                                handleUpdateEntry({ 重要度: Number(e.target.value) || 3 })
-                              }
-                              className="zk-input"
-                            />
-                          </Field>
-                          <Field label="来源">
-                            <input
-                              value={activeOrBuffered?.来源 ?? selected.来源 ?? ''}
-                              onChange={(e) => handleUpdateEntry({ 来源: e.target.value })}
-                              className="zk-input"
-                            />
-                          </Field>
-                          <Field label="关键词">
-                            <input
-                              value={(activeOrBuffered?.关键词 ?? selected.关键词).join('、')}
-                              onChange={(e) =>
-                                handleUpdateEntry({
-                                  关键词: e.target.value
-                                    .split(/[,，、\n]/)
-                                    .map((k) => k.trim())
-                                    .filter(Boolean),
-                                })
-                              }
-                              className="zk-input"
-                            />
-                          </Field>
-                        </div>
-                        <div style={{ marginTop: 12 }}>
-                          <ToggleRow
-                            label="允许剧情 / 周报联动检索"
-                            checked={activeOrBuffered?.可用于联动 ?? selected.可用于联动}
-                            onChange={(checked) => handleUpdateEntry({ 可用于联动: checked })}
-                          />
-                        </div>
-                      </section>
-                    )}
-
-                    {selected.分类 !== 'story' && (
-                      <>
-                        {!智库条目注入内容完整(activeOrBuffered ?? selected) && (
-                          <div className="zk-alert" data-kind="warn" role="status" style={{ marginTop: 20 }}>
-                            注入内容不完整，该条目不会参与主剧情召回；补齐后立即生效。
-                          </div>
-                        )}
-                        <InjectionContentFields
-                          category={selected.分类}
-                          value={(activeOrBuffered ?? selected).注入内容}
-                          editable
-                          onChange={(注入内容) => handleUpdateEntry({ 注入内容 })}
-                        />
-                      </>
-                    )}
-
-                    <section className="zk-section" style={{ paddingBottom: 40 }}>
-                      <SectionLabel>档案正文</SectionLabel>
-                      <div className="zk-grid">
-                        <PerformanceTextarea
-                          label="摘要"
-                          value={activeOrBuffered?.摘要 ?? selected.摘要}
-                          editable
-                          rows={4}
-                          onChange={(value) => handleUpdateEntry({ 摘要: value })}
-                        />
-                        <PerformanceTextarea
-                          label="原文"
-                          value={activeOrBuffered?.原文 ?? selected.原文}
-                          editable
-                          rows={10}
-                          onChange={(value) => handleUpdateEntry({ 原文: value })}
-                        />
-                      </div>
-                    </section>
-                  </>
+                  <CustomEntryEditor entry={activeOrBuffered ?? selected} onUpdate={handleUpdateEntry} />
                 )}
               </>
             ) : (

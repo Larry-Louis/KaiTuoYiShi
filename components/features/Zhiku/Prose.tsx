@@ -13,7 +13,6 @@ const SECTION_HEADINGS = new Set([
   '语料层',
   '写法指导',
   '语料参考',
-  '语料参考：',
   '能力与职责模块',
   '人物概要',
   '关系与知情边界',
@@ -70,11 +69,10 @@ function preprocessSource(raw: string): string {
 
 export interface ProseProps {
   source: string;
-  dropCap?: boolean;
   footer?: ReactNode;
 }
 
-export function Prose({ source, dropCap = false, footer }: ProseProps) {
+export function Prose({ source, footer }: ProseProps) {
   const trimmed = source.trim();
 
   const html = useMemo(() => {
@@ -92,7 +90,7 @@ export function Prose({ source, dropCap = false, footer }: ProseProps) {
   }
 
   return (
-    <div className={`zk-prose${dropCap ? ' zk-prose--dropcap' : ''}`}>
+    <div className="zk-prose">
       <div dangerouslySetInnerHTML={{ __html: html }} />
       {footer}
     </div>

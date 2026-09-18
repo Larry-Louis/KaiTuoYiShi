@@ -24,7 +24,6 @@ const withStory = params.get('story') !== '0';
 const catalog = (params.get('catalog') ?? 'ready');
 /** unlock=all 让内置条目全部可见；默认保持「新存档」形态——那才是多数玩家见到的第一个状态。 */
 const unlockAll = params.get('unlock') === 'all';
-/** progress=all 把全部分段标成「已经历」：新存档下 27 卷全是封条，卷宗→章节那条路根本走不到。 */
 const progressAll = params.get('progress') === 'all';
 
 /** 新存档下内置条目全部处于未解锁态，档案因此是空的。这里只做展示用的解锁覆盖。 */
@@ -38,7 +37,6 @@ function withRuntimeUnlock(system: 智库系统): 智库系统 {
   });
 }
 
-/** 新存档下没有任何一章可读，卷宗列表全是封条。这里只做展示用的进度覆盖。 */
 function withStoryProgress(system: 剧情编织系统): 剧情编织系统 {
   if (!progressAll) return system;
   return 归一化剧情编织系统({
@@ -68,9 +66,6 @@ async function main() {
   const rootEl = document.getElementById('root');
   if (!rootEl) throw new Error('no root');
 
-  /* 与 App 同一条装载路径：新存档没有 saved，hydrate 直接回落到内置的完整剧情系统。
-     之前这里喂的是持久化投影（canon 的章节列表被剥空），于是 27 卷全是封条，
-     卷宗→章节那条路根本走不到——那不是新存档的样子，是存档文件的样子。 */
   const storySystem = withStoryProgress(hydratePersistedStoryWeavingSystem(null, story));
 
   ReactDOM.createRoot(rootEl).render(

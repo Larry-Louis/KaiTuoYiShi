@@ -7,16 +7,15 @@ import type { ZhikuCatalogStatus, 智库系统 } from '@/models/zhiku';
 import {
   buildZhikuArchiveView,
   isEmptyZhikuArchiveView,
-  type ZhikuArchiveCategoryId,
   type ZhikuArchiveChapter,
   type ZhikuArchiveLoreCategoryId,
 } from '@/services/zhikuArchive';
 import { devLogError } from '@/utils/devLog';
 import { CustomWorkspace } from './CustomWorkspace';
-import { EntryList, IndexColumn, type CategoryRow } from './IndexColumn';
+import { EntryList, IndexColumn, type CategoryRow, type LoreCategory } from './IndexColumn';
 import { Overview } from './Overview';
 import { ReaderPane } from './ReaderPane';
-import { ChapterReader, VolumeList } from './StoryArchive';
+import { ChapterReader, getInitialChapter, VolumeList } from './StoryArchive';
 import { Starfield } from './Starfield';
 import { EmptyState } from './fields';
 import { useZhikuReaderFontSize } from './readerFontSize';
@@ -27,17 +26,10 @@ export type ZhikuSurface = 'home' | 'ingame';
 export type ReaderRefreshStatus = 'idle' | 'loading' | 'done' | 'error';
 
 type ZhikuView = 'archive' | 'custom';
-type LoreCategory = Exclude<ZhikuArchiveCategoryId, 'custom'>;
 type RailCategory = LoreCategory | 'all';
 
-/** 手机栈的层：总览 → 列表 → 正文。一次只上一屏，层层推进。 */
 type StackLevel = 1 | 2 | 3;
 
-/**
- * 层的进出方向必须由 AnimatePresence 的 custom 传进来，不能写死在每一层上。
- * 退场的那一层不会再渲染一次——它带着上次的 props 被摘走，
- * 而上次的方向很可能是上一趟的，退场就会朝错的方向滑。custom 在退场时读的是当下这个值。
- */
 const STACK_VARIANTS = {
   enter: (dir: number) => ({ x: dir > 0 ? '100%' : '-100%', opacity: 0 }),
   center: { x: 0, opacity: 1 },
@@ -110,21 +102,17 @@ export function ZhikuExperience({
   /* 剧情档案没有单独的总览：卷宗列表本身就在导轨里，右侧直接进阅读。 */
   const initialChapterId = useMemo(() => {
     const volume = archive.volumes.find((v) => !v.locked);
-    const chapter = volume?.chapters.find((c) => c.status === 'current')
-      ?? volume?.chapters.find((c) => c.status !== 'locked');
-    return chapter?.id ?? '';
+    return (volume && getInitialChapter(volume)?.id) || '';
   }, [archive.volumes]);
 
   const effectiveChapterId = chapterId || initialChapterId;
 
-  /* 手机栈只有三层，层号完全由已有的选择状态推出来，不另存一份，免得两份状态走岔。 */
   const compactLevel: StackLevel = category === 'all'
     ? 1
     : category === 'story'
       ? (chapterId ? 3 : 2)
       : (entryId ? 3 : 2);
 
-  /* 顶栏只放章标题：卷宗名和章序都在正文抬头里，标题栏再报一次就只是重复。 */
   const compactChapterTitle = useMemo(() => {
     const volume = archive.volumes.find((v) => v.chapters.some((c) => c.id === chapterId));
     const chapter = volume?.chapters.find((c) => c.id === chapterId);
@@ -147,7 +135,6 @@ export function ZhikuExperience({
         return;
       }
 
-      /* 手机一次一屏，Esc 与顶栏那支折角走同一条退栈路径；退到底才关智库。 */
       if (compact) {
         if (category === 'all') {
           onClose?.();
@@ -165,7 +152,6 @@ export function ZhikuExperience({
         return;
       }
 
-      /* 桌面：逐层退出——条目 → 分类 → 关闭。导轨还在，路径没断。 */
       if (entryId) {
         setEntryId('');
         return;
@@ -253,7 +239,6 @@ export function ZhikuExperience({
     ? { duration: 0 }
     : { type: 'spring' as const, stiffness: 380, damping: 32, mass: 0.5 };
 
-  /* 工具跟着层走：总览上摆工作台与重载，正文里摆字号——一屏只给这一屏用得上的东西。 */
   const showWorkbench = !compact || view === 'custom' || compactLevel === 1;
   const showRefresh = !compact || view === 'custom' || compactLevel === 1;
   const showFontSize = !compact || view === 'custom' || compactLevel === 3;
@@ -280,10 +265,40 @@ export function ZhikuExperience({
     transition: sweep,
   };
 
+  const readerPane = category === 'story' ? (
+    <ChapterReader
+      volumes={archive.volumes}
+      fontSize={fontSize}
+      selectedChapterId={effectiveChapterId}
+      onSelectChapter={handleSelectChapter}
+      onBack={goAll}
+    />
+  ) : activeItem ? (
+    <ReaderPane item={activeItem} categoryLabel={categoryLabel} fontSize={fontSize} onBack={goAll} />
+  ) : (
+    <section className="zk-reader" aria-live="polite">
+      <EmptyState
+        title="该分类暂无可见资料"
+        hint="该分类的条目还没有在剧情里解锁；解锁后会出现在这里。"
+      />
+    </section>
+  );
+
+  const indexList = (activeChapterId: string, activeItemId: string, autoSelectOnOpen: boolean) =>
+    category === 'story' ? (
+      <VolumeList
+        volumes={archive.volumes}
+        activeChapterId={activeChapterId}
+        onSelectChapter={handleSelectChapter}
+        autoSelectOnOpen={autoSelectOnOpen}
+      />
+    ) : (
+      <EntryList items={items} activeItemId={activeItemId} onSelectItem={handleSelectEntry} />
+    );
+
   return (
     <div
       className="zk-root"
-      data-view={view}
       data-surface={surface}
       data-catalog-status={catalogStatus}
       data-archive-state={isEmpty ? 'empty' : 'ready'}
@@ -309,7 +324,6 @@ export function ZhikuExperience({
               返回档案
             </button>
           ) : compact && compactLevel > 1 ? (
-            /* 手机上一次只看得见一屏，返回必须常驻顶栏左上角——它不是装饰，是唯一的路。 */
             <button
               type="button"
               className="zk-navback"
@@ -448,50 +462,13 @@ export function ZhikuExperience({
 
                     {compactLevel === 2 && (
                       <motion.div key="stack-list" {...stackPaneProps} data-stack-level="2" className="zk-stack__pane zk-stack__pane--panel">
-                        <div className="zk-listpane">
-                          {category === 'story' ? (
-                            <VolumeList
-                              volumes={archive.volumes}
-                              activeChapterId={chapterId}
-                              onSelectChapter={handleSelectChapter}
-                              autoSelectOnOpen={false}
-                            />
-                          ) : (
-                            <EntryList
-                              items={items}
-                              activeItemId={entryId}
-                              onSelectItem={handleSelectEntry}
-                            />
-                          )}
-                        </div>
+                        <div className="zk-listpane">{indexList(chapterId, entryId, false)}</div>
                       </motion.div>
                     )}
 
                     {compactLevel === 3 && (
                       <motion.div key="stack-reader" {...stackPaneProps} data-stack-level="3" className="zk-stack__pane zk-stack__pane--panel">
-                        {category === 'story' ? (
-                          <ChapterReader
-                            volumes={archive.volumes}
-                            fontSize={fontSize}
-                            selectedChapterId={chapterId}
-                            onSelectChapter={handleSelectChapter}
-                            onBack={goAll}
-                          />
-                        ) : activeItem ? (
-                          <ReaderPane
-                            item={activeItem}
-                            categoryLabel={categoryLabel}
-                            fontSize={fontSize}
-                            onBack={goAll}
-                          />
-                        ) : (
-                          <section className="zk-reader" aria-live="polite">
-                            <EmptyState
-                              title="该分类暂无可见资料"
-                              hint="该分类的条目还没有在剧情里解锁；解锁后会出现在这里。"
-                            />
-                          </section>
-                        )}
+                        {readerPane}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -524,46 +501,12 @@ export function ZhikuExperience({
                         exit={reduced ? undefined : { opacity: 0, x: 14 }}
                         transition={railSwap}
                       >
-                        {category === 'story' ? (
-                          <VolumeList
-                            volumes={archive.volumes}
-                            activeChapterId={effectiveChapterId}
-                            onSelectChapter={handleSelectChapter}
-                          />
-                        ) : (
-                          <EntryList
-                            items={items}
-                            activeItemId={activeItem?.id ?? ''}
-                            onSelectItem={handleSelectEntry}
-                          />
-                        )}
+                        {indexList(effectiveChapterId, activeItem?.id ?? '', true)}
                       </motion.div>
                     </AnimatePresence>
                   </IndexColumn>
 
-                  {category === 'story' ? (
-                    <ChapterReader
-                      volumes={archive.volumes}
-                      fontSize={fontSize}
-                      selectedChapterId={effectiveChapterId}
-                      onSelectChapter={handleSelectChapter}
-                      onBack={goAll}
-                    />
-                  ) : activeItem ? (
-                    <ReaderPane
-                      item={activeItem}
-                      categoryLabel={categoryLabel}
-                      fontSize={fontSize}
-                      onBack={goAll}
-                    />
-                  ) : (
-                    <section className="zk-reader" aria-live="polite">
-                      <EmptyState
-                        title="该分类暂无可见资料"
-                        hint="该分类的条目还没有在剧情里解锁；解锁后会出现在这里。"
-                      />
-                    </section>
-                  )}
+                  {readerPane}
                 </>
               )}
             </motion.div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { devLogError } from '@/utils/devLog';
 
 export const ZHIKU_READER_FONT_SIZE_MIN = 14;
@@ -21,10 +21,6 @@ function readStoredReaderFontSize(): number {
     devLogError('ui', 'zhiku-reader-fontsize-read-failed', error);
     return ZHIKU_READER_FONT_SIZE_DEFAULT;
   }
-}
-
-export function buildZhikuReaderStyle(fontSize: number): CSSProperties {
-  return { fontSize: `${clampZhikuReaderFontSize(fontSize)}px` };
 }
 
 export function useZhikuReaderFontSize() {
