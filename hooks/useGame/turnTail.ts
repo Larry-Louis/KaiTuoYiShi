@@ -76,7 +76,6 @@ export async function runTurnTail(
     相册: d.相册After,
   }));
 
-  const finalHistoryForSave = d.finalHistoryForSave;
   const memoryAfterStoryProgress = d.memoryAfterStoryProgress ?? undefined;
   const yitingAfterTurnRecall = d.yitingAfterTurnRecall;
   const phoneAfterFallbackSeed = d.phoneAfterFallbackSeed;
@@ -84,13 +83,7 @@ export async function runTurnTail(
   if (memoryAfterStoryProgress) state.set记忆(memoryAfterStoryProgress);
   if (yitingAfterTurnRecall) state.set忆庭(yitingAfterTurnRecall);
   if (phoneAfterFallbackSeed) state.set手机(phoneAfterFallbackSeed);
-  if (finalHistoryForSave && finalHistoryForSave !== state.chatHistory) state.setChatHistory(finalHistoryForSave);
+  if (d.finalHistoryForSave && d.finalHistoryForSave !== state.chatHistory) state.setChatHistory(d.finalHistoryForSave);
 
-  Object.assign(d, await stage12_save(ctx, d, {
-    finalHistoryForSave,
-    memoryAfterStoryProgress,
-    yitingAfterTurnRecall,
-    phoneAfterFallbackSeed,
-    newest: initialNewest,
-  }));
+  Object.assign(d, await stage12_save(ctx, d, initialNewest));
 }

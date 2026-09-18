@@ -13,12 +13,12 @@ import {
 import {
   buildDeepSeekProtocolRetryGuard,
 } from './mainResponseProtocol';
+import { pushQueueTask } from './workflowTaskRuntime';
 import {
-  pushQueueTask,
   isPageHidden,
   splitStreamingReveal,
   waitStreamingPreviewDelay,
-} from './workflowTaskRuntime';
+} from './streamingPreview';
 import {
   createDocumentVisibilitySource,
   createVisibilityBufferedPublisher,

@@ -10,7 +10,7 @@ import {
   toPromptHistory,
 } from './historyWindow';
 import { isDeepSeekMainConfig } from './mainResponseProtocol';
-import { isPageHidden } from './workflowTaskRuntime';
+import { isPageHidden } from './streamingPreview';
 import {
   compilePrompt,
   insertDepthIntoHistory,

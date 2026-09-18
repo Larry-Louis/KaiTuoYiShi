@@ -21,7 +21,8 @@ import {
   userMessage,
 } from '../helpers/workflowFixture';
 
-vi.mock('@/hooks/useGame/newsWorkflow', () => ({
+vi.mock('@/hooks/useGame/newsWorkflow', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGame/newsWorkflow')>()),
   runNewsGenerationStep: vi.fn(),
 }));
 vi.mock('@/services/ai/variableModel', () => ({

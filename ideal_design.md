@@ -31,13 +31,13 @@
 
 ## 1. 代码质量现状画像
 
-2026-08-12 对代码库做 9 维扫描，汇总如下；**逐条发现（含文件:行号）见 [`noted_issues.md`](noted_issues.md)**。
+2026-08-12 对代码库做 9 维扫描，汇总如下；原逐条底稿 `noted_issues.md` 已于 2026-09-18 退役（行号过期，见该文件 stub 与 `docs/unification-audit.md` §1），后续扫描以实时测量为准。
 
 | 维度 | 结果 | 严重度 |
 | --- | --- | --- |
 | 类型安全 | 极干净：`as any` 0、`: any` 2（chatCompletionStream）、`@ts-ignore` 0、非空断言 0；`as unknown as` 14 处（services/storage 5 处聚簇） | 🟢 |
 | lint | 未复跑；静态复查 `eslint-disable` 2 处（saveLoadWorkflow）。旧记录：1 error（`useGameState.ts:570`）+ 2 warning + 47 条 suppression，待 reviewer 刷新 | 🟢 |
-| 死代码（未引用导出） | ~~75 处~~ 已清除（71 删 + 4 调试工具保留；残留见 noted_issues.md §3） | ✅ |
+| 死代码（未引用导出） | ~~75 处~~ 已清除（71 删 + 4 调试工具保留） | ✅ |
 | 过度防御/不可能兜底 | ~~16 处~~ 已处置（7 SSE 收窄 + 9 确认保留 + 2 归一化强化另立 #14） | ✅ |
 | 长段解释注释 | ~~20+ 处~~ 已清除（13 删 + 7 收敛 + 1 保留） | ✅ |
 | patch/workaround 标记 | 代码 562 命中（不含 data/ JSON）；集中 newsModel 45 / useGameState 33 / ImageGenerationSettingsTab 30 / AlbumPanel 24 / MemorySystemSettings 22 | 🟡 |

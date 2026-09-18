@@ -74,7 +74,7 @@ function setActivePerspective(
 }
 
 const WRITING_STYLE_OPTIONS: { id: WritingStyleId | 'none'; label: string; desc: string }[] = [
-  { id: 'builtin_writing_style_hsr', label: '崩铁式', desc: '原作风 / 第三人称 / 角色口吻差异 / 星海宿命感' },
+  { id: 'builtin_writing_style_hsr', label: '崩铁式', desc: '原作风 / 角色口吻差异 / 星海宿命感' },
   { id: 'builtin_writing_style', label: '日记体', desc: '轻松随意 / 对白≥40% / 比喻可爱 / 动作代替「说」' },
   { id: 'builtin_writing_style_baimiao', label: '白描', desc: '汪曾祺式 / 动作+物件 / 不写情绪 / 短句留白' },
   { id: 'none', label: '自定义', desc: '启用提示词模块里的「文风-自定义」槽位' },

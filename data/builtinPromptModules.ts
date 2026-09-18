@@ -197,7 +197,7 @@ const ACTION_OPTIONS_CONTENT = `# 行动选项规范
 const WRITING_STYLE_DIARY_CONTENT = `# 文风参考·日记体见闻录
 
 ## 核心质感
-像翻看某天的日记，跟朋友顺口聊到「啊那时候还发生过这种事」。轻松随意、第三人称全知、不刻意煽情也不刻意挑逗。该正经就沉下去，但语气不端着。
+像翻看某天的日记，跟朋友顺口聊到「啊那时候还发生过这种事」。轻松随意、不刻意煽情也不刻意挑逗（叙述人称以「写作人称」模块为准，本风格不限定人称）。该正经就沉下去，但语气不端着。
 
 ## 叙述者语气
 - 直接写人物的想法和感受，语气像随口聊八卦。
@@ -1113,7 +1113,7 @@ export function createBuiltinPromptModules(): 提示词模块[] {
       content: PERSPECTIVE_FIRST_CONTENT,
       enabled: false,
       order: 1031,
-      scope: ['main', 'opening'],
+      scope: ['main', 'opening', 'pathAwakening'],
       createdAt: now,
       updatedAt: now,
     }),
@@ -1125,7 +1125,7 @@ export function createBuiltinPromptModules(): 提示词模块[] {
       content: PERSPECTIVE_SECOND_CONTENT,
       enabled: true,
       order: 1032,
-      scope: ['main', 'opening'],
+      scope: ['main', 'opening', 'pathAwakening'],
       createdAt: now,
       updatedAt: now,
     }),
@@ -1137,7 +1137,7 @@ export function createBuiltinPromptModules(): 提示词模块[] {
       content: PERSPECTIVE_THIRD_CONTENT,
       enabled: false,
       order: 1033,
-      scope: ['main', 'opening'],
+      scope: ['main', 'opening', 'pathAwakening'],
       createdAt: now,
       updatedAt: now,
     }),
@@ -1230,7 +1230,7 @@ export function createBuiltinPromptModules(): 提示词模块[] {
     makeBuiltin({
       id: 'builtin_writing_style',
       title: '参考文风·日记体',
-      description: '日记体见闻录（轻松随意 / 第三人称全知 / 对白≥40% / 比喻可爱 / 动作代替「说」）。三种文风互斥，在「游戏设定 → 默认文风」切换。',
+      description: '日记体见闻录（轻松随意 / 对白≥40% / 比喻可爱 / 动作代替「说」）。三种文风互斥，在「游戏设定 → 默认文风」切换。',
       category: 'style',
       content: WRITING_STYLE_DIARY_CONTENT,
       enabled: false,
@@ -1242,7 +1242,7 @@ export function createBuiltinPromptModules(): 提示词模块[] {
     makeBuiltin({
       id: 'builtin_writing_style_hsr',
       title: '参考文风·星海纪闻（崩铁式）',
-      description: '默认文风：崩铁原作风（第三人称全知 + 星际宿命感 + 角色口吻差异 + 环境锚定式镜头）。三种文风互斥。',
+      description: '默认文风：崩铁原作风（星际宿命感 + 角色口吻差异 + 环境锚定式镜头）。三种文风互斥。',
       category: 'style',
       content: WRITING_STYLE_HSR_CONTENT,
       enabled: true,

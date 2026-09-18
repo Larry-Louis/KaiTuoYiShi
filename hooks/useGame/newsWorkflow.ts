@@ -1,4 +1,5 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
+import type { 聊天消息 } from '@/models/chat';
 import { callNewsModel, applyNewsGenerationResult, hasNewsGenerationChanges } from '@/services/ai/newsModel';
 import type { 新闻条目 } from '@/models/news';
 import type { API配置项 } from '@/models/settings';
@@ -130,4 +131,27 @@ function areNewsEntriesEquivalent(left: 新闻条目, right: 新闻条目 | unde
     JSON.stringify(left.组织标签 ?? []) === JSON.stringify(right.组织标签 ?? []) &&
     JSON.stringify(left.关联系统 ?? []) === JSON.stringify(right.关联系统 ?? [])
   );
+}
+
+export function buildRecentTurnWindowForNews(history: 聊天消息[], currentUserInput: string, currentBody: string, interval: number): string[] {
+  const windowSize = Math.max(5, Math.min(10, Math.trunc(interval) || 5));
+  const pairs: string[] = [];
+  let pendingUser = '';
+
+  for (const msg of history) {
+    if (msg.role === 'user') {
+      pendingUser = msg.content;
+      continue;
+    }
+    if (msg.role === 'assistant') {
+      const body = msg.parsedResponse?.body || msg.content;
+      if (pendingUser || body) {
+        pairs.push(`- 玩家：${pendingUser || '（无）'}\n  正文：${body.slice(0, 420)}`);
+      }
+      pendingUser = '';
+    }
+  }
+
+  pairs.push(`- 玩家：${currentUserInput || '（无）'}\n  正文：${currentBody.slice(0, 420)}`);
+  return pairs.slice(-windowSize);
 }

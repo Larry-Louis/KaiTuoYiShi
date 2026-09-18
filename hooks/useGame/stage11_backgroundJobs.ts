@@ -8,12 +8,12 @@ import type { 剧情编织系统 } from '@/models/storyWeaving';
 import type { 记忆系统设置, 星际和平周报设置, 文生图系统设置 } from '@/models/settings';
 import type { YitingArchiveSource } from '@/services/yitingArchive';
 import type { 忆庭召回结果 } from '@/services/yitingRetrieval';
-import { runNewsGenerationStep } from './newsWorkflow';
+import { buildRecentTurnWindowForNews, runNewsGenerationStep } from './newsWorkflow';
 import { 构造世界事实视图, type 世界事实视图 } from '@/services/storyFactConsumerView';
 import { buildYitingArchiveEntry } from '@/services/yitingArchive';
 import { buildFallbackPhoneSeed } from './phoneWorkflow';
 import { resolveNarrativeImageTokenizerConfig, resolveNarrativeImageGenerationApi, generateNarrativeImagesForMessage } from './narrativeImageWorkflow';
-import { buildRecentTurnWindowForNews, mergeYitingSystems, pushQueueTask } from './workflowTaskRuntime';
+import { pushQueueTask } from './workflowTaskRuntime';
 import { isMemorySystemNoise, upsertRecallEntry } from './memoryUtils';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import { devLog } from '@/utils/devLog';
@@ -77,6 +77,17 @@ interface NarrativeJobParams {
   queueTasksMirror: TurnContext['queueTasksMirror'];
 }
 interface NarrativeJobResult { finalHistoryForSave: 聊天消息[]; 相册After?: 相册系统; }
+
+function 合并忆庭系统(base: 忆庭系统, override?: 忆庭系统): 忆庭系统 {
+  if (!override) return base;
+  const merged = [...base.回忆档案];
+  for (const entry of override.回忆档案) {
+    if (!merged.some((item) => item.id === entry.id)) {
+      merged.push(entry);
+    }
+  }
+  return { ...override, 回忆档案: merged };
+}
 
 async function runNewsBackgroundJob(p: NewsJobParams): Promise<NewsJobResult> {
   if (!p.newsSettings?.enabled || !p.newsSettings.autoGenerate) {
@@ -266,7 +277,7 @@ export async function stage11_backgroundJobs(
   const newsTurn = turnCountAtStart + 1;
   const shouldRunOpeningNews = isOpeningSystemTrigger && newsEnabled;
   const shouldRunNews = newsEnabled && d.isPathAwakeningTurn !== true && ((shouldRunOpeningNews && !openingNewsPreprocessed) || (newsTurn > 0 && newsTurn % newsInterval === 0));
-  const yitingBase = mergeYitingSystems(yitingWithCompression, variableOverrides?.忆庭);
+  const yitingBase = 合并忆庭系统(yitingWithCompression, variableOverrides?.忆庭);
   const turnRecallSource = {
     turn: turnCountAtStart,
     userInput,

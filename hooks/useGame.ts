@@ -241,7 +241,7 @@ export function useGame(): UseGameReturn {
       }
       await sendWithCleanReroll(text, stateRef.current.activeWorkflow.rerollContextRef.current);
     },
-    [getActiveConfig, sendWithCleanReroll],
+    [sendWithCleanReroll],
   );
 
   const handleStartOpening = useCallback(async () => {
@@ -255,7 +255,7 @@ export function useGame(): UseGameReturn {
     if (s.activeWorkflow.abortControllerRef.current) return;
     s.setTurnPhase(null);
     await sendWithCleanReroll(OPENING_INPUT, null);
-  }, [getActiveConfig, sendWithCleanReroll]);
+  }, [sendWithCleanReroll]);
 
   const handleAbort = useCallback(() => {
     cancelActiveWorkflow(stateRef.current);

@@ -7,7 +7,7 @@ import { buildTurnTokenUsage } from './turnDiagnostics';
 import { buildCachePrefixDiagnostics } from './turnDiagnostics';
 import { buildNpcLedgerDebug, formatNpcLedgerPreview } from './npcLedgerWorkflow';
 import { formatZhikuDiagnosticsPreview } from './recallDiagnostics';
-import { revealStreamingPreview } from './workflowTaskRuntime';
+import { revealStreamingPreview } from './streamingPreview';
 import { pushQueueTask } from './workflowTaskRuntime';
 import { compactChatHistoryForLongSession } from '@/utils/longSessionRetention';
 
@@ -58,7 +58,7 @@ export async function stage5_replyLanding(
     if (streamEventCount > 0) {
       await previewChain;
     } else if (displayText.trim()) {
-      await revealStreamingPreview(state, displayText, abortController.signal, { delayMs: 16, minChunks: 8 });
+      await revealStreamingPreview(displayText, abortController.signal, { delayMs: 16, minChunks: 8 });
     }
     streamMessageSetter.flush('');
   } else {

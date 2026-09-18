@@ -8,13 +8,7 @@ import { devLog } from '@/utils/devLog';
 export async function stage12_save(
   ctx: TurnContext,
   d: TurnDeltas,
-  finalValues: {
-    finalHistoryForSave: TurnDeltas['finalHistoryForSave'];
-    memoryAfterStoryProgress: Exclude<TurnDeltas['memoryAfterStoryProgress'], null>;
-    yitingAfterTurnRecall: TurnDeltas['yitingAfterTurnRecall'];
-    phoneAfterFallbackSeed: TurnDeltas['phoneAfterFallbackSeed'];
-    newest: NewestStory记录;
-  },
+  newest: NewestStory记录,
 ): Promise<Partial<TurnDeltas>> {
   const {
     state,
@@ -22,7 +16,6 @@ export async function stage12_save(
     turnCountAtStart,
     queueTasksMirror,
   } = ctx;
-  const { newest } = finalValues;
   devLog('stage', 'stage12_save.enter', { turn: turnCountAtStart });
 
   pushQueueTask(state, 'autosave', 'pending', { detail: '正在写入本回合自动存档。' }, turnCountAtStart, queueTasksMirror);

@@ -1,4 +1,4 @@
-import { proxyHeaders, readText } from './proxyCoreShared';
+import { handleSimpleProxyRequest, readText } from './proxyCoreShared';
 
 type OpenCodeProxyBody = {
   baseUrl?: string;
@@ -64,44 +64,16 @@ function openCodeUpstreamHeaders(payload: OpenCodeProxyBody): HeadersInit {
   return headers;
 }
 
-export async function handleOpenCodeProxyRequest(request: Request): Promise<Response> {
-  let payload: OpenCodeProxyBody;
-  try {
-    payload = await request.json() as OpenCodeProxyBody;
-  } catch {
-    return new Response(JSON.stringify({ error: '请求体不是有效 JSON。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
+const opencodeProxyDef = {
+  缺字段提示: '缺少 OpenCode Zen Base URL 或 API Key。',
+  构建上游地址: buildOpenCodeUpstreamUrl,
+  构建上游请求: (payload: OpenCodeProxyBody, apiKey: string): RequestInit => ({
+    method: payload.kind === 'models' ? 'GET' : 'POST',
+    headers: openCodeUpstreamHeaders({ ...payload, apiKey }),
+    body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
+  }),
+};
 
-  const baseUrl = readText(payload.baseUrl);
-  const apiKey = readText(payload.apiKey);
-  if (!baseUrl || !apiKey) {
-    return new Response(JSON.stringify({ error: '缺少 OpenCode Zen Base URL 或 API Key。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
-
-  try {
-    const upstreamUrl = buildOpenCodeUpstreamUrl(payload);
-    const upstream = await fetch(upstreamUrl, {
-      method: payload.kind === 'models' ? 'GET' : 'POST',
-      headers: openCodeUpstreamHeaders(payload),
-      body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: proxyHeaders(upstream),
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    }), {
-      status: 502,
-      headers: proxyHeaders(),
-    });
-  }
+export function handleOpenCodeProxyRequest(request: Request): Promise<Response> {
+  return handleSimpleProxyRequest(request, opencodeProxyDef);
 }

@@ -1,4 +1,4 @@
-import { proxyHeaders, readText } from './proxyCoreShared';
+import { handleSimpleProxyRequest, readText } from './proxyCoreShared';
 
 type ArkProxyBody = {
   baseUrl?: string;
@@ -40,53 +40,23 @@ export function buildArkProxyBody(config: { baseUrl: string; apiKey: string }, b
   });
 }
 
-function buildArkUpstreamUrl(payload: ArkProxyBody): string {
-  const base = assertArkBaseUrl(readText(payload.baseUrl));
-  if (payload.kind === 'models') return `${base}/models`;
-  return `${base}/chat/completions`;
-}
+const arkProxyDef = {
+  缺字段提示: '缺少火山方舟 Base URL 或 API Key。',
+  构建上游地址: (payload: ArkProxyBody): string => {
+    const base = assertArkBaseUrl(readText(payload.baseUrl));
+    if (payload.kind === 'models') return `${base}/models`;
+    return `${base}/chat/completions`;
+  },
+  构建上游请求: (payload: ArkProxyBody, apiKey: string): RequestInit => ({
+    method: payload.kind === 'models' ? 'GET' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
+  }),
+};
 
-export async function handleArkProxyRequest(request: Request): Promise<Response> {
-  let payload: ArkProxyBody;
-  try {
-    payload = await request.json() as ArkProxyBody;
-  } catch {
-    return new Response(JSON.stringify({ error: '请求体不是有效 JSON。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
-
-  const baseUrl = readText(payload.baseUrl);
-  const apiKey = readText(payload.apiKey);
-  if (!baseUrl || !apiKey) {
-    return new Response(JSON.stringify({ error: '缺少火山方舟 Base URL 或 API Key。' }), {
-      status: 400,
-      headers: proxyHeaders(),
-    });
-  }
-
-  try {
-    const upstreamUrl = buildArkUpstreamUrl(payload);
-    const upstream = await fetch(upstreamUrl, {
-      method: payload.kind === 'models' ? 'GET' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: proxyHeaders(upstream),
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    }), {
-      status: 502,
-      headers: proxyHeaders(),
-    });
-  }
+export function handleArkProxyRequest(request: Request): Promise<Response> {
+  return handleSimpleProxyRequest(request, arkProxyDef);
 }

@@ -167,8 +167,9 @@ export function buildPathAwakeningSystemPrompt(input: SystemPromptInput): BuiltS
 
   const identity = injectBucket(input.modules, ctx, 'identity');
   const rules = injectBucket(input.modules, ctx, 'rules');
+  const params = injectBucket(input.modules, ctx, 'params');
   const protocol = injectBucket(input.modules, ctx, 'protocol');
-  ctx.chat.push(...identity.chatModuleMessages, ...rules.chatModuleMessages, ...protocol.chatModuleMessages);
+  ctx.chat.push(...identity.chatModuleMessages, ...rules.chatModuleMessages, ...params.chatModuleMessages, ...protocol.chatModuleMessages);
   if (worldbookPlan) ctx.chat.push(...worldbookPlan.depthMessages);
 
   const knowledge: string[] = [];
@@ -186,6 +187,7 @@ export function buildPathAwakeningSystemPrompt(input: SystemPromptInput): BuiltS
     worldbookPlan && worldbookCtx
       ? worldbookPlan.systemRuleEntries.map((item) => renderWorldbookSystemEntry(item, worldbookCtx, '提示词')).join('\n\n---\n\n')
       : '',
+    params.systemSection,
     `# 写作人称\n\n- 视角：${personLabel}`,
     buildWordCountSection(settings),
     buildCharacterSection(traveler),
