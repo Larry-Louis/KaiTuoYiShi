@@ -355,9 +355,6 @@
   letter-spacing: 0.04em;
   color: var(--zk-text);
   font-weight: 600;
-  background: linear-gradient(180deg, rgb(var(--zk-text)) 30%, rgba(var(--zk-text), 0.75) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .zk-overview__subtitle {
