@@ -31,11 +31,8 @@ import { abandonTurnRecovery } from '@/hooks/useGame/recoveryActions';
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, buildPersistedZhikuSystem, loadAllBundledZhikuPresets, mergeBundledZhikuSystem } from '@/data/zhikuPreset';
 import { parseOpeningArchiveWithAI } from '@/services/ai/openingArchive';
-import {
-  OPENING_PLAYER_PRESETS_KEY,
-  normalizeOpeningPresets,
-} from '@/components/features/NewGame/wizard/wizardData';
 import type { OpeningPlayerPreset, OpeningPresetDraft } from '@/models/opening';
+import { OPENING_PLAYER_PRESETS_KEY, normalizeOpeningPresets } from '@/models/opening';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 import { devLog, devLogError } from '@/utils/devLog';
 import { TURN_STATUS_IDLE } from '@/hooks/useGame/turnStatus';
@@ -49,7 +46,6 @@ import {
 } from '@/hooks/useGame/turnActionRuntime';
 import type { 聊天消息 } from '@/models/chat';
 import { pushQueueTask } from '@/hooks/useGame/workflowTaskRuntime';
-import { resolveVariableModelConfig } from '@/hooks/useGame/variableWorkflow';
 import { 提交变量修复计划 } from '@/hooks/useGame/variableRepairWorkflow';
 import { useVariableRepairCenter, type 变量修复中心动作 } from '@/hooks/useGame/variableRepairCenter';
 import { isWorkflowAbortError } from '@/hooks/useGame/workflowTransaction';
@@ -60,12 +56,14 @@ import { findPreviousUserInput } from '@/utils/chatHistory';
 import type { 变量修复计划, 变量修复回执 } from '@/models/variableRepair';
 import { buildPhoneApiConfig, generatePhoneReply } from '@/services/ai/phoneService';
 import { generateSkillDraft } from '@/services/ai/skillGenerator';
+import { generateTravelerTemplate } from '@/services/ai/travelerTemplate';
+import { resolveApiConfig, resolveMainApiConfig } from '@/services/apiConfig';
 import { parseActionOptionsBlock } from '@/services/ai/responseParser';
 import { generateImage } from '@/services/ai/imageGeneration';
 import { parseSceneImagePrompt, parseStorySnapshotPrompt } from '@/services/ai/narrativeImageParse';
 import { extractCharacterAnchorWithAI } from '@/services/ai/characterAnchorExtract';
 import { buildImagePromptTokenizerConfig, buildImagePromptTokenizerSystemPrompt, tokenizeImagePrompt } from '@/services/ai/imagePromptTokenizer';
-import type { 战技生成草稿, 战技生成上下文, ImageGenerationRequest, ImageGenerationResult, 解析上下文, 场景图解析结果, 故事快照解析结果, CharacterAnchorExtractInput, ImagePromptTokenizerInput, ImagePromptTokenizerResult } from '@/contracts/ai';
+import type { 战技生成草稿, 战技生成上下文, TravelerTemplateContext, TravelerTemplateDraft, ImageGenerationRequest, ImageGenerationResult, 解析上下文, 场景图解析结果, 故事快照解析结果, CharacterAnchorExtractInput, ImagePromptTokenizerInput, ImagePromptTokenizerResult } from '@/contracts/ai';
 import type { 手机回复上下文, PhoneMemoryCommitInput } from '@/contracts/phone';
 import { runImageGenerationWithRetry } from '@/utils/imageGenerationRetry';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
@@ -131,6 +129,7 @@ export interface UseGameReturn {
     handlePrepareNewGame: (draft: OpeningPresetDraft) => Promise<boolean>;
     handleSaveStoryWeaving: (system: 剧情编织系统) => Promise<void>;
     handleGenerateSkillDraft: (apiConfig: API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
+    handleGenerateTravelerTemplate: (context: TravelerTemplateContext) => Promise<TravelerTemplateDraft>;
     handleParseActionOptionsBlock: (text: string) => string[];
     handleSaveZhikuSystem: (system: 智库系统) => Promise<void>;
     handleZhikuMigration: (current: 智库系统) => Promise<智库系统>;
@@ -153,10 +152,7 @@ export interface UseGameReturn {
       apiSettings: API设置,
       context: 解析上下文,
     ) => Promise<故事快照解析结果 | null>;
-    handleExtractCharacterAnchor: (
-      config: API配置项,
-      input: CharacterAnchorExtractInput,
-    ) => Promise<NPC角色锚点档案>;
+    handleExtractCharacterAnchor: (input: CharacterAnchorExtractInput) => Promise<NPC角色锚点档案>;
     handleTokenizeImagePrompt: (
       settings: 游戏设置,
       apiSettings: API设置,
@@ -196,22 +192,11 @@ export function useGame(): UseGameReturn {
 
   const getActiveConfig = useCallback((): API配置项 | null => {
     const s = stateRef.current;
-    if (!s.deviceSettings.apiSettings.activeConfigId) {
-      if (s.deviceSettings.apiSettings.configs.length > 0) {
-        const first = s.deviceSettings.apiSettings.configs[0];
-        s.setDeviceApiSettings((prev) => ({ ...prev, activeConfigId: first.id }));
-        return {
-          ...first,
-          enableClaudeMode: s.deviceSettings.gameSettings.enableClaudeMode,
-        };
-      }
-      return null;
+    const config = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'main');
+    if (config && !s.deviceSettings.apiSettings.activeConfigId) {
+      s.setDeviceApiSettings((prev) => ({ ...prev, activeConfigId: config.id }));
     }
-    const config = s.deviceSettings.apiSettings.configs.find((c) => c.id === s.deviceSettings.apiSettings.activeConfigId) ?? null;
-    return config ? {
-      ...config,
-      enableClaudeMode: s.deviceSettings.gameSettings.enableClaudeMode,
-    } : null;
+    return config;
   }, []);
 
   const sendWithCleanReroll = useCallback(async (
@@ -290,7 +275,7 @@ export function useGame(): UseGameReturn {
     const s = stateRef.current;
     if (s.turnPhase !== 'awaitingLanding' || !s.activeWorkflow.recovery) return;
     if (!getActiveConfig()) {
-      alert('请先在设置中配置API');
+      alert('请先在设置中配置至少一个 API 接口。');
       return;
     }
     const abandoned = await abandonTurnRecovery(s);
@@ -493,7 +478,7 @@ export function useGame(): UseGameReturn {
       s, 'variable_reparse', status, { detail, turn, targetMessageId: message.id },
     );
     if (!mainConfig) {
-      报告('failed', '未配置主 API，无法重新解析变量。');
+      报告('failed', '请先在设置中配置至少一个 API 接口，再重新解析变量。');
       return;
     }
     const controller = new AbortController();
@@ -502,10 +487,11 @@ export function useGame(): UseGameReturn {
     const 上一条输入 = findPreviousUserInput(s.chatHistory, message.id);
     报告('pending', '正在重新解析历史回合的变量。');
     try {
-      const { config: variableConfig } = resolveVariableModelConfig(
-        s.deviceSettings.gameSettings.variableApi,
-        mainConfig,
-      );
+      const variableConfig = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'variable');
+      if (!variableConfig) {
+        报告('failed', '请先在设置中配置至少一个 API 接口，再重新解析变量。');
+        return;
+      }
       const stateSnapshot = snapshotVariableState(s);
       const plan = await 重新解析变量计划({
         message,
@@ -559,7 +545,6 @@ export function useGame(): UseGameReturn {
 
   const 变量修复中心 = useVariableRepairCenter({
     getState: () => stateRef.current,
-    getActiveConfig,
     sessionEpoch: state.activeWorkflow.sessionEpoch,
     pushQueueTask,
   });
@@ -631,15 +616,13 @@ export function useGame(): UseGameReturn {
       || s.记忆.长期记忆.some((item) => item.includes(trimmed));
     if (!input.force && alreadyInMemory) return;
     devLog('ui', 'phone-memory-commit-start', { npcId: input.npcId ?? null, force: Boolean(input.force) });
-    const mainConfig: API配置项 = s.deviceSettings.apiSettings.configs.find((config) => config.id === s.deviceSettings.apiSettings.activeConfigId)
-      ?? s.deviceSettings.apiSettings.configs.at(0)
-      ?? { id: '', name: '', provider: 'openai_compatible', baseUrl: '', apiKey: '', model: '', createdAt: 0, updatedAt: 0 };
+    const memoryApiConfig = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'memoryCompression');
     const withImmediate = addImmediateMemory(s.记忆, normalizedSummary, s.turnCount);
     const compression = await autoCompressMemorySystemWithArchivesAsync(
       withImmediate,
       s.turnCount,
       s.deviceSettings.gameSettings.记忆系统,
-      mainConfig,
+      memoryApiConfig,
     );
     s.set记忆(compression.memory);
     if (compression.failedDraft) {
@@ -691,8 +674,8 @@ export function useGame(): UseGameReturn {
   }, []);
 
   const handleRetryMemoryDraft = useCallback(async (draftId: string): Promise<void> => {
-    await retryMemoryDraft(stateRef.current, getActiveConfig, draftId);
-  }, [getActiveConfig]);
+    await retryMemoryDraft(stateRef.current, draftId);
+  }, []);
 
   const handleIgnoreMemoryDraft = useCallback(async (draftId: string): Promise<void> => {
     await ignoreMemoryDraft(stateRef.current, draftId);
@@ -870,7 +853,7 @@ export function useGame(): UseGameReturn {
 
   const handlePrepareNewGame = useCallback(async (draft: OpeningPresetDraft): Promise<boolean> => {
     const s = stateRef.current;
-    if (s.deviceSettings.apiSettings.configs.length === 0) {
+    if (!resolveMainApiConfig(s.deviceSettings.apiSettings)) {
       alert('请先在设置中配置至少一个 API 接口，再开始旅途。');
       return false;
     }
@@ -944,6 +927,22 @@ export function useGame(): UseGameReturn {
     }
   }, []);
 
+  const handleGenerateTravelerTemplate = useCallback(async (
+    context: TravelerTemplateContext,
+  ): Promise<TravelerTemplateDraft> => {
+    const config = getActiveConfig();
+    if (!config) throw new Error('请先在设置中配置至少一个 API 接口。');
+    try {
+      devLog('net', 'traveler-template-generate-start', {});
+      const draft = await generateTravelerTemplate(config, context);
+      devLog('net', 'traveler-template-generate-done', {});
+      return draft;
+    } catch (err) {
+      devLogError('net', 'traveler-template-generate-failed', err, {});
+      throw err;
+    }
+  }, [getActiveConfig]);
+
   const handleParseActionOptionsBlock = useCallback((text: string): string[] => {
     return parseActionOptionsBlock(text);
   }, []);
@@ -1013,9 +1012,10 @@ export function useGame(): UseGameReturn {
   }, []);
 
   const handleExtractCharacterAnchor = useCallback(async (
-    config: API配置项,
     input: CharacterAnchorExtractInput,
   ): Promise<NPC角色锚点档案> => {
+    const config = resolveApiConfig(stateRef.current.deviceSettings.apiSettings, stateRef.current.deviceSettings.gameSettings, 'characterAnchorExtract');
+    if (!config) throw new Error('请先在 API 设置里启用一个可用模型。');
     try {
       devLog('net', 'character-anchor-extract-start', { name: input.name, kind: input.kind });
       const anchor = await extractCharacterAnchorWithAI(config, input);
@@ -1107,6 +1107,7 @@ export function useGame(): UseGameReturn {
     handlePrepareNewGame,
     handleSaveStoryWeaving,
     handleGenerateSkillDraft,
+    handleGenerateTravelerTemplate,
     handleParseActionOptionsBlock,
     handleSaveZhikuSystem,
     handleZhikuMigration,
@@ -1169,6 +1170,7 @@ export function useGame(): UseGameReturn {
     handlePrepareNewGame,
     handleSaveStoryWeaving,
     handleGenerateSkillDraft,
+    handleGenerateTravelerTemplate,
     handleParseActionOptionsBlock,
     handleSaveZhikuSystem,
     handleZhikuMigration,

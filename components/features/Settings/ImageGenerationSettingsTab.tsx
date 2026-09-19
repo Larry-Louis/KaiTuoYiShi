@@ -14,6 +14,7 @@ import type {
 } from '@/models/settings';
 import type { ConnectionTestConfig, ComfyWorkflowCandidate } from '@/hooks/useAiTools';
 import { 文生图预设路径表 } from '@/models/settings';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { providerOptions as sharedProviderOptions } from './settingsShared';
 import { cardClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -113,7 +114,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings, on
     NSFW接口: '',
   });
   const image = settings.文生图系统;
-  const mainConfig = apiSettings.configs.find((config) => config.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const nsfwUsable = settings.enableNsfw && image.enableNsfwImageGeneration && image.NSFW接口.enabled;
 
   const patchSystem = (patch: Partial<typeof image>) => {
@@ -424,7 +425,7 @@ export function ImageGenerationSettingsTab({ settings, onChange, apiSettings, on
         <NarrativeImageSettings
           settings={settings}
           onChange={onChange}
-          apiSettings={apiSettings}
+          mainConfig={mainConfig}
         />
       )}
       </div>
@@ -891,15 +892,14 @@ function backendHints(backend: 文生图后端类型): string[] {
   return ['OpenAI 兼容接口通常需要 API Key 与模型名。', '如果服务商要求 /v1 前缀，请把它写进 Base URL。'];
 }
 
-function NarrativeImageSettings({ settings, onChange, apiSettings }: {
+function NarrativeImageSettings({ settings, onChange, mainConfig }: {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
-  apiSettings: API设置;
+  mainConfig: API配置项 | null;
 }) {
   const img = settings.文生图系统;
   const narrative = img.正文生图;
   {
-    const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0) ?? null;
     const tokenizerOverride = img.词组转化器API;
     const tokenizerLabel = img.enablePromptTokenizer
       ? (tokenizerOverride.model.trim() || mainConfig?.model || '跟随主 API')

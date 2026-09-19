@@ -1,6 +1,5 @@
 import type { 智库系统, 智库条目 } from '@/models/zhiku';
-import type { API配置项, 智库系统设置 } from '@/models/settings';
-import { mergeApiOverride } from '@/models/settings';
+import type { API配置项 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 import { normalizeStructuredModelText } from '@/services/ai/structuredOutputRepair';
@@ -530,8 +529,7 @@ export async function retrieveZhikuContextWithModel(
   system: 智库系统 | undefined,
   query: string,
   limit: number,
-  settings: 智库系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
   sceneContext?: 智库场景上下文,
@@ -542,10 +540,7 @@ export async function retrieveZhikuContextWithModel(
   }
 
   const keywordRecall = retrieveZhikuContext(system, query, limit, sceneContext);
-  const api = mergeApiOverride(mainConfig, settings.api);
-  if (!api.baseUrl || !api.apiKey || !api.model) {
-    return keywordRecall;
-  }
+  if (!api) return keywordRecall;
 
   const keywordGroups: 智库召回分组 = {
     characterEntries: keywordRecall.characterEntries ?? [],

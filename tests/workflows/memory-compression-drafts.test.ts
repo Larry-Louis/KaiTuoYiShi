@@ -102,7 +102,8 @@ describe('记忆压缩失败草稿', () => {
       buildMemory(['甲', '乙']),
       5,
       buildSettings({ 记忆总结API: { provider: '', baseUrl: '', apiKey: '', model: '', retryCount: 0 } }),
-      { ...mainConfig, baseUrl: '', apiKey: '', model: '' },
+      // 三项不齐的配置由 resolveApiConfig 归一为 null，服务只认「可用 / 不可用」。
+      null,
     );
 
     expect(outcome.failedDraft).toBeUndefined();

@@ -122,6 +122,11 @@ export interface API方案槽位 {
   profile: API配置包;
 }
 
+export interface 已持久化API方案 {
+  apiSettings: API设置;
+  gameSettings: 游戏设置;
+}
+
 export interface AuxApiProfileState {
   provider: AI提供商;
   baseUrl: string;

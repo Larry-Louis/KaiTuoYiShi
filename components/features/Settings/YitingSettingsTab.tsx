@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置, 忆庭API覆盖 } from '@/models/settings';
 import type { ConnectionTestConfig, ConnectionTestResult } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { cardClip, providerOptions, smallClip } from './settingsShared';
 import { mediumClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -26,10 +27,7 @@ interface ResolvedApi {
 
 export function YitingSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels, testConnection }: Props) {
   const memory = settings.记忆系统;
-  const mainConfig = useMemo(
-    () => apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null,
-    [apiSettings.activeConfigId, apiSettings.configs],
-  );
+  const mainConfig = resolveMainApiConfig(apiSettings);
 
   const [recallLoadingModels, setRecallLoadingModels] = useState(false);
   const [recallModelOptions, setRecallModelOptions] = useState<string[]>([]);

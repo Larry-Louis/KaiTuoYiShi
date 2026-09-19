@@ -48,7 +48,7 @@ export async function executeResumeWorkflow(deps: SendWorkflowDeps): Promise<boo
     return false;
   }
   if (!config) {
-    alert('请先在设置中配置API');
+    alert('请先在设置中配置至少一个 API 接口。');
     await disarmLeafRecovery(state, leafId);
     state.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '中断回合现场已失效，请重新发送。' });
     devLog('recover', 'resume-guard-fail', { reason: 'config-missing' });

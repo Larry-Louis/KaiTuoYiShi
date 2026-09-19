@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { providerOptions } from './settingsShared';
 import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -17,7 +18,7 @@ interface Props {
 
 export function NewsSystemSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels }: Props) {
   const news = settings.新闻系统;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);

@@ -1,18 +1,13 @@
 import { useCallback } from 'react';
-import { loadSetting, saveSetting } from '@/services/storage/settings';
+import { loadSetting, saveSetting, saveSettings } from '@/services/storage/settings';
 import { devLog, devLogError } from '@/utils/devLog';
 import type { API设置, 游戏设置, 主题预设 } from '@/models/settings';
 import { 归一化游戏设置 } from '@/utils/gameSettingsHydration';
-import type { API方案槽位, AuxApiProfileState } from '@/models/apiProfiles';
+import { hydratePersistedApiSettings } from '@/utils/apiSettingsHydration';
+import { listApiConfigs } from '@/services/apiConfig';
+import type { API方案槽位, AuxApiProfileState, 已持久化API方案 } from '@/models/apiProfiles';
 import type { GitHubCloudSaveConfig } from '@/services/githubCloudSave';
 import type { 世界书 } from '@/models/worldbook';
-
-function 归一化API设置(settings: API设置): API设置 {
-  return {
-    activeConfigId: settings.activeConfigId ?? null,
-    configs: Array.isArray(settings.configs) ? settings.configs : [],
-  };
-}
 
 function 归一化世界书列表(books: 世界书[]): 世界书[] {
   return Array.isArray(books) ? books : [];
@@ -35,7 +30,7 @@ export interface DeviceSettingsActions {
   persistApiSettings: (next: API设置) => Promise<void>;
   persistTheme: (next: 主题预设) => Promise<void>;
   persistWorldbooks: (next: 世界书[]) => Promise<void>;
-  persistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
+  persistApiProfile: (api: API设置, game: 游戏设置) => Promise<已持久化API方案>;
   loadApiProfileSlots: () => Promise<API方案槽位[]>;
   persistApiProfileSlots: (next: API方案槽位[]) => Promise<void>;
   loadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;
@@ -58,10 +53,10 @@ export function useDeviceSettings(): DeviceSettingsActions {
   }, []);
 
   const persistApiSettings = useCallback(async (next: API设置) => {
-    const normalized = 归一化API设置(next);
+    const normalized = hydratePersistedApiSettings(next);
     try {
       await saveSetting('apiSettings', normalized);
-      devLog('ui', 'persist-api-settings', { configs: normalized.configs.length });
+      devLog('ui', 'persist-api-settings', { configs: listApiConfigs(normalized).length });
     } catch (err) {
       devLogError('ui', 'persist-api-settings-failed', err);
       throw err;
@@ -90,12 +85,15 @@ export function useDeviceSettings(): DeviceSettingsActions {
   }, []);
 
   const persistApiProfile = useCallback(async (api: API设置, game: 游戏设置) => {
-    const normalizedApi = 归一化API设置(api);
+    const normalizedApi = hydratePersistedApiSettings(api);
     const normalizedGame = 归一化游戏设置(game);
     try {
-      await saveSetting('apiSettings', normalizedApi);
-      await saveSetting('gameSettings', normalizedGame);
-      devLog('ui', 'persist-api-profile', { configs: normalizedApi.configs.length });
+      await saveSettings([
+        ['apiSettings', normalizedApi],
+        ['gameSettings', normalizedGame],
+      ]);
+      devLog('ui', 'persist-api-profile', { configs: listApiConfigs(normalizedApi).length });
+      return { apiSettings: normalizedApi, gameSettings: normalizedGame };
     } catch (err) {
       devLogError('ui', 'persist-api-profile-failed', err);
       throw err;

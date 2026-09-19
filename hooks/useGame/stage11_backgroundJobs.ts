@@ -11,6 +11,7 @@ import type { 忆庭召回结果 } from '@/services/yitingRetrieval';
 import { buildRecentTurnWindowForNews, runNewsGenerationStep } from './newsWorkflow';
 import { 构造世界事实视图, type 世界事实视图 } from '@/services/storyFactConsumerView';
 import { buildYitingArchiveEntry } from '@/services/yitingArchive';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { buildFallbackPhoneSeed } from './phoneWorkflow';
 import { resolveNarrativeImageTokenizerConfig, resolveNarrativeImageGenerationApi, generateNarrativeImagesForMessage } from './narrativeImageWorkflow';
 import { pushQueueTask } from './workflowTaskRuntime';
@@ -40,7 +41,6 @@ interface NewsJobResult { newsAfterGeneration: 新闻条目[] | null; }
 interface YitingJobParams {
   turnRecallSource: YitingArchiveSource;
   memorySettings: 记忆系统设置;
-  config: TurnContext['config'];
   abortController: AbortController;
   state: TurnContext['state'];
   yitingBase: 忆庭系统;
@@ -69,7 +69,6 @@ interface NarrativeJobParams {
   state: TurnContext['state'];
   aiMsg: 聊天消息;
   displayText: string;
-  config: TurnContext['config'];
   abortController: AbortController;
   finalHistory: 聊天消息[];
   assertWorkflowActive: () => void;
@@ -143,7 +142,7 @@ async function runYitingArchiveJob(p: YitingJobParams): Promise<YitingJobResult>
   const turnRecallEntryResult = await buildYitingArchiveEntry(
     p.turnRecallSource,
     p.memorySettings,
-    p.config,
+    resolveApiConfig(p.state.deviceSettings.apiSettings, p.state.deviceSettings.gameSettings, 'yitingArchive'),
     p.abortController.signal,
     p.memorySettings.忆庭召回API.retryCount,
     p.state.deviceSettings.gameSettings.promptModules,
@@ -206,7 +205,7 @@ async function runNarrativeImageJob(p: NarrativeJobParams): Promise<NarrativeJob
   const 正文生图设置 = 文生图系统?.正文生图;
   if (!正文生图设置?.enabled || 正文生图设置.mode !== 'auto') return { finalHistoryForSave: fh };
   const targetMessageId = p.aiMsg.id;
-  const tokenizerConfig = resolveNarrativeImageTokenizerConfig(p.state, p.config);
+  const tokenizerConfig = resolveNarrativeImageTokenizerConfig(p.state);
   const imageApiConfig = resolveNarrativeImageGenerationApi(p.state);
   if (!tokenizerConfig) {
     pushQueueTask(p.state, 'narrative_image_parse', 'failed', {
@@ -252,7 +251,7 @@ export async function stage11_backgroundJobs(
   ctx: TurnContext,
   d: TurnDeltas,
 ): Promise<Partial<TurnDeltas>> {
-  const { state, userInput, effectiveWorld, config, abortController, assertWorkflowActive, isCurrentWorkflow, turnCountAtStart, queueTasksMirror, phoneAtStart } = ctx;
+  const { state, userInput, effectiveWorld, abortController, assertWorkflowActive, isCurrentWorkflow, turnCountAtStart, queueTasksMirror, phoneAtStart } = ctx;
   devLog('stage', 'stage11_backgroundJobs.enter', { turn: turnCountAtStart });
   const displayText = d.displayText as string;
   const finalHistory = d.finalHistory as 聊天消息[];
@@ -301,7 +300,7 @@ export async function stage11_backgroundJobs(
     worldFactView: d.worldFactView,
   };
   const yitingParams: YitingJobParams = {
-    turnRecallSource, memorySettings, config, abortController, state,
+    turnRecallSource, memorySettings, abortController, state,
     yitingBase, yitingPreview: yitingPreview ?? null, yitingEnabled,
     yitingRecallEnabled, assertWorkflowActive, turnCountAtStart, queueTasksMirror,
   };
@@ -310,7 +309,7 @@ export async function stage11_backgroundJobs(
     skipPhoneSeeds: d.isPathAwakeningTurn === true, turnCountAtStart, queueTasksMirror,
   };
   const narrativeParams: NarrativeJobParams = {
-    state, aiMsg, displayText, config, abortController, finalHistory,
+    state, aiMsg, displayText, abortController, finalHistory,
     assertWorkflowActive, turnCountAtStart, queueTasksMirror,
   };
 

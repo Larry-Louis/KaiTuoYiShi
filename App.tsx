@@ -23,7 +23,6 @@ import { VariableRepairPreviewModal } from '@/components/features/Variable/Varia
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
 import { saveSetting } from '@/services/storage/settings';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
-import { generateTravelerTemplate } from '@/services/ai/travelerTemplate';
 import { isOpeningLanded, shouldStartOpening } from '@/models/opening';
 import { 正文生图手动模式 } from '@/models/settings';
 import type { 角色数据结构 } from '@/models/character';
@@ -37,7 +36,7 @@ import type { 忆庭系统 } from '@/models/yiting';
 import type { 智库系统 } from '@/models/zhiku';
 import type { 命途ID } from '@/models/journey';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
-import type { TravelerTemplateContext, TravelerTemplateDraft, 战技生成草稿, 战技生成上下文, ImageGenerationRequest, ImageGenerationResult, 解析上下文, 场景图解析结果, 故事快照解析结果, CharacterAnchorExtractInput, ImagePromptTokenizerInput, ImagePromptTokenizerResult } from '@/contracts/ai';
+import type { 战技生成草稿, 战技生成上下文, ImageGenerationRequest, ImageGenerationResult, 解析上下文, 场景图解析结果, 故事快照解析结果, CharacterAnchorExtractInput, ImagePromptTokenizerInput, ImagePromptTokenizerResult } from '@/contracts/ai';
 import {
   AlbumPanel,
   CompanionPanel,
@@ -592,18 +591,6 @@ export function App() {
   }
 
   if (state.view === 'new_game') {
-    const getActiveApiConfig = () => {
-      if (apiSettings.activeConfigId) {
-        return apiSettings.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0) ?? null;
-      }
-      return apiSettings.configs.at(0) ?? null;
-    };
-    const handleGenerateTravelerTemplate = async (context: TravelerTemplateContext): Promise<TravelerTemplateDraft> => {
-      const config = getActiveApiConfig();
-      if (!config) throw new Error('请先在设置中配置至少一个 API 接口。');
-      return generateTravelerTemplate(config, context);
-    };
-
     return (
       <>
         <LazySurface label="开局档案载入中">
@@ -617,7 +604,7 @@ export function App() {
             onLoadOpeningPresets={actions.handleLoadOpeningPresets}
             onSaveOpeningPresets={actions.handleSaveOpeningPresets}
             onParseOpeningArchive={actions.handleParseOpeningArchive}
-            onGenerateTravelerTemplate={handleGenerateTravelerTemplate}
+            onGenerateTravelerTemplate={actions.handleGenerateTravelerTemplate}
             presetReady={presetDataReady}
           />
         </LazySurface>
@@ -889,7 +876,6 @@ function renderSystemPanel(
       context: 解析上下文,
     ) => Promise<故事快照解析结果 | null>;
     onExtractCharacterAnchor: (
-      config: import('@/models/settings').API配置项,
       input: CharacterAnchorExtractInput,
     ) => Promise<NPC角色锚点档案>;
     onTokenizeImagePrompt: (

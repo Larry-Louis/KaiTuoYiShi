@@ -7,6 +7,7 @@ import { runNewsGenerationStep } from './newsWorkflow';
 import { formatOriginalProtagonistForOpening } from './mainResponseProtocol';
 import { retrieveYitingContextWithModel } from '@/services/yitingRetrieval';
 import { retrieveZhikuContextWithModel } from '@/services/zhikuRetrieval';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
 import { selectNpcLedgersForTurn } from '@/models/npc';
 import { buildPromptMacroContext } from '@/utils/macroEngine';
@@ -22,7 +23,7 @@ export async function stage2_preModel(
   d: TurnDeltas,
 ): Promise<Partial<TurnDeltas>> {
   const { state, userInput, effectiveWorld, isOpeningSystemTrigger, isAwakeningEnterTrigger, turnCountAtStart,
-    queueTasksMirror, abortController, isCurrentWorkflow, assertWorkflowActive, config, mainStoryConfig, deps } = ctx;
+    queueTasksMirror, abortController, isCurrentWorkflow, assertWorkflowActive, mainStoryConfig, deps } = ctx;
   devLog('stage', 'stage2_preModel.enter', { turn: turnCountAtStart });
   if (!d.updatedHistory) throw new Error('stage2_preModel: d.updatedHistory must be set by stage1');
   const updatedHistory = d.updatedHistory;
@@ -118,7 +119,7 @@ export async function stage2_preModel(
 
   const [yitingPreview, zhikuPreview] = await Promise.all([
     yitingRecallEnabled && yiting && recallQuery
-      ? retrieveYitingContextWithModel(yiting, recallQuery, memorySettings.忆庭召回条数, memorySettings, config, abortController.signal, memorySettings.忆庭召回API.retryCount, state.deviceSettings.gameSettings.promptModules)
+      ? retrieveYitingContextWithModel(yiting, recallQuery, memorySettings.忆庭召回条数, memorySettings, resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'yitingRecall'), abortController.signal, memorySettings.忆庭召回API.retryCount, state.deviceSettings.gameSettings.promptModules)
           .catch((err: unknown) => {
             devLogError('net', 'stage2_preModel.yitingRecall.catch', err, { turn: turnCountAtStart });
             pushQueueTask(state, 'yiting', 'failed', { detail: err instanceof Error ? err.message : '忆庭召回失败。', failCount: memorySettings.忆庭召回API.retryCount }, turnCountAtStart, queueTasksMirror);
@@ -126,7 +127,7 @@ export async function stage2_preModel(
           })
       : Promise.resolve(null),
     zhikuRecallEnabled
-      ? retrieveZhikuContextWithModel(zhiku, zhikuRecallQuery, zhikuSettings.maxRelatedEntries, zhikuSettings, config, abortController.signal, zhikuSettings.api.retryCount, zhikuSceneContext, state.deviceSettings.gameSettings.promptModules)
+      ? retrieveZhikuContextWithModel(zhiku, zhikuRecallQuery, zhikuSettings.maxRelatedEntries, resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'zhiku'), abortController.signal, zhikuSettings.api.retryCount, zhikuSceneContext, state.deviceSettings.gameSettings.promptModules)
           .catch((err: unknown) => {
             devLogError('net', 'stage2_preModel.zhikuRecall.catch', err, { turn: turnCountAtStart });
             return null;

@@ -2,6 +2,7 @@ import type { UseGameStateReturn } from '@/hooks/useGameState';
 import { 创建聊天消息, type 聊天消息 } from '@/models/chat';
 import { 创建手机会话 } from '@/models/phone';
 import { buildNewsModelPrompt, buildNewsUserMessage } from '@/services/ai/newsModel';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { buildPhoneMessages, buildPhoneSystemPrompt, buildPhonePromptModulesSection } from '@/services/ai/phoneService';
 import { buildVariableModelPrompt } from '@/services/ai/variableModel';
 import { NPC_MEMORY_WRITE_RULE_PROMPT } from '@/data/variableWorldbook';
@@ -266,8 +267,7 @@ function buildMainContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
     : undefined;
 
   const playerName = state.旅人.姓名 || state.旅人.别名 || '开拓者';
-  const mainStoryConfig = state.deviceSettings.apiSettings.configs.find((item) => item.id === state.deviceSettings.apiSettings.activeConfigId)
-    ?? state.deviceSettings.apiSettings.configs.at(0);
+  const mainStoryConfig = resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'main');
   const macroCtx = buildPromptMacroContext({
     history: recallHistory,
     playerName,
@@ -573,16 +573,6 @@ function buildNewsContextSnapshot(state: UseGameStateReturn): ContextSnapshot {
     .slice(-12)
     .map((msg) => `- ${msg.role === 'user' ? '玩家' : 'AI'}：${(msg.parsedResponse?.body || msg.content).slice(0, 420)}`);
   const request = {
-    config: state.deviceSettings.apiSettings.configs.find((item) => item.id === state.deviceSettings.apiSettings.activeConfigId) ?? state.deviceSettings.apiSettings.configs.at(0) ?? {
-      id: '__preview__',
-      name: '预览',
-      provider: 'openai_compatible' as const,
-      baseUrl: '',
-      apiKey: '',
-      model: '',
-      createdAt: 0,
-      updatedAt: 0,
-    },
     turnCount: state.turnCount,
     userInput: sourceInput,
     body,

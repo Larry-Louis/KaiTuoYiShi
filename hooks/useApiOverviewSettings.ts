@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { API设置, API配置项, AI提供商, DeviceSettings, 游戏设置 } from '@/models/settings';
-import type { API方案槽位, API配置包, AuxApiProfileState } from '@/models/apiProfiles';
+import type { API方案槽位, API配置包, AuxApiProfileState, 已持久化API方案 } from '@/models/apiProfiles';
 import { providerOptions } from '@/components/features/Settings/settingsShared';
 import {
   MAX_OUTPUT_TIERS,
@@ -9,6 +9,16 @@ import {
   type MaxOutputTier,
 } from '@/data/modelRecommendations';
 import type { ConnectionTestConfig, ConnectionTestResult } from '@/hooks/useAiTools';
+import {
+  activateApiConfig,
+  addApiConfig,
+  findApiConfig,
+  listApiConfigs,
+  removeApiConfig,
+  replaceApiConfigs,
+  resolveMainApiConfig,
+  updateApiConfig,
+} from '@/services/apiConfig';
 import {
   buildApiProfile,
   createDefaultAuxApiProfileState,
@@ -24,7 +34,7 @@ export interface ApiSettingsOverviewProps {
   onGameSettingsChange: (s: 游戏设置) => void;
   onPersistApiSettings: (s: API设置) => Promise<void>;
   onPersistGameSettings: (s: 游戏设置) => Promise<void>;
-  onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
+  onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<已持久化API方案>;
   onLoadApiProfileSlots: () => Promise<API方案槽位[]>;
   onPersistApiProfileSlots: (slots: API方案槽位[]) => Promise<void>;
   onLoadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;
@@ -51,7 +61,7 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
   const { apiSettings: settings, gameSettings } = deviceSettings;
 
   const [selectedId, setSelectedId] = useState<string | null>(
-    settings.activeConfigId ?? settings.configs[0]?.id,
+    () => resolveMainApiConfig(settings)?.id ?? null,
   );
   const [newProvider, setNewProvider] = useState<AI提供商>('openai_compatible');
   const [modelOptions, setModelOptions] = useState<string[]>([]);
@@ -67,10 +77,7 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
   const [loadingAuxModels, setLoadingAuxModels] = useState(false);
   const [auxFetchMessage, setAuxFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
-  const selectedConfig = useMemo(
-    () => settings.configs.find((c) => c.id === selectedId) ?? null,
-    [settings.configs, selectedId],
-  );
+  const selectedConfig = useMemo(() => findApiConfig(settings, selectedId), [settings, selectedId]);
 
   const [prevSelectedId, setPrevSelectedId] = useState(selectedId);
   if (prevSelectedId !== selectedId) {
@@ -112,23 +119,21 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
     }
   }
 
-  const [prevConfigs, setPrevConfigs] = useState(settings.configs);
-  if (prevConfigs !== settings.configs) {
-    setPrevConfigs(settings.configs);
-    if (settings.configs.length > 0 && (!selectedId || !settings.configs.find((c) => c.id === selectedId))) {
-      setSelectedId(settings.activeConfigId ?? settings.configs[0].id);
+  const configs = listApiConfigs(settings);
+  const [prevConfigs, setPrevConfigs] = useState(configs);
+  if (prevConfigs !== configs) {
+    setPrevConfigs(configs);
+    // 选中行被删掉时跟着活动项走；指针由模块维护，这里只同步 UI。
+    if (configs.length > 0 && findApiConfig(settings, selectedId) === null) {
+      setSelectedId(resolveMainApiConfig(settings)?.id ?? null);
     }
   }
 
   useEffect(() => {
-    if (settings.configs.length === 0) {
-      const created = makeNewConfig('openai_compatible');
-      onChange({
-        activeConfigId: created.id,
-        configs: [created],
-      });
+    if (listApiConfigs(settings).length === 0) {
+      onChange(addApiConfig(settings, makeNewConfig('openai_compatible')));
     }
-  }, [settings.configs, onChange]);
+  }, [settings, onChange]);
 
   const persistAuxForm = async (nextForm: AuxApiProfileState) => {
     setAuxForm(nextForm);
@@ -143,52 +148,31 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
 
   const updateConfig = (patch: Partial<API配置项>) => {
     if (!selectedConfig) return;
-    const next: API配置项 = {
-      ...selectedConfig,
-      ...patch,
-      updatedAt: Date.now(),
-    };
-    onChange({
-      ...settings,
-      configs: settings.configs.map((c) => (c.id === next.id ? next : c)),
-    });
+    onChange(updateApiConfig(settings, selectedConfig.id, patch));
   };
 
   const handleCreate = () => {
     const created = makeNewConfig(newProvider);
-    onChange({
-      activeConfigId: settings.activeConfigId ?? created.id,
-      configs: [...settings.configs, created],
-    });
+    onChange(addApiConfig(settings, created));
     setSelectedId(created.id);
     setMessage({ kind: 'info', text: `已新增 ${providerOptions.find((p) => p.value === newProvider)?.label} 配置，请填写后启用。` });
   };
 
   const handleDelete = () => {
     if (!selectedConfig) return;
-    const remaining = settings.configs.filter((c) => c.id !== selectedConfig.id);
-    const fallback = remaining[0]?.id ?? null;
-    onChange({
-      activeConfigId:
-        settings.activeConfigId === selectedConfig.id ? fallback : settings.activeConfigId,
-      configs: remaining,
-    });
-    setSelectedId(fallback);
+    const next = removeApiConfig(settings, selectedConfig.id);
+    onChange(next);
+    setSelectedId(next.activeConfigId);
   };
 
   const handleActivate = () => {
     if (!selectedConfig) return;
-    onChange({ ...settings, activeConfigId: selectedConfig.id });
+    onChange(activateApiConfig(settings, selectedConfig.id));
   };
 
   const handleSave = async () => {
     if (!selectedConfig) return;
-    const updated: API设置 = {
-      ...settings,
-      configs: settings.configs.map((c) =>
-        c.id === selectedConfig.id ? { ...c, updatedAt: Date.now() } : c,
-      ),
-    };
+    const updated = updateApiConfig(settings, selectedConfig.id, {});
     onChange(updated);
     try {
       await onPersistApiSettings(updated);
@@ -200,13 +184,7 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
   };
 
   const applyApiProfile = async (profile: API配置包) => {
-    const nextApiSettings: API设置 = {
-      activeConfigId: profile.apiSettings.activeConfigId,
-      configs: profile.apiSettings.configs.map((config) => ({
-        ...config,
-        updatedAt: Date.now(),
-      })),
-    };
+    const nextApiSettings: API设置 = replaceApiConfigs(profile.apiSettings);
     const nextGameSettings: 游戏设置 = {
       ...gameSettings,
       enableClaudeMode: profile.enableClaudeMode ?? gameSettings.enableClaudeMode,
@@ -230,10 +208,10 @@ export function useApiOverviewSettings(props: ApiSettingsOverviewProps) {
         词组转化器API: profile.routes.文生图词组转化器API,
       },
     };
-    onChange(nextApiSettings);
-    onGameSettingsChange(nextGameSettings);
-    setSelectedId(nextApiSettings.activeConfigId ?? nextApiSettings.configs[0]?.id);
-    await onPersistApiProfile(nextApiSettings, nextGameSettings);
+    const persisted = await onPersistApiProfile(nextApiSettings, nextGameSettings);
+    onChange(persisted.apiSettings);
+    onGameSettingsChange(persisted.gameSettings);
+    setSelectedId(resolveMainApiConfig(persisted.apiSettings)?.id ?? null);
   };
 
   const persistProfileSlots = async (slots: API方案槽位[]) => {

@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 变量API覆盖 } from '@/models/settings';
 import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { providerOptions } from './settingsShared';
 import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -23,7 +24,7 @@ export function VariableUpdateTab({
 }: Props) {
   const enabled = gameSettings.enableVariableUpdate;
   const override = gameSettings.variableApi;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
 
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);

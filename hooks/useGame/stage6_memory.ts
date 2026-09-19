@@ -1,12 +1,13 @@
 import type { TurnAfterReply, TurnContext, TurnDeltas } from './turnTypes';
 import { buildImmediateMemory, addImmediateMemory, autoCompressMemorySystemWithArchivesAsync, type MemoryCompressionOutcome } from './memoryUtils';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { pushQueueTask } from './workflowTaskRuntime';
 
 export async function stage6_memory(
   ctx: TurnContext,
   d: TurnAfterReply,
 ): Promise<Partial<TurnDeltas>> {
-  const { state, userInput, config, abortController, assertWorkflowActive, turnCountAtStart, queueTasksMirror } = ctx;
+  const { state, userInput, abortController, assertWorkflowActive, turnCountAtStart, queueTasksMirror } = ctx;
   const parsedForDisplay = d.parsedForDisplay;
   const displayText = d.displayText;
 
@@ -21,7 +22,7 @@ export async function stage6_memory(
     mem,
     turnCountAtStart,
     state.deviceSettings.gameSettings.记忆系统,
-    config,
+    resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'memoryCompression'),
     abortController.signal,
   );
   assertWorkflowActive();

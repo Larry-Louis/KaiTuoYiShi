@@ -49,6 +49,7 @@ import { createBuiltinWorldbooks } from '@/data/worldbookPresets';
 import { loadAllBundledWorldbookPresets } from '@/data/openingWorldbookPreset';
 import { devLog, devLogError } from '@/utils/devLog';
 import { hydratePersistedGameSettings } from '@/utils/gameSettingsHydration';
+import { hydratePersistedApiSettings } from '@/utils/apiSettingsHydration';
 import { bootRestoreFromNewest } from '@/hooks/useGame/saveLoadWorkflow';
 import { useActiveWorkflow, type ActiveWorkflowStore } from '@/hooks/useGame/activeWorkflow';
 import type { TurnPhase } from '@/models/turnRecovery';
@@ -308,7 +309,7 @@ export function useGameState(): UseGameStateReturn {
       if (savedTheme) setDeviceTheme(normalizeThemeId(savedTheme) as 主题预设);
 
       const savedApi = await loadSetting<API设置>('apiSettings');
-      if (savedApi) setDeviceApiSettings(savedApi);
+      if (savedApi) setDeviceApiSettings(hydratePersistedApiSettings(savedApi));
 
       const savedGame = await loadSetting<游戏设置>('gameSettings');
       if (savedGame) {

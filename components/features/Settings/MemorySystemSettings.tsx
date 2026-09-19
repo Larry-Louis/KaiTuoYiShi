@@ -1,6 +1,7 @@
 ﻿import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 import type { ConnectionTestConfig, ConnectionTestResult } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { providerOptions } from './settingsShared';
 import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -17,10 +18,7 @@ interface Props {
 
 export function MemorySystemSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels, testConnection }: Props) {
   const memory = settings.记忆系统;
-  const mainConfig = useMemo(
-    () => apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null,
-    [apiSettings.activeConfigId, apiSettings.configs],
-  );
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);

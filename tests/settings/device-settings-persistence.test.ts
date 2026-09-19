@@ -1,23 +1,49 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { 创建默认游戏设置 } from '@/models/settings';
+import { 创建默认游戏设置, type API设置 } from '@/models/settings';
 import { hydratePersistedGameSettings } from '@/utils/gameSettingsHydration';
 import { useDeviceSettings } from '@/hooks/useDeviceSettings';
-import { saveSetting } from '@/services/storage/settings';
+import { saveSetting, saveSettings } from '@/services/storage/settings';
 import type { API方案槽位 } from '@/models/apiProfiles';
 
 vi.mock('@/services/storage/settings', () => ({
   saveSetting: vi.fn(() => Promise.resolve()),
+  saveSettings: vi.fn(() => Promise.resolve()),
   loadSetting: vi.fn(() => Promise.resolve(null)),
   deleteSetting: vi.fn(() => Promise.resolve()),
 }));
 
 beforeEach(() => {
   vi.mocked(saveSetting).mockClear();
+  vi.mocked(saveSettings).mockClear();
 });
 
 describe('设备设置持久化', () => {
+  it('persistApiProfile 返回并落盘同一份规范配置', async () => {
+    const { result } = renderHook(() => useDeviceSettings());
+    const apiSettings: API设置 = {
+      activeConfigId: '不存在',
+      configs: [{
+        id: 'main',
+        name: '主配置',
+        provider: 'openai_compatible',
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'sk-test',
+        model: 'test-model',
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    };
+
+    const persisted = await act(async () => result.current.persistApiProfile(apiSettings, 创建默认游戏设置()));
+
+    const [[, savedApiSettings]] = vi.mocked(saveSettings).mock.calls[0][0];
+    expect(persisted.apiSettings).toBe(savedApiSettings);
+    expect(persisted.apiSettings.activeConfigId).toBe('main');
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('persistGameSettings 落盘前归一化旧记忆阈值', async () => {
     const { result } = renderHook(() => useDeviceSettings());
     const base = 创建默认游戏设置();

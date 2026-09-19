@@ -19,12 +19,12 @@ import {
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
 import { applyNsfwVariablePolicy } from '@/utils/variableNsfwPolicy';
 import { isWorkflowAbortError } from './workflowTransaction';
+import { hasApiOverride, resolveApiConfig } from '@/services/apiConfig';
 import { buildNpcLedgerUpdateDebug, type NpcLedgerUpdateDebug } from './npcLedgerWorkflow';
 import type { TurnReceipt } from './turnReceipt';
 
 interface VariableCalibrationParams {
   state: UseGameStateReturn;
-  mainApiConfig: import('@/models/settings').API配置项;
   userInput: string;
   body: string;
   variableDraft?: string;
@@ -91,37 +91,16 @@ export function buildVariableBatch(
   };
 }
 
-export function resolveVariableModelConfig(
-  override: import('@/models/settings').变量API覆盖,
-  mainApiConfig: import('@/models/settings').API配置项,
-): { config: import('@/models/settings').API配置项; overrodeAny: boolean } {
-  const overrodeAny =
-    !!override.baseUrl.trim() || !!override.apiKey.trim() || !!override.model.trim();
-  return {
-    overrodeAny,
-    config: {
-      ...mainApiConfig,
-      provider: override.provider,
-      baseUrl: override.baseUrl.trim() || mainApiConfig.baseUrl,
-      apiKey: override.apiKey.trim() || mainApiConfig.apiKey,
-      model: override.model.trim() || mainApiConfig.model,
-      maxTokens: override.maxTokens ?? mainApiConfig.maxTokens,
-      temperature: override.temperature ?? mainApiConfig.temperature,
-    },
-  };
-}
-
 export async function runVariableCalibrationStep(
   params: VariableCalibrationParams,
 ): Promise<VariableCalibrationOverrides | null> {
-  const { state, mainApiConfig } = params;
+  const { state } = params;
   if (!state.deviceSettings.gameSettings.enableVariableUpdate) return null;
   if (!params.body.trim()) return null;
 
-  const { config: variableConfig, overrodeAny } = resolveVariableModelConfig(
-    state.deviceSettings.gameSettings.variableApi,
-    mainApiConfig,
-  );
+  const variableConfig = resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'variable');
+  if (!variableConfig) return null;
+  const overrodeAny = hasApiOverride(state.deviceSettings.gameSettings.variableApi);
 
   const stateSnapshot = snapshotVariableState({
     旅人: params.travelerSnapshot ?? state.旅人,

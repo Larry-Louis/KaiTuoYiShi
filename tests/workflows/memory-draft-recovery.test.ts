@@ -70,7 +70,7 @@ describe('记忆失败草稿恢复', () => {
     const { harness, draft } = await seedWithDraftMemory();
     nonStreamMock.mockResolvedValue('- 甲乙已整理为短期纪要');
 
-    await retryMemoryDraft(harness.state, harness.getActiveConfig, draft.id);
+    await retryMemoryDraft(harness.state, draft.id);
 
     const after = harness.cells.记忆.get();
     expect(after.即时记忆).toStrictEqual(['丙']);
@@ -90,7 +90,7 @@ describe('记忆失败草稿恢复', () => {
     const { harness, draft } = await seedWithDraftMemory();
     nonStreamMock.mockRejectedValue(new Error('仍然失败'));
 
-    await retryMemoryDraft(harness.state, harness.getActiveConfig, draft.id);
+    await retryMemoryDraft(harness.state, draft.id);
 
     const after = harness.cells.记忆.get();
     expect(after.即时记忆).toStrictEqual(['甲', '乙', '丙']);
@@ -107,7 +107,7 @@ describe('记忆失败草稿恢复', () => {
   it('源批已被修改：草稿作废并留诊断', async () => {
     const { harness, draft } = await seedWithDraftMemory({ 即时记忆: ['丙'] });
 
-    await retryMemoryDraft(harness.state, harness.getActiveConfig, draft.id);
+    await retryMemoryDraft(harness.state, draft.id);
 
     const after = harness.cells.记忆.get();
     expect(after.即时记忆).toStrictEqual(['丙']);
@@ -137,7 +137,7 @@ describe('记忆失败草稿恢复', () => {
   it('不存在的草稿：拒绝并留可见队列提示', async () => {
     const { harness } = await seedWithDraftMemory();
 
-    await retryMemoryDraft(harness.state, harness.getActiveConfig, 'missing-draft');
+    await retryMemoryDraft(harness.state, 'missing-draft');
 
     expect(harness.cells.记忆.get().失败草稿[0].status).toBe('pending');
     const memoryTask = [...harness.cells.queueTasks.get()].reverse().find((task) => task.id === 'memory');

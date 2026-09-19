@@ -87,6 +87,23 @@ export default tseslint.config(
     },
   },
   {
+    // 配置列表边界：apiSettings.configs 只能经 services/apiConfig.ts 的出口读取
+    // （resolveMainApiConfig / listApiConfigs / findApiConfig）。持久化与载入信任边界读 raw 是本职。
+    // 必须用 no-restricted-properties：后定义的 no-restricted-syntax 会整块覆盖 A 档的 selector 列表。
+    files: ['**/*.{ts,tsx}'],
+    ignores: [
+      'services/apiConfig.ts',
+      'utils/apiSettingsHydration.ts',
+      'tests/**',
+    ],
+    rules: {
+      'no-restricted-properties': ['error', {
+        property: 'configs',
+        message: 'apiSettings.configs 不得直读，走 services/apiConfig.ts 的出口。',
+      }],
+    },
+  },
+  {
     // vite.config.ts 是工具链入口，default export 为其约定
     files: ['vite.config.ts'],
     rules: { 'no-restricted-syntax': 'off' },

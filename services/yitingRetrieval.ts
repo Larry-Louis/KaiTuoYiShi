@@ -1,6 +1,5 @@
 import type { 忆庭系统, 回忆条目 } from '@/models/yiting';
 import type { API配置项, 记忆系统设置 } from '@/models/settings';
-import { mergeApiOverride } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 import { YITING_RECALL_PROMPT as YITING_LEGACY_RECALL_PROMPT } from '@/prompts/cot/yitingCot';
@@ -55,7 +54,7 @@ export async function retrieveYitingContextWithModel(
   query: string,
   limit: number,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
   promptModules?: 提示词模块[],
@@ -77,12 +76,7 @@ export async function retrieveYitingContextWithModel(
       }
     : { entries: [], strongEntries: [], weakEntries: [], injection: '', previewText: localFallback.previewText };
 
-  const api = mergeApiOverride(mainConfig, settings.忆庭召回API);
-  if (!api.baseUrl || !api.apiKey || !api.model) {
-    return fallback;
-  }
-
-  if (!candidates.length) return fallback;
+  if (!api || !candidates.length) return fallback;
 
   const candidateText = candidates
     .map((candidate, index) => {

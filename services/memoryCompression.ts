@@ -1,5 +1,4 @@
-import type { API配置项, 记忆系统设置, 忆庭API覆盖 } from '@/models/settings';
-import { mergeApiOverride } from '@/models/settings';
+import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 
@@ -27,14 +26,10 @@ export interface MemoryCompressionResult {
   failure?: MemoryCompressionFailure;
 }
 
-export function resolveMemoryCompressionConfig(mainConfig: API配置项, override: 忆庭API覆盖): API配置项 {
-  return mergeApiOverride(mainConfig, override);
-}
-
 export async function summarizeMemoryBatch(
   source: MemoryCompressionSource,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
 ): Promise<MemoryCompressionResult> {
@@ -45,9 +40,8 @@ export async function summarizeMemoryBatch(
     return { summary: fallback, usedFallback: false, usedLocal: true };
   }
 
-  const api = resolveMemoryCompressionConfig(mainConfig, settings.记忆总结API);
-
-  if (!api.baseUrl || !api.apiKey || !api.model) {
+  // 无可用配置直接本地兜底。
+  if (!api) {
     return { summary: fallback, usedFallback: true, usedLocal: false };
   }
 

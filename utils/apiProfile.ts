@@ -2,7 +2,8 @@ import * as z from 'zod';
 import type { AI提供商, API设置, API配置项, 游戏设置 } from '@/models/settings';
 import { API配置包信封Schema } from '@/models/apiProfiles';
 import type { API配置包, AuxApiProfileState } from '@/models/apiProfiles';
-import { providerOptions } from '@/components/features/Settings/settingsShared';
+import { providerOptions } from '@/data/apiProviders';
+import { listApiConfigs } from '@/services/apiConfig';
 
 export function createDefaultAuxApiProfileState(provider: AI提供商 = 'gemini'): AuxApiProfileState {
   const meta = providerOptions.find((p) => p.value === provider) ?? providerOptions[0];
@@ -51,7 +52,7 @@ function cloneWithoutKeys<T>(value: T, includeApiKeys: boolean): T {
     }
   };
   const root = cloned as unknown as API配置包;
-  for (const config of root.apiSettings.configs) clear(config);
+  for (const config of listApiConfigs(root.apiSettings)) clear(config);
   for (const item of Object.values(root.routes)) clear(item);
   return cloned;
 }

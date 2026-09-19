@@ -46,7 +46,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
     });
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));
@@ -73,7 +72,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
       }));
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));
@@ -104,7 +102,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
       }));
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));
@@ -125,7 +122,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
     await 保存变量修复草稿(stale);
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));
@@ -147,7 +143,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
       }));
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));
@@ -169,7 +164,6 @@ describe('变量修复中心（批量扫描草稿）', () => {
     });
     const { result } = renderHook(() => useVariableRepairCenter({
       getState: () => harness.state,
-      getActiveConfig: harness.getActiveConfig,
       sessionEpoch: 0,
       pushQueueTask: () => {},
     }));

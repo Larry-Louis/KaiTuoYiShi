@@ -287,7 +287,7 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   system: 记忆系统,
   turn: number,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  mainConfig: API配置项 | null,
   signal?: AbortSignal,
 ): Promise<MemoryCompressionOutcome> {
   const stages: MemoryCompressionStage[] = [

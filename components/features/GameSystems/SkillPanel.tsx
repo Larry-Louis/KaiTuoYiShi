@@ -16,6 +16,7 @@ import {
   type 战技槽位摘要,
 } from '@/models/skill';
 import { badgeClip as cardClip, mediumClip as smallClip } from '@/components/ui/clipPaths';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 
 interface SkillPanelProps {
   traveler: 角色数据结构;
@@ -89,12 +90,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings, onGenerate
   const pathSkillRecords = skillRecords
     .filter((skill) => skill.槽位类型 === 'path')
     .sort((a, b) => sortSkill(a, b));
-  const activeApiConfig = useMemo(() => {
-    if (apiSettings.activeConfigId) {
-      return apiSettings.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0);
-    }
-    return apiSettings.configs.at(0);
-  }, [apiSettings.activeConfigId, apiSettings.configs]);
+  const activeApiConfig = useMemo(() => resolveMainApiConfig(apiSettings), [apiSettings]);
 
   const saveSkill = () => {
     if (!selectedSlot) return;

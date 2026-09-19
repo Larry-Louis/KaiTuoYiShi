@@ -2,9 +2,9 @@ import type { UseGameStateReturn } from '@/hooks/useGameState';
 import type { 聊天消息 } from '@/models/chat';
 import { callNewsModel, applyNewsGenerationResult, hasNewsGenerationChanges } from '@/services/ai/newsModel';
 import type { 新闻条目 } from '@/models/news';
-import type { API配置项 } from '@/models/settings';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import { 世界事实文本行, type 世界事实视图 } from '@/services/storyFactConsumerView';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { 归一化世界状态 } from '@/models/world';
 import { devLog, devLogError } from '@/utils/devLog';
 
@@ -26,10 +26,6 @@ interface NewsGenerationParams {
   shouldCommit?: () => boolean;
 }
 
-type RuntimeNewsApiOverride = Omit<UseGameStateReturn['deviceSettings']['gameSettings']['新闻系统']['api'], 'provider'> & {
-  provider: UseGameStateReturn['deviceSettings']['gameSettings']['新闻系统']['api']['provider'] | '';
-};
-
 export interface NewsGenerationStepResult {
   news: 新闻条目[];
   changed: boolean;
@@ -41,25 +37,8 @@ export async function runNewsGenerationStep(params: NewsGenerationParams): Promi
   const newsSettings = state.deviceSettings.gameSettings.新闻系统 as typeof state.deviceSettings.gameSettings.新闻系统 | undefined;
   if (!newsSettings?.enabled || !newsSettings.autoGenerate) return null;
 
-  const api = newsSettings.api as RuntimeNewsApiOverride;
-  const mainConfig = state.deviceSettings.apiSettings.configs.find((c) => c.id === state.deviceSettings.apiSettings.activeConfigId)
-    ?? state.deviceSettings.apiSettings.configs.at(0);
-  if (!mainConfig && (!api.baseUrl.trim() || !api.apiKey.trim() || !api.model.trim())) return null;
-
-  const config: API配置项 = {
-    id: '__news_system__',
-    name: '星际和平周报',
-    provider: api.provider || mainConfig?.provider || 'openai_compatible',
-    baseUrl: api.baseUrl.trim() || mainConfig?.baseUrl || '',
-    apiKey: api.apiKey.trim() || mainConfig?.apiKey || '',
-    model: api.model.trim() || mainConfig?.model || '',
-    maxTokens: api.maxTokens ?? mainConfig?.maxTokens,
-    temperature: api.temperature ?? mainConfig?.temperature,
-    retryCount: api.retryCount ?? mainConfig?.retryCount ?? 2,
-    enableClaudeMode: state.deviceSettings.gameSettings.enableClaudeMode,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  const config = resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'news');
+  if (!config) return null;
 
   try {
     const requestStartedAt = Date.now();

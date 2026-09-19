@@ -1,4 +1,4 @@
-import type { API配置项, 新闻API覆盖 } from '@/models/settings';
+import type { API配置项 } from '@/models/settings';
 import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import type { NPC关系类型, NPC记录 } from '@/models/npc';
@@ -34,7 +34,7 @@ const NEWS_LEGACY_OUTPUT_FORMAT = `# 结构化输出格式
 - 归档与删除数组里只写 id`;
 
 export interface NewsModelRequest {
-  config: API配置项 | 新闻API覆盖;
+  config: API配置项;
   turnCount: number;
   userInput: string;
   body: string;
@@ -60,15 +60,16 @@ export interface NewsModelResult {
 export async function callNewsModel(request: NewsModelRequest): Promise<NewsModelResult> {
   const systemPrompt = buildNewsModelPrompt(request);
   const userMessage = buildNewsUserMessage(request);
+  const config = request.config;
 
   const rawText = await withRetries(
     () =>
-      chatCompletionNonStream(request.config as API配置项, {
+      chatCompletionNonStream(config, {
         messages: [{ role: 'user', content: userMessage }],
         systemPrompt,
         signal: request.signal,
-        maxTokens: request.config.maxTokens ?? 1400,
-        temperature: request.config.temperature ?? 0.35,
+        maxTokens: config.maxTokens ?? 1400,
+        temperature: config.temperature ?? 0.35,
       }),
     { retries: request.retryCount ?? 0, signal: request.signal, label: '星际和平周报' },
   );
@@ -127,7 +128,7 @@ function buildNewsPromptModulesSection(promptModules?: 提示词模块[]): strin
   return buildIndependentPromptModulesSection(promptModules, 'news');
 }
 
-export function buildNewsUserMessage(request: NewsModelRequest): string {
+export function buildNewsUserMessage(request: Omit<NewsModelRequest, 'config'>): string {
   const currentNews = [...request.news]
     .sort((a, b) => {
       const statusDelta = NEWS_STATUS_RANK[a.状态] - NEWS_STATUS_RANK[b.状态];

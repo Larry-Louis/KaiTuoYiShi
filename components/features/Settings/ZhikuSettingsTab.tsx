@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { AI提供商, API设置, 游戏设置, 原著约束强度 } from '@/models/settings';
 import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 import { providerOptions } from './settingsShared';
 import { cardClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
@@ -29,7 +30,7 @@ type ZhikuPatch = Partial<Omit<游戏设置['智库系统'], 'api'>> & {
 
 export function ZhikuSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels }: Props) {
   const zhiku = settings.智库系统;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);

@@ -1,5 +1,5 @@
 import type { API配置项, API设置, 游戏设置 } from '@/models/settings';
-import { mergeApiOverride } from '@/models/settings';
+import { resolveApiConfig } from '@/services/apiConfig';
 import type {
   剧情编织分段,
   剧情编织系列,
@@ -7,7 +7,6 @@ import type {
   剧情编织角色档案,
   剧情编织势力档案,
   剧情编织地点档案,
-  剧情编织API覆盖,
 } from '@/models/storyWeaving';
 import { 归一化剧情编织分段 } from '@/models/storyWeaving';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
@@ -26,36 +25,12 @@ const 文本数组 = (value: unknown): string[] => (
 const ACTIVE_RUNTIME_STATUSES = new Set<剧情编织分段['运行状态']>(['当前', '未开始']);
 const ARCHIVED_RUNTIME_STATUSES = new Set<剧情编织分段['运行状态']>(['已经历', '已跳过', '已偏离', '暂停']);
 
-function 主API配置(apiSettings: API设置): API配置项 | null {
-  return apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0) ?? null;
-}
-
-function 合并剧情编织API(
-  mainConfig: API配置项,
-  override: 剧情编织API覆盖,
-  enableClaudeMode: boolean,
-): API配置项 | null {
-  const merged = mergeApiOverride(mainConfig, override, {
-    maxTokens: override.maxTokens ?? mainConfig.maxTokens ?? 4096,
-    temperature: override.temperature ?? mainConfig.temperature ?? 0.25,
-    enableClaudeMode,
-  });
-  if (!merged.baseUrl || !merged.apiKey || !merged.model) return null;
-  return merged;
-}
-
 export function buildStoryWeavingApiConfig(settings: 游戏设置, apiSettings: API设置): API配置项 | null {
-  const mainConfig = 主API配置(apiSettings);
-  if (!mainConfig) return null;
-  return 合并剧情编织API(mainConfig, settings.剧情编织系统.api, settings.enableClaudeMode);
+  return resolveApiConfig(apiSettings, settings, 'storyWeaving');
 }
 
 export function buildStoryAdvanceJudgeApiConfig(settings: 游戏设置, apiSettings: API设置): API配置项 | null {
-  const mainConfig = 主API配置(apiSettings);
-  if (!mainConfig) return null;
-  const { api, 推进判定API } = settings.剧情编织系统;
-  const 独立覆盖 = 推进判定API.baseUrl.trim() || 推进判定API.apiKey.trim() || 推进判定API.model.trim();
-  return 合并剧情编织API(mainConfig, 独立覆盖 ? 推进判定API : api, settings.enableClaudeMode);
+  return resolveApiConfig(apiSettings, settings, 'storyAdvanceJudge');
 }
 
 export async function decomposeStorySegment(params: {

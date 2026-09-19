@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import type { API配置项 } from '@/models/settings';
 import type {
   变量修复草稿,
   变量修复草稿项,
@@ -24,9 +23,9 @@ import {
 import { snapshotVariableState } from '@/utils/variableExecutor';
 import { variableStateFingerprint } from '@/utils/variableFingerprint';
 import { findPreviousUserInput } from '@/utils/chatHistory';
-import { resolveVariableModelConfig } from '@/hooks/useGame/variableWorkflow';
 import { pushQueueTask as 推入队列账本 } from '@/hooks/useGame/workflowTaskRuntime';
 import { isWorkflowAbortError } from '@/hooks/useGame/workflowTransaction';
+import { resolveApiConfig } from '@/services/apiConfig';
 
 const 扫描上限 = 40;
 
@@ -55,7 +54,6 @@ export interface 变量修复中心动作 {
 
 export interface VariableRepairCenterParams {
   getState: () => UseGameStateReturn;
-  getActiveConfig: () => API配置项 | null;
   sessionEpoch: number;
   pushQueueTask: typeof 推入队列账本;
 }
@@ -79,7 +77,7 @@ function 选择值(selection: Record<string, string[]>, id: string): string[] {
 }
 
 export function useVariableRepairCenter(params: VariableRepairCenterParams): 变量修复中心动作 {
-  const { getState, getActiveConfig, pushQueueTask, sessionEpoch } = params;
+  const { getState, pushQueueTask, sessionEpoch } = params;
   const [状态, set状态] = useState<中心状态>(空中心状态);
   const 状态Ref = useRef(状态);
   const 中止Ref = useRef<扫描中止持有 | null>(null);
@@ -145,6 +143,8 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
     const base = 会话草稿(状态Ref.current, sessionEpoch);
     if (!base) return;
     let 工作稿 = base;
+    // 设备设置在整轮扫描内不变，配置只解析一次；判空仍留在循环内，保持逐项失败的既有反馈。
+    const variableConfig = resolveApiConfig(getState().deviceSettings.apiSettings, getState().deviceSettings.gameSettings, 'variable');
     for (const item of base.项) {
       if (controller.signal.aborted || 代已作废(扫描代Ref, 代)) break;
       if (item.status !== 'pending' && item.status !== 'scanning') continue;
@@ -154,19 +154,14 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
         const s = getState();
         const message = s.chatHistory.find((entry) => entry.id === item.targetMessageId);
         if (!message) throw new Error('历史消息已不存在。');
-        const mainConfig = getActiveConfig();
-        if (!mainConfig) throw new Error('未配置主 API，无法重新解析变量。');
-        const { config } = resolveVariableModelConfig(
-          s.deviceSettings.gameSettings.variableApi,
-          mainConfig,
-        );
+        if (!variableConfig) throw new Error('请先在设置中配置至少一个 API 接口，再重新解析变量。');
         const plan = await 重新解析变量计划({
           message,
           turn: item.turn,
           stateSnapshot: snapshotVariableState(s),
           baseStateFingerprint: base.指纹,
           batches: s.variableBatches,
-          mainApiConfig: config,
+          mainApiConfig: variableConfig,
           userInput: findPreviousUserInput(s.chatHistory, item.targetMessageId),
           nsfwEnabled: s.deviceSettings.gameSettings.enableNsfw,
           maleNsfwArchiveEnabled: s.deviceSettings.gameSettings.enableMaleNsfwArchive,
@@ -203,7 +198,7 @@ export function useVariableRepairCenter(params: VariableRepairCenterParams): 变
         : `变量修复扫描完成，${failed} 个回合失败。`,
       settled.项[0]?.turn,
     );
-  }, [getActiveConfig, getState, 报告队列, 收场, 合并状态, sessionEpoch]);
+  }, [getState, 报告队列, 收场, 合并状态, sessionEpoch]);
 
   const 开始扫描 = useCallback(() => {
     if (状态Ref.current.扫描中 || 状态Ref.current.提交中) return;

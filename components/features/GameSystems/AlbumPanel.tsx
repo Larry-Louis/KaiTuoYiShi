@@ -4,7 +4,7 @@ import { 图片是否参考角色, 读取图片参考目标, resolveSize, slotLa
 import type { 图片槽位, 图片生成任务, 相册条目, 相册系统 } from '@/models/imageGeneration';
 import type { 角色数据结构 } from '@/models/character';
 import type { 聊天消息 } from '@/models/chat';
-import type { API设置, API配置项, 游戏设置, 文生图规则中心设置, 文生图系统设置, 文生图API配置 } from '@/models/settings';
+import type { API设置, 游戏设置, 文生图规则中心设置, 文生图系统设置, 文生图API配置 } from '@/models/settings';
 import type { ConnectionTestConfig, ComfyWorkflowCandidate } from '@/hooks/useAiTools';
 import type { 手机系统 } from '@/models/phone';
 import type { NPC记录, NPC角色锚点档案 } from '@/models/npc';
@@ -106,7 +106,6 @@ interface AlbumPanelProps {
     context: 解析上下文,
   ) => Promise<故事快照解析结果 | null>;
   onExtractCharacterAnchor: (
-    config: API配置项,
     input: CharacterAnchorExtractInput,
   ) => Promise<NPC角色锚点档案>;
   onTokenizeImagePrompt: (
@@ -337,26 +336,6 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
     } catch (err) {
       setMessage(`规则中心保存失败：${err instanceof Error ? err.message : String(err)}`);
     }
-  };
-
-  const resolveCharacterAnchorExtractConfig = () => {
-    const mainApi = apiSettings.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0);
-    if (!mainApi) return null;
-    const override = imageSettings.词组转化器API;
-    return {
-      ...mainApi,
-      id: '__character_anchor_extract__',
-      name: '角色视觉锚点提取',
-      provider: override.provider || mainApi.provider,
-      baseUrl: override.baseUrl.trim() || mainApi.baseUrl,
-      apiKey: override.apiKey.trim() || mainApi.apiKey,
-      model: override.model.trim() || mainApi.model,
-      maxTokens: override.maxTokens ?? mainApi.maxTokens ?? 1600,
-      temperature: override.temperature ?? mainApi.temperature ?? 0.35,
-      retryCount: override.retryCount ?? mainApi.retryCount ?? 1,
-      enableClaudeMode: gameSettings.enableClaudeMode,
-      updatedAt: Date.now(),
-    };
   };
 
   const currentTarget = generateTargets.find((item) => item.id === generateTarget) ?? generateTargets[0];
@@ -751,15 +730,10 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   const extractNpcAnchor = async (npcId: string, requirement: string) => {
     const npc = npcs.find((item) => item.id === npcId);
     if (!npc) return;
-    const config = resolveCharacterAnchorExtractConfig();
-    if (!config) {
-      setMessage('角色锚点提取模型未配置：请先在 API 设置里启用一个可用模型。');
-      return;
-    }
     setAnchorExtractingTarget(npcId);
     setMessage(`正在 AI 提取 ${npc.姓名} 的角色锚点...`);
     try {
-      const anchor = await onExtractCharacterAnchor(config, {
+      const anchor = await onExtractCharacterAnchor({
         name: npc.姓名,
         kind: 'npc',
         sourceText: [npc.外貌, npc.穿着, npc.装备摘要, npc.图像档案?.头像提示词, npc.图像档案?.立绘提示词].filter(Boolean).join('\n'),
@@ -805,15 +779,10 @@ export function AlbumPanel({ album, onAlbumChange, traveler, onTravelerChange, n
   };
 
   const extractTravelerAnchor = async (requirement: string) => {
-    const config = resolveCharacterAnchorExtractConfig();
-    if (!config) {
-      setMessage('主控锚点提取模型未配置：请先在 API 设置里启用一个可用模型。');
-      return;
-    }
     setAnchorExtractingTarget('traveler');
     setMessage('正在 AI 提取主控锚点...');
     try {
-      const anchor = await onExtractCharacterAnchor(config, {
+      const anchor = await onExtractCharacterAnchor({
         name: traveler.姓名 || '旅人',
         kind: 'traveler',
         sourceText: [traveler.性别, `${traveler.年龄}`, traveler.身高, traveler.身份, traveler.外貌, traveler.主命途, ...traveler.能力].filter(Boolean).join('\n'),

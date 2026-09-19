@@ -1,7 +1,7 @@
 import type { ComponentType, Dispatch, SetStateAction } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { API设置, DeviceSettings, 游戏设置, 主题预设 } from '@/models/settings';
-import type { API方案槽位, AuxApiProfileState } from '@/models/apiProfiles';
+import type { API方案槽位, AuxApiProfileState, 已持久化API方案 } from '@/models/apiProfiles';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
 import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
@@ -79,7 +79,7 @@ export interface SettingsModalProps {
   onPersistGameSettings: (s: 游戏设置) => Promise<void>;
   onPersistApiSettings: (s: API设置) => Promise<void>;
   onPersistTheme: (t: 主题预设) => Promise<void>;
-  onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<void>;
+  onPersistApiProfile: (api: API设置, game: 游戏设置) => Promise<已持久化API方案>;
   onLoadApiProfileSlots: () => Promise<API方案槽位[]>;
   onPersistApiProfileSlots: (slots: API方案槽位[]) => Promise<void>;
   onLoadAuxApiProfiles: () => Promise<Record<string, AuxApiProfileState>>;

@@ -1,5 +1,4 @@
-import type { API配置项, 忆庭API覆盖, 记忆系统设置 } from '@/models/settings';
-import { mergeApiOverride } from '@/models/settings';
+import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { 回忆条目 } from '@/models/yiting';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
@@ -24,17 +23,10 @@ export interface YitingArchiveResult {
   usedFallback: boolean;
 }
 
-export function resolveYitingArchiveConfig(
-  mainConfig: API配置项,
-  override: 忆庭API覆盖,
-): API配置项 {
-  return mergeApiOverride(mainConfig, override);
-}
-
 export async function buildYitingArchiveEntry(
   source: YitingArchiveSource,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
   promptModules?: 提示词模块[],
@@ -53,8 +45,7 @@ export async function buildYitingArchiveEntry(
     return { entry: fallback, usedFallback: true };
   }
 
-  const api = resolveYitingArchiveConfig(mainConfig, settings.忆庭精炼API);
-  if (!api.baseUrl || !api.apiKey || !api.model) {
+  if (!api) {
     return { entry: fallback, usedFallback: true };
   }
 

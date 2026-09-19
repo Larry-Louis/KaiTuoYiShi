@@ -12,6 +12,7 @@ import {
   type 记忆系统,
 } from '@/models/memory';
 import { summarizeMemoryBatch } from '@/services/memoryCompression';
+import { resolveApiConfig } from '@/services/apiConfig';
 import { devLogError } from '@/utils/devLog';
 import { beginWorkflowTransaction, isWorkflowAbortError, type WorkflowTransaction } from './workflowTransaction';
 import { pushQueueTask } from './workflowTaskRuntime';
@@ -117,18 +118,16 @@ async function 运行记忆草稿事务(
 
 export async function retryMemoryDraft(
   state: UseGameStateReturn,
-  getActiveConfig: () => API配置项 | null,
   draftId: string,
 ): Promise<void> {
   const settings = state.deviceSettings.gameSettings.记忆系统;
-  // getActiveConfig 带副作用（缺省时补写 activeConfigId），只解析一次。
-  const mainConfig = getActiveConfig();
+  const mainConfig = resolveApiConfig(state.deviceSettings.apiSettings, state.deviceSettings.gameSettings, 'memoryCompression');
   await 运行记忆草稿事务(state, draftId, {
     turnStatus: { kind: 'settling', text: '正在重试记忆总结。' },
     failureLabel: '记忆总结重试失败',
     stoppedStatus: { kind: 'stopped', text: '已取消记忆总结重试。' },
     logLabel: 'retryMemoryDraft.catch',
-    precheck: () => (mainConfig ? null : '未配置主 API，无法重试记忆总结。'),
+    precheck: () => (mainConfig ? null : '请先在设置中配置至少一个 API 接口，再重试记忆总结。'),
     // 中止时瞬态 retrying 只存在于投影：还原为 pending，与叶子保持一致。
     restore: (draft, error) => {
       state.set记忆({

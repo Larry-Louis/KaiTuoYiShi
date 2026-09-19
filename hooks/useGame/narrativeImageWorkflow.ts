@@ -1,5 +1,5 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import type { API配置项, API设置, 文生图API配置 } from '@/models/settings';
+import type { API配置项, 文生图API配置 } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 队列任务ID, 队列任务状态 } from '@/models/queueTask';
 import { buildImagePromptTokenizerConfig } from '@/services/ai/imagePromptTokenizer';
@@ -10,15 +10,9 @@ import { 创建相册图片条目, 添加图片到相册, 创建相册资源引�
 import { 应用场景角色锚点锁, 应用质量增强提示词 } from '@/utils/imagePromptRules';
 import { devLogError } from '@/utils/devLog';
 
-function buildSingleApiSettings(config: API配置项): API设置 {
-  return {
-    activeConfigId: config.id,
-    configs: [config],
-  };
-}
-
-export function resolveNarrativeImageTokenizerConfig(state: UseGameStateReturn, mainConfig: API配置项): API配置项 | null {
-  return buildImagePromptTokenizerConfig(state.deviceSettings.gameSettings, buildSingleApiSettings(mainConfig));
+export function resolveNarrativeImageTokenizerConfig(state: UseGameStateReturn): API配置项 | null {
+  const { gameSettings, apiSettings } = state.deviceSettings;
+  return buildImagePromptTokenizerConfig(gameSettings, apiSettings);
 }
 
 export function resolveNarrativeImageGenerationApi(state: UseGameStateReturn): 文生图API配置 | null {
@@ -247,13 +241,13 @@ export async function regenerateNarrativeImagesForMessage(
   const mainConfig = getActiveConfig();
   if (!mainConfig) {
     pushQueueTask(state, 'narrative_image_parse', 'failed', {
-      detail: '未配置主 API，无法解析故事快照提示词。',
+      detail: '请先在设置中配置至少一个 API 接口，再解析故事快照提示词。',
       turn,
       targetMessageId: messageId,
     });
     return;
   }
-  const tokenizerConfig = resolveNarrativeImageTokenizerConfig(state, mainConfig);
+  const tokenizerConfig = resolveNarrativeImageTokenizerConfig(state);
   if (!tokenizerConfig) {
     pushQueueTask(state, 'narrative_image_parse', 'failed', {
       detail: '正文生图词组转化器未配置，无法解析故事快照提示词。',

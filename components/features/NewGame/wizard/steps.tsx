@@ -6,7 +6,8 @@ import { NORMAL_SKILL_SLOT_COUNT, type 战技记录, type 战技槽位摘要 } f
 import type { TravelerTemplateContext, TravelerTemplateDraft } from '@/contracts/ai';
 import type { OpeningScenario, OpeningSkillSlotKey } from './wizardData';
 import type { CanonicalTrailblazer, FreeOpeningPlanetSource, FreeOpeningWorkshopDraft, OpeningSource } from '@/models/opening';
-import { CANONICAL_TRAILBLAZERS, FREE_OPENING_PLANET_SOURCE_OPTIONS, smallClip, tightClip, openingCardBackground, openingActiveCardBackground, openingCardBorder, openingCyanBorder, buildOpeningScenarioCards, getActiveOpeningCardId, getFreeOpeningPlanetSourceOption, getOpeningRegionDisplayName, selectOpeningScenario, openingSkillSlotTitle, openingSkillRecordSlotLabel, getCanonicalTrailblazer, splitCustomAbilityEntry, mergeBirthday } from './wizardData';
+import { CANONICAL_TRAILBLAZERS, getCanonicalTrailblazer } from '@/models/opening';
+import { FREE_OPENING_PLANET_SOURCE_OPTIONS, smallClip, tightClip, openingCardBackground, openingActiveCardBackground, openingCardBorder, openingCyanBorder, buildOpeningScenarioCards, getActiveOpeningCardId, getFreeOpeningPlanetSourceOption, getOpeningRegionDisplayName, selectOpeningScenario, openingSkillSlotTitle, openingSkillRecordSlotLabel, splitCustomAbilityEntry, mergeBirthday } from './wizardData';
 import { Chip, DraftInput, DraftTextarea, SmallActionButton } from './atoms';
 import { SectionCard, TipBox, CardHeader, ScenarioAnchorCard } from './frame';
 import { OpeningSkillSlotGroup, StepNav, SectionTitle, LabelField, OverviewLabel, OverviewRow } from './panels';

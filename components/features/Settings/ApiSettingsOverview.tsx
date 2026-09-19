@@ -2,6 +2,7 @@ import type { AI提供商 } from '@/models/settings';
 import { MAX_OUTPUT_TIERS } from '@/data/modelRecommendations';
 import { cardClip, providerOptions, smallClip } from './settingsShared';
 import { useApiOverviewSettings, type ApiSettingsOverviewProps } from '@/hooks/useApiOverviewSettings';
+import { listApiConfigs } from '@/services/apiConfig';
 
 export type { ApiSettingsOverviewProps } from '@/hooks/useApiOverviewSettings';
 
@@ -43,6 +44,7 @@ export function ApiSettingsOverviewTab(props: ApiSettingsOverviewProps) {
     handleTest,
     handleTierChange,
   } = useApiOverviewSettings(props);
+  const configs = listApiConfigs(settings);
 
   return (
     <div className="kaituo-settings-pane flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-1">
@@ -148,7 +150,7 @@ export function ApiSettingsOverviewTab(props: ApiSettingsOverviewProps) {
                     {slot.name}
                   </div>
                   <div className="mt-0.5 truncate text-[10px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-                    {new Date(slot.savedAt).toLocaleString('zh-CN')} · {slot.profile.apiSettings.configs.length} 个主 API
+                    {new Date(slot.savedAt).toLocaleString('zh-CN')} · {listApiConfigs(slot.profile.apiSettings).length} 个主 API
                   </div>
                 </div>
                 <button
@@ -243,7 +245,7 @@ export function ApiSettingsOverviewTab(props: ApiSettingsOverviewProps) {
           className="text-xs tracking-wider sm:ml-auto"
           style={{ color: 'rgba(var(--tj-text-secondary), 0.6)' }}
         >
-          共 {settings.configs.length} 个配置
+          共 {configs.length} 个配置
         </span>
       </div>
 
@@ -251,7 +253,7 @@ export function ApiSettingsOverviewTab(props: ApiSettingsOverviewProps) {
       <div className="flex min-w-0 flex-col gap-4 md:flex-row">
         <aside className="flex max-h-[32dvh] w-full flex-shrink-0 flex-col md:max-h-none md:w-[220px]">
           <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {settings.configs.length === 0 && (
+          {configs.length === 0 && (
             <div
               className="px-3 py-4 text-center text-xs"
               style={{ color: 'rgba(var(--tj-text-secondary), 0.65)' }}
@@ -259,7 +261,7 @@ export function ApiSettingsOverviewTab(props: ApiSettingsOverviewProps) {
               暂无配置
             </div>
           )}
-          {settings.configs.map((c) => {
+          {configs.map((c) => {
             const active = settings.activeConfigId === c.id;
             const selected = selectedId === c.id;
             return (

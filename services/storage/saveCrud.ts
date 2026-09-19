@@ -47,6 +47,7 @@ import {
   MAX_DELTA_NODES_PER_CHECKPOINT,
 } from './dbConnection';
 import { loadSetting, saveSetting } from './settings';
+import { hydratePersistedApiSettings } from '@/utils/apiSettingsHydration';
 import { startSaveCatalogRepair } from './catalogMaintenance';
 import { isPlainRecord, normalizeNodeId, normalizeSaveId, toError } from '@/utils/storageUtils';
 
@@ -210,10 +211,10 @@ async function hydrateStoredSave(save: 存档数据): Promise<存档数据> {
     loadSetting<import('@/models/settings').游戏设置>('gameSettings'),
     loadSetting<import('@/models/settings').主题预设>('theme'),
   ]);
-  const migratedApi = apiSettings ?? legacy.apiSettings ?? 创建空API设置();
+  const migratedApi = hydratePersistedApiSettings(apiSettings ?? legacy.apiSettings ?? 创建空API设置());
   const migratedGame = gameSettings ?? legacy.gameSettings ?? 创建默认游戏设置();
   const migratedTheme = theme ?? legacy.theme ?? 'deepspace';
-  if (apiSettings === null && legacy.apiSettings) await saveSetting('apiSettings', legacy.apiSettings);
+  if (apiSettings === null && legacy.apiSettings) await saveSetting('apiSettings', migratedApi);
   if (gameSettings === null && legacy.gameSettings) await saveSetting('gameSettings', legacy.gameSettings);
   if (theme === null && legacy.theme) await saveSetting('theme', legacy.theme);
   const device: DeviceSettings = {

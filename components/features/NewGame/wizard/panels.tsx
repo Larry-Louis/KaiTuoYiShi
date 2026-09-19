@@ -3,7 +3,8 @@ import { PATH_STAGE_DEFS } from '@/models/path';
 import { getFaction, getPath } from '@/data/journeyPresets';
 import type { 战技槽位摘要 } from '@/models/skill';
 import type { OpeningPlayerPreset } from '@/models/opening';
-import { type Step, type OpeningSkillSlotKey, STEPS, MAX_OPENING_PLAYER_PRESETS, STEP_META, STEP_RAIL_ITEMS, cardClip, smallClip, openingPanelBackground, openingSoftPanelBackground, openingPanelShadow, openingCardBackground, openingCardBorder, toOpeningSkillSlotKey } from './wizardData';
+import { MAX_OPENING_PLAYER_PRESETS } from '@/models/opening';
+import { type Step, type OpeningSkillSlotKey, STEPS, STEP_META, STEP_RAIL_ITEMS, cardClip, smallClip, openingPanelBackground, openingSoftPanelBackground, openingPanelShadow, openingCardBackground, openingCardBorder, toOpeningSkillSlotKey } from './wizardData';
 
 export function MiniStat({ label, value }: { label: string; value: string }) {
   return (

@@ -39,7 +39,6 @@ function buildPriorBatch(overrides: Partial<变量命令批次> = {}): 变量命
 async function runCalibration(harness: ReturnType<typeof createGameStateHarness>, receipt = buildReceipt()) {
   return runVariableCalibrationStep({
     state: harness.state,
-    mainApiConfig: harness.apiConfig,
     userInput: '继续',
     body: '正文内容',
     receipt,

@@ -1,5 +1,4 @@
 import type { API配置项, API设置, 游戏设置 } from '@/models/settings';
-import { resolveApiOverrideFields } from '@/models/settings';
 import type { 手机联系人, 主动来信种子 } from '@/models/phone';
 import type { NPC记录 } from '@/models/npc';
 import { 格式化NPC关系, 提取NPC同行记忆文本列表 } from '@/models/npc';
@@ -16,6 +15,8 @@ import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
 import { chatCompletionNonStream } from './chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
+import { resolveApiConfig } from '@/services/apiConfig';
+import { devLogError } from '@/utils/devLog';
 import { extractJsonLikeText, normalizeStructuredModelText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
 
 export interface 手机回复结果 {
@@ -46,30 +47,7 @@ function getPhoneReplyLimits(ctx: 手机回复上下文): 手机回复数量限�
 }
 
 export function buildPhoneApiConfig(settings: 游戏设置, apiSettings: API设置): API配置项 | null {
-  const mainConfig: API配置项 | undefined = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs.at(0);
-  const phoneApi = settings.手机系统.api;
-  const phoneFieldsEmpty = !phoneApi.baseUrl.trim() && !phoneApi.apiKey.trim() && !phoneApi.model.trim();
-  const fields = resolveApiOverrideFields(
-    { ...phoneApi, provider: phoneFieldsEmpty ? '' : phoneApi.provider },
-    mainConfig ?? null,
-  );
-  const { provider, baseUrl, apiKey, model } = fields;
-  if (!provider || !baseUrl || !apiKey || !model) return null;
-
-  return {
-    id: '__phone_runtime__',
-    name: '手机系统',
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    maxTokens: fields.maxTokens ?? 900,
-    temperature: fields.temperature ?? 0.75,
-    retryCount: fields.retryCount,
-    enableClaudeMode: settings.enableClaudeMode,
-    createdAt: 0,
-    updatedAt: Date.now(),
-  };
+  return resolveApiConfig(apiSettings, settings, 'phone');
 }
 
 export async function generatePhoneReply(
@@ -501,7 +479,8 @@ function parsePhoneReply(raw: string, messageLimit = 8): 手机回复结果 {
         message: normalizedMessages.join('\n'),
       };
     }
-  } catch {
+  } catch (err) {
+    devLogError('net', 'phone-reply-parse-failed', err, {});
   }
   return {
     messages: [],

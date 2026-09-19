@@ -195,7 +195,7 @@ async function retryVariableQueueTask(
   const mainConfig = getActiveConfig();
   if (!assistant || !mainConfig) {
     pushQueueTask(state, 'variable', 'failed', {
-      detail: !assistant ? '未找到变量批次对应的正文回合。' : '未配置主 API，无法补结算变量。',
+      detail: !assistant ? '未找到变量批次对应的正文回合。' : '请先在设置中配置至少一个 API 接口，再补结算变量。',
       targetBatchId: batch.id,
       failCount: (task.failCount ?? 0) + 1,
     });
@@ -246,7 +246,6 @@ async function retryVariableQueueTask(
     });
     const overrides = await runVariableCalibrationStep({
       state,
-      mainApiConfig: mainConfig,
       userInput: receipt.input,
       body,
       variableDraft: assistant.parsedResponse?.variableDraft,

@@ -13,7 +13,12 @@ import {
   workshopOpeningTemplates,
 } from '@/data/journeyPresets';
 import { requireOfficialOpeningPreset as requirePreset } from './helpers/openingFixture';
-import { deriveOpeningDraftContext } from '@/models/opening';
+import {
+  deriveOpeningDraftContext,
+  normalizeOpeningPresets,
+  sanitizeOpeningPresetDraft,
+  upsertOpeningPlayerPreset,
+} from '@/models/opening';
 import { 根据官方开局预设创建开局档案 } from '@/models/world';
 import { ScenarioAnchorCard } from '@/components/features/NewGame/wizard/frame';
 import {
@@ -21,10 +26,7 @@ import {
   buildOpeningScenarioCards,
   buildWorkshopTemplateCards,
   getActiveOpeningCardId,
-  normalizeOpeningPresets,
-  sanitizeOpeningPresetDraft,
   selectOpeningScenario,
-  upsertOpeningPlayerPreset,
 } from '@/components/features/NewGame/wizard/wizardData';
 
 const AMPHOREUS_PRESET_IDS = [

@@ -2,7 +2,27 @@ import { openDB, SETTINGS_STORE } from './dbConnection';
 import { toError } from '@/utils/storageUtils';
 
 export async function saveSetting(key: string, value: unknown): Promise<void> {
-  await writeIndexedSetting(key, value);
+  await saveSettings([[key, value]]);
+}
+
+export async function saveSettings(entries: ReadonlyArray<readonly [key: string, value: unknown]>): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    const store = tx.objectStore(SETTINGS_STORE);
+    try {
+      for (const [key, value] of entries) {
+        store.put({ key, value: 剥离游戏设置运行态键(key, value) });
+      }
+    } catch (error) {
+      tx.abort();
+      reject(toError(error));
+      return;
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(toError(tx.error));
+    tx.onabort = () => reject(toError(tx.error ?? new Error('设置批量写入已中止。')));
+  });
 }
 
 export async function loadSetting<T>(key: string): Promise<T | null> {
@@ -20,18 +40,6 @@ export async function loadSetting<T>(key: string): Promise<T | null> {
 
 export async function deleteSetting(key: string): Promise<void> {
   await deleteIndexedSetting(key);
-}
-
-async function writeIndexedSetting(key: string, value: unknown): Promise<void> {
-  const storedValue = 剥离游戏设置运行态键(key, value);
-  const db = await openDB();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
-    const store = tx.objectStore(SETTINGS_STORE);
-    store.put({ key, value: storedValue });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(toError(tx.error));
-  });
 }
 
 function 剥离游戏设置运行态键(key: string, value: unknown): unknown {

@@ -86,19 +86,6 @@ function normalizeApiOverride<T extends { retryCount?: number }>(input: Partial<
   };
 }
 
-export function mergeApiOverride(
-  mainConfig: API配置项,
-  override: API覆盖字段,
-  extra?: Partial<API配置项>,
-): API配置项 {
-  return {
-    ...mainConfig,
-    ...resolveApiOverrideFields(override, mainConfig),
-    provider: override.provider || mainConfig.provider,
-    ...extra,
-  };
-}
-
 /** 留空字段回退主 API 的同名字段。 */
 interface 通用API覆盖 {
   provider: AI提供商;

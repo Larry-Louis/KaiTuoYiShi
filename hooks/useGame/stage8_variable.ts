@@ -8,7 +8,7 @@ export async function stage8_variable(
   ctx: TurnContext,
   d: TurnDeltas,
 ): Promise<Partial<TurnDeltas>> {
-  const { state, userInput, config, abortController, assertWorkflowActive, isCurrentWorkflow, turnCountAtStart, queueTasksMirror } = ctx;
+  const { state, userInput, abortController, assertWorkflowActive, isCurrentWorkflow, turnCountAtStart, queueTasksMirror } = ctx;
   const {
     parsedForDisplay,
     displayText,
@@ -30,7 +30,6 @@ export async function stage8_variable(
   try {
     variableOverrides = await runVariableCalibrationStep({
       state,
-      mainApiConfig: config,
       userInput,
       body: displayText,
       variableDraft: parsedForDisplay?.variableDraft,

@@ -42,7 +42,7 @@ export async function executeSendWorkflow(
   const queueTasksMirror = [...state.queueTasks];
   const rawConfig = deps.getActiveConfig();
   if (!rawConfig) {
-    alert('请先在设置中配置API');
+    alert('请先在设置中配置至少一个 API 接口。');
     return;
   }
   const config = rawConfig;
