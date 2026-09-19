@@ -87,7 +87,7 @@ export function makeModuleCtx(input: SystemPromptInput, scope: PromptScope): Pro
     : input.settings.narrativePerson === 'first' ? '第一人称"我"'
     : '第三人称"他/她"';
   return {
-    wordCountTarget: input.settings.wordCountTarget,
+    wordCountTarget: Math.ceil(input.settings.wordCountTarget * 1.2),
     personLabel,
     playerName: getPromptPlayerName(input.traveler),
     currentScope: scope,

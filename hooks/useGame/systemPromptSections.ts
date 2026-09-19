@@ -770,7 +770,8 @@ export function buildPhoneSection(phone?: 手机系统): string {
 }
 
 export function buildWordCountSection(settings: 游戏设置): string {
-  return `# 字数要求\n\n- 本回合正文不少于 ${settings.wordCountTarget} 字；日常推进可贴近下限，关键场景应超过下限。`;
+  const scaled = Math.ceil(settings.wordCountTarget * 1.2);
+  return `# 字数要求（硬约束）\n\n- 本回合正文不少于 ${scaled} 字，无论如何必须严格达到。\n- 禁止以任何理由压缩、删减、提前收尾，或用思维链、记忆、剧情编织、行动选项篇幅抵扣正文字数；日常推进也要达标，关键场景应超过下限。`;
 }
 
 export function buildWeatherSection(worldState: 世界状态): string {
