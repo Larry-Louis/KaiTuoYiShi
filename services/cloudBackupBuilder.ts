@@ -1,5 +1,5 @@
 import type { 存档数据 } from '@/models/settings';
-import type { SaveListItemSummary } from '@/services/storage/saveCatalog';
+import type { SaveListItemSummary } from '@/contracts/storage';
 import {
   CLOUD_BACKUP_PART_HARD_BYTES,
   CLOUD_BACKUP_PART_TARGET_BYTES,
@@ -11,7 +11,7 @@ import {
   type CloudBackupPartMeta,
   type CloudBackupPointerV2,
 } from '@/services/cloudBackupPackage';
-import { CloudBackupWorkerClient } from '@/services/cloudBackupWorkerClient';
+import { createCloudBackupWorkerClient } from '@/services/cloudBackupWorkerClient';
 import {
   cleanupExpiredCloudBackupTransfers,
   createCloudBackupTransfer,
@@ -26,6 +26,7 @@ import {
   type SaveAssetRecord,
 } from '@/utils/saveAssetStorage';
 import { dataUrlToBlob } from '@/utils/albumObjectUrl';
+import { 格式化二进制字节 } from '@/utils/format';
 
 export interface CloudBackupBuildProgress {
   phase: 'checking' | 'packing-node' | 'packing-part' | 'completed';
@@ -73,7 +74,7 @@ export async function buildCompleteCloudBackup(
   const transferId = `upload-${snapshotId}`;
   await createCloudBackupTransfer(transferId, 'upload', 'packing');
 
-  const worker = new CloudBackupWorkerClient();
+  const worker = createCloudBackupWorkerClient();
   const parts: CloudBackupPartMeta[] = [];
   const nodes: CloudBackupNodeMeta[] = [];
   const assets: CloudBackupAssetMeta[] = [];
@@ -110,7 +111,7 @@ export async function buildCompleteCloudBackup(
 
   const addEntry = async (entry: CloudBackupPartEntry): Promise<number> => {
     if (entry.bytes.byteLength > CLOUD_BACKUP_PART_HARD_BYTES) {
-      throw new Error(`云备份条目超过安全大小：${entry.name}（${formatBytes(entry.bytes.byteLength)}）。`);
+      throw new Error(`云备份条目超过安全大小：${entry.name}（${格式化二进制字节(entry.bytes.byteLength)}）。`);
     }
     if (currentEntries.length && currentRawBytes + entry.bytes.byteLength > CLOUD_BACKUP_PART_TARGET_BYTES) {
       await flushPart();
@@ -138,13 +139,13 @@ export async function buildCompleteCloudBackup(
           ? await source.loadSave(summary.id).then((save) => save ? ({ save, assetRecords: extractSaveAssetRecords(save) }) : null)
           : null;
       if (!bundle) throw new Error(`读取本地存档 #${summary.id} 失败，无法生成完整云备份。`);
-      const save = { ...bundle.save, id: summary.id, type: summary.type } as 存档数据;
+      const save = { ...bundle.save, id: summary.id, type: summary.type };
       const records = new Map(bundle.assetRecords.map((record) => [record.id, record]));
       for (const asset of save.相册?.assets ?? []) {
         if (!asset.id || assetByOriginalId.has(asset.id)) continue;
         const rawRecord = records.get(asset.id);
         if (!rawRecord) {
-          if (String(asset.dataUrl || '').startsWith('asset:')) {
+          if ((asset.dataUrl || '').startsWith('asset:')) {
             throw new Error(`存档 #${summary.id} 引用的资源 ${asset.id} 缺失，无法生成完整云备份。`);
           }
           continue;
@@ -186,7 +187,7 @@ export async function buildCompleteCloudBackup(
       }).saveTree;
       nodes.push({
         sourceSaveId: summary.id,
-        type: String(summary.type || portable.type || 'manual'),
+        type: summary.type,
         timestamp: summary.timestamp || portable.timestamp || 0,
         turnCount: summary.turnCount || portable.turnCount || 0,
         rootId: tree?.rootId,
@@ -239,12 +240,6 @@ function assertNotAborted(signal?: AbortSignal): void {
 
 function yieldToMainThread(): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${bytes} B`;
 }
 
 function resolveRecordBlob(record: SaveAssetRecord): Blob | null {

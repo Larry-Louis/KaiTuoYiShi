@@ -1,36 +1,25 @@
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置 } from '@/models/settings';
-import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { providerOptions } from './settingsShared';
+import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  /** 勿直连 saveSetting。 */
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  /** 勿直连 services/ai。 */
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
 
-export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Props) {
+export function PhoneSystemSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels }: Props) {
   const phone = settings.手机系统;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
@@ -54,11 +43,11 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
   };
 
   const effectiveApi = {
-    provider: phone.api.provider || mainConfig?.provider || 'openai_compatible',
+    provider: phone.api.provider,
     baseUrl: phone.api.baseUrl.trim() || mainConfig?.baseUrl || '',
     apiKey: phone.api.apiKey.trim() || mainConfig?.apiKey || '',
     model: phone.api.model.trim() || mainConfig?.model || '',
-    enableClaudeMode: settings.enableClaudeMode === true,
+    enableClaudeMode: settings.enableClaudeMode,
   };
 
   const handleFetchModels = async () => {
@@ -96,7 +85,7 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
   const handleSave = async () => {
     setSaveMessage(null);
     try {
-      await saveSetting('gameSettings', settings);
+      await onPersistSettings(settings);
       setSavedFlash(true);
       setSaveMessage({ kind: 'info', text: '手机系统设置已保存。' });
       window.setTimeout(() => setSavedFlash(false), 1800);
@@ -113,7 +102,7 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -132,7 +121,7 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
 
       <ToggleRow
         label="自动生成主动来信种子"
-        desc="开启后，变量模型可根据主剧情事件写入来信种子；玩家打开手机时会自动生成一条最高优先级来信。"
+        desc="开启后，NPC 会依据主剧情事件主动给你发消息；关闭后不再有主动来信，但你仍可随时主动给角色发消息。"
         checked={phone.autoGenerateSeeds}
         onChange={(v) => patch({ autoGenerateSeeds: v })}
       />
@@ -203,7 +192,7 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
         className="space-y-3 px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}
       >
@@ -261,12 +250,12 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
             />
             <button
               type="button"
-              onClick={handleFetchModels}
+              onClick={() => void handleFetchModels()}
               disabled={loadingModels}
               className="px-3 py-2 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.85)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 background: 'rgba(var(--tj-accent-primary), 0.05)',
                 clipPath: smallClip,
               }}
@@ -323,14 +312,14 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.72), 0 0 18px rgba(var(--tj-tech-cyan), 0.14)',
+            border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath: cardClip,
           }}
         >
@@ -342,9 +331,9 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings }: Prop
             style={{
               color: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.9)' : 'rgba(160, 200, 160, 0.85)',
               background: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.06)' : 'rgba(120, 200, 140, 0.06)',
-              boxShadow: saveMessage.kind === 'error'
-                ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
-                : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
+              border: saveMessage.kind === 'error'
+                ? '1px solid rgba(220, 120, 120, var(--tj-edge-tint))'
+                : '1px solid rgba(120, 200, 140, var(--tj-edge-tint))',
               clipPath: smallClip,
             }}
           >
@@ -383,8 +372,8 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -402,10 +391,10 @@ function ToggleRow({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+          clipPath: smallClip,
         }}
       >
         <div
@@ -413,7 +402,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>

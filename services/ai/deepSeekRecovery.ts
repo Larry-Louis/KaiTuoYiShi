@@ -11,6 +11,16 @@ export interface DeepSeekAttemptDiagnostics {
   sawVisibleContent: boolean;
   finishReason?: string;
   selectedModel: string;
+  /**
+   * 接口原始响应的键结构摘要（不装原始正文）。
+   *
+   * 用途：空回时唯一能回答「内容到底在哪」的东西。实测 Gemini 3f 返回空文本且
+   * `finishReason=stop`，此时必须知道响应里有没有 `tool_calls`、`reasoning_content`
+   * 之类的字段，才能判断是模型真没答，还是我们没去对的地方取。
+   */
+  响应结构?: string;
+  /** 本次请求要求的最大输出，用于判断「代理是否因为值过大而拒收」。 */
+  请求最大输出?: number;
 }
 
 export interface DeepSeekAttemptOptions {
@@ -42,17 +52,20 @@ export const DEEPSEEK_FINAL_CONTENT_GUARD = [
   '不得只返回 reasoning/thinking，不得返回空 content。',
 ].join('\n');
 
-export class DeepSeekRecoveryExhaustedError extends Error {
-  readonly nonRetryable = true;
-  readonly summary: DeepSeekRecoverySummary;
-  readonly catalogAvailable: boolean;
+export interface DeepSeekRecoveryExhaustedError extends Error {
+  nonRetryable: true;
+  summary: DeepSeekRecoverySummary;
+  catalogAvailable: boolean;
+}
 
-  constructor(message: string, summary: DeepSeekRecoverySummary, catalogAvailable: boolean) {
-    super(message);
-    this.name = 'DeepSeekRecoveryExhaustedError';
-    this.summary = summary;
-    this.catalogAvailable = catalogAvailable;
-  }
+export function createDeepSeekRecoveryExhaustedError(
+  message: string,
+  summary: DeepSeekRecoverySummary,
+  catalogAvailable: boolean,
+): DeepSeekRecoveryExhaustedError {
+  const error = new Error(message);
+  error.name = 'DeepSeekRecoveryExhaustedError';
+  return Object.assign(error, { nonRetryable: true, summary, catalogAvailable }) as DeepSeekRecoveryExhaustedError;
 }
 
 export function isNonRetryableAIError(error: unknown): boolean {
@@ -68,12 +81,12 @@ function isOutputBudgetFinish(reason?: string): boolean {
 }
 
 function isModelNotFoundError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? '');
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /(?:404|model).*(?:not found|does not exist|不存在|未找到)|(?:not found|does not exist|不存在|未找到).*model/i.test(message);
 }
 
 function isMaxTokensLimitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? '');
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /max[_\s-]?(?:tokens|completion tokens).*(?:limit|maximum|too large|exceed|上限|过大|超出)/i.test(message);
 }
 
@@ -166,7 +179,7 @@ export async function executeWithDeepSeekRecovery(
   if (!fallbackModel) {
     const summary = buildSummary(config.model, initialModel, attempts, sawReasoning);
     options.onSummary?.(summary);
-    throw new DeepSeekRecoveryExhaustedError(
+    throw createDeepSeekRecoveryExhaustedError(
       catalogAvailable
         ? `DeepSeek 模型 ${initialModel} 没有返回正式正文，同接口未找到可用的 DeepSeek Chat/V3 模型。`
         : `DeepSeek 模型 ${initialModel} 没有返回正式正文，且模型目录不可用，无法安全选择回退模型。`,
@@ -183,7 +196,7 @@ export async function executeWithDeepSeekRecovery(
   const summary = buildSummary(config.model, initialModel, attempts, sawReasoning, fallbackModel);
   options.onSummary?.(summary);
   if (!hasVisibleContent(fallbackResult)) {
-    throw new DeepSeekRecoveryExhaustedError(
+    throw createDeepSeekRecoveryExhaustedError(
       `DeepSeek 原模型 ${initialModel} 与回退模型 ${fallbackModel} 都没有返回正式正文。`,
       summary,
       catalogAvailable,

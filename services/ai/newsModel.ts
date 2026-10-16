@@ -1,9 +1,9 @@
-import type { API配置项, 新闻API覆盖 } from '@/models/settings';
+import type { API配置项 } from '@/models/settings';
 import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import type { NPC关系类型, NPC记录 } from '@/models/npc';
-import { 筛选活跃NPC } from '@/models/npc';
 import type { 剧情节点 } from '@/models/plot';
+import type { 组织标签ID } from '@/models/journey';
 import type { 新闻条目, 新闻生成结果, 新闻条目补丁 } from '@/models/news';
 import { getNewsIssueNumber, 归一化新闻条目 } from '@/models/news';
 import type { 剧情编织分段, 剧情编织系统 } from '@/models/storyWeaving';
@@ -16,8 +16,6 @@ import { NEWS_WORLD_BOOK_PROMPT as NEWS_LEGACY_WORLD_BOOK_PROMPT } from '@/data/
 import { NEWS_COT_PROMPT as NEWS_LEGACY_COT_PROMPT } from '@/prompts/cot/newsCot';
 import { stringifyPromptPayload } from '@/utils/promptPayloadSanitizer';
 
-/** 旧调用兼容回退：当未传入 promptModules 时使用的硬编码 JSON 输出格式。
- *  正常路径下不会走这里，仅用于 contextSnapshot 等老调用点。 */
 const NEWS_LEGACY_OUTPUT_FORMAT = `# 结构化输出格式
 只输出 JSON，对象字段固定为：
 {
@@ -36,13 +34,12 @@ const NEWS_LEGACY_OUTPUT_FORMAT = `# 结构化输出格式
 - 归档与删除数组里只写 id`;
 
 export interface NewsModelRequest {
-  config: API配置项 | 新闻API覆盖;
+  config: API配置项;
   turnCount: number;
   userInput: string;
   body: string;
   recentTurns?: string[];
-  /** R3 事实约束模式：存在时，新闻模型只能把这里的 [已发生]/[预告] 条目当作新事实来源。 */
-  factSourceBrief?: string;
+  worldFacts?: string[];
   traveler: 角色数据结构;
   world: 世界状态;
   news: 新闻条目[];
@@ -63,15 +60,16 @@ export interface NewsModelResult {
 export async function callNewsModel(request: NewsModelRequest): Promise<NewsModelResult> {
   const systemPrompt = buildNewsModelPrompt(request);
   const userMessage = buildNewsUserMessage(request);
+  const config = request.config;
 
   const rawText = await withRetries(
     () =>
-      chatCompletionNonStream(request.config as API配置项, {
+      chatCompletionNonStream(config, {
         messages: [{ role: 'user', content: userMessage }],
         systemPrompt,
         signal: request.signal,
-        maxTokens: request.config.maxTokens ?? 1400,
-        temperature: request.config.temperature ?? 0.35,
+        maxTokens: config.maxTokens ?? 1400,
+        temperature: config.temperature ?? 0.35,
       }),
     { retries: request.retryCount ?? 0, signal: request.signal, label: '星际和平周报' },
   );
@@ -82,38 +80,13 @@ export async function callNewsModel(request: NewsModelRequest): Promise<NewsMode
   };
 }
 
-export function buildNewsModelPrompt(request: Pick<NewsModelRequest, 'turnCount' | 'world' | 'traveler' | 'news'> & Partial<Pick<NewsModelRequest, 'npcRecords' | 'plotNodes' | 'storyWeaving' | 'maxNewEntriesPerTurn' | 'promptModules' | 'factSourceBrief'>>): string {
+export function buildNewsModelPrompt(request: Pick<NewsModelRequest, 'turnCount' | 'world' | 'traveler' | 'news'> & Partial<Pick<NewsModelRequest, 'npcRecords' | 'plotNodes' | 'storyWeaving' | 'maxNewEntriesPerTurn' | 'promptModules'>>): string {
   const issue = getNewsIssueNumber(request.turnCount);
   const maxNewEntries = normalizeMaxNewEntries(request.maxNewEntriesPerTurn);
   const recentNews = [...request.news].sort((a, b) => b.回合 - a.回合).slice(0, 12);
   const storyBrief = buildStoryWeavingNewsBrief(request.storyWeaving);
 
   const promptModulesSection = buildNewsPromptModulesSection(request.promptModules);
-
-  if (request.factSourceBrief?.trim()) {
-    return [
-      promptModulesSection,
-      '',
-      '## 本期更新要求（事实约束模式）',
-      `- 本次最多新增 ${maxNewEntries} 条新闻。`,
-      '- 只有“已提交公共事实”中的 [已发生] 条目可以写成已经发生；[预告] 条目只能写成 upcoming。',
-      '- 现有新闻只用于更新与去重，不能反向充当本期新事实来源。',
-      '- 禁止根据正文、聊天滑窗、世界全局事件字符串、NPC 摘要、剧情节点或剧情编织摘要补造事实。',
-      '',
-      `## 期号信息`,
-      `- 当前期号：第 ${issue} 期`,
-      `- 当前回合：${request.turnCount}`,
-      `- 当前地点：${request.world.当前地点 || '未标注'}`,
-      `- 当前日期：${request.world.当前日期 || '未标注'}`,
-      `- 当前时间：${request.world.当前时间 || '未标注'}`,
-      '',
-      '## 当前新闻快照（仅用于更新与去重）',
-      recentNews.length
-        ? recentNews.map((n) => `- [${n.状态}] ${n.标题}（${n.回合} 回合 / ${n.类目}）`).join('\n')
-        : '- 无',
-      '',
-    ].join('\n');
-  }
 
   return [
     promptModulesSection,
@@ -142,9 +115,6 @@ export function buildNewsModelPrompt(request: Pick<NewsModelRequest, 'turnCount'
   ].join('\n');
 }
 
-/** 从 settings.promptModules 中过滤出新闻系统的提示词模块（scope=calibration 且 enabled），
- *  按 order 升序拼接 content。若未传入 promptModules（旧调用兼容），回退到原始的
- *  世界书 + CoT + 硬编码 JSON 格式三段拼接。 */
 function buildNewsPromptModulesSection(promptModules?: 提示词模块[]): string {
   if (!promptModules || promptModules.length === 0) {
     return [
@@ -158,7 +128,7 @@ function buildNewsPromptModulesSection(promptModules?: 提示词模块[]): strin
   return buildIndependentPromptModulesSection(promptModules, 'news');
 }
 
-export function buildNewsUserMessage(request: NewsModelRequest): string {
+export function buildNewsUserMessage(request: Omit<NewsModelRequest, 'config'>): string {
   const currentNews = [...request.news]
     .sort((a, b) => {
       const statusDelta = NEWS_STATUS_RANK[a.状态] - NEWS_STATUS_RANK[b.状态];
@@ -167,18 +137,11 @@ export function buildNewsUserMessage(request: NewsModelRequest): string {
     })
     .slice(0, 20);
 
-  if (request.factSourceBrief?.trim()) {
-    return [
-      `## 第 ${request.turnCount} 回合新闻生成请求`,
-      '',
-      request.factSourceBrief,
-      '',
-      '## 现有新闻（仅用于更新与去重，不是新事实来源）',
-      stringifyPromptPayload(currentNews),
-      '',
-      `只根据上面的 [已发生] / [预告] 条目输出结构化 JSON，最多新增 ${normalizeMaxNewEntries(request.maxNewEntriesPerTurn)} 条。没有可刊登变化时返回空数组，不得从其他上下文补写事件。`,
-    ].join('\n');
-  }
+  const windowSection = request.worldFacts?.length
+    ? ['## 本回合已提交的世界事实（只读，不得改写）', request.worldFacts.join('\n')]
+    : ['## 本次新闻窗口内的近期回合', request.recentTurns?.length
+      ? request.recentTurns.join('\n\n')
+      : '（无额外窗口上下文，仅使用本回合正文）'];
 
   return [
     `## 第 ${request.turnCount} 回合新闻生成请求`,
@@ -187,10 +150,7 @@ export function buildNewsUserMessage(request: NewsModelRequest): string {
     '',
     `主回复正文：${request.body || '（无正文）'}`,
     '',
-    '## 本次新闻窗口内的近期回合',
-    request.recentTurns?.length
-      ? request.recentTurns.join('\n\n')
-      : '（无额外窗口上下文，仅使用本回合正文）',
+    ...windowSection,
     '',
     '## 旅人',
     stringifyPromptPayload(request.traveler),
@@ -201,10 +161,10 @@ export function buildNewsUserMessage(request: NewsModelRequest): string {
         当前日期: request.world.当前日期,
         当前时间: request.world.当前时间,
         当前地点: request.world.当前地点,
-        当前时段: request.world.当前时段?.名称 ?? '',
+        当前时段: request.world.当前时段.名称,
         开局档案: formatNewsOpeningArchive(request.world.开局档案),
         全局事件: request.world.全局事件,
-        活跃人物: request.world.活跃人物?.map((n) => n.姓名 ?? ''),
+        活跃人物: request.world.活跃人物.map((n) => n.姓名),
         氛围变化: request.world.氛围变化,
       },
     ),
@@ -254,7 +214,7 @@ function buildPublicNpcBriefs(npcs: NPC记录[]): Array<{
   装备摘要?: string;
   备注?: string[];
 }> {
-  return 筛选活跃NPC(npcs)
+  return npcs
     .filter((npc) => npc.阶位 === 'companion' || npc.同行 || npc.最近回合 > 0)
     .sort((a, b) => b.最近回合 - a.最近回合)
     .slice(0, 12)
@@ -267,7 +227,7 @@ function buildPublicNpcBriefs(npcs: NPC记录[]): Array<{
       原著角色: npc.原著角色 || undefined,
       公开介绍: npc.介绍 ? npc.介绍.slice(0, 120) : undefined,
       装备摘要: npc.装备摘要 ? npc.装备摘要.slice(0, 100) : undefined,
-      备注: npc.备注?.slice(0, 3),
+      备注: npc.备注.slice(0, 3),
     }));
 }
 
@@ -282,6 +242,8 @@ function toPublicRelationLabel(relation: NPC关系类型): string {
       return '友好同行';
     case 'acquaintance':
       return '认识';
+    case 'stranger':
+      return '公开关系不明';
     default:
       return '公开关系不明';
   }
@@ -290,21 +252,21 @@ function toPublicRelationLabel(relation: NPC关系类型): string {
 export function applyNewsGenerationResult(current: 新闻条目[], result: 新闻生成结果): 新闻条目[] {
   const map = new Map(current.map((item) => [item.id, item]));
 
-  for (const patch of result.更新 ?? []) {
+  for (const patch of result.更新) {
     applyPatchToMap(map, patch, false);
   }
 
-  for (const id of result.归档 ?? []) {
+  for (const id of result.归档) {
     const hit = map.get(id);
     if (!hit) continue;
     map.set(id, { ...hit, 状态: 'archived', 更新时间: Date.now() });
   }
 
-  for (const id of result.删除 ?? []) {
+  for (const id of result.删除) {
     map.delete(id);
   }
 
-  for (const patch of result.新增 ?? []) {
+  for (const patch of result.新增) {
     const entry = createEntryFromPatch(patch);
     map.set(entry.id, entry);
   }
@@ -319,10 +281,10 @@ export function applyNewsGenerationResult(current: 新闻条目[], result: 新�
 
 export function hasNewsGenerationChanges(result: 新闻生成结果): boolean {
   return Boolean(
-    result.新增?.length ||
-    result.更新?.length ||
-    result.归档?.length ||
-    result.删除?.length,
+    result.新增.length ||
+    result.更新.length ||
+    result.归档.length ||
+    result.删除.length,
   );
 }
 
@@ -342,7 +304,7 @@ function applyPatchToMap(map: Map<string, 新闻条目>, patch: 新闻条目补�
     回合: typeof patch.回合 === 'number' ? patch.回合 : hit.回合,
     标题: patch.标题?.trim() ? patch.标题.trim() : hit.标题,
     正文: patch.正文?.trim() ? patch.正文.trim() : hit.正文,
-    组织标签: patch.组织标签 ?? patch.阵营标签 ?? hit.组织标签 ?? hit.阵营标签,
+     组织标签: patch.组织标签 ?? (patch as { 阵营标签?: 组织标签ID[] }).阵营标签 ?? hit.组织标签 ?? (hit as { 阵营标签?: 组织标签ID[] }).阵营标签,
     阵营标签: undefined,
     关联系统: patch.关联系统 ?? hit.关联系统,
     关联剧情系列ID: patch.关联剧情系列ID ?? hit.关联剧情系列ID,
@@ -362,7 +324,7 @@ function createEntryFromPatch(patch: 新闻条目补丁): 新闻条目 {
       回合: patch.回合 ?? 0,
       标题: patch.标题 ?? '未命名新闻',
       正文: patch.正文 ?? '',
-      组织标签: patch.组织标签 ?? patch.阵营标签,
+      组织标签: patch.组织标签 ?? (patch as { 阵营标签?: 组织标签ID[] }).阵营标签,
       阵营标签: undefined,
       关联系统: patch.关联系统,
       关联剧情系列ID: patch.关联剧情系列ID,
@@ -391,7 +353,7 @@ function parseNewsResult(rawText: string): 新闻生成结果 {
   }
 }
 
-function normalizePatch(patch: Partial<新闻条目补丁>): 新闻条目补丁 | null {
+function normalizePatch(patch: Partial<新闻条目补丁> | null): 新闻条目补丁 | null {
   if (!patch || typeof patch !== 'object') return null;
   const id = typeof patch.id === 'string' ? patch.id.trim() : undefined;
   const 类目 = patch.类目;
@@ -406,7 +368,7 @@ function normalizePatch(patch: Partial<新闻条目补丁>): 新闻条目补丁 
     回合,
     标题,
     正文,
-    组织标签: Array.isArray(patch.组织标签) ? patch.组织标签 : Array.isArray(patch.阵营标签) ? patch.阵营标签 : undefined,
+     组织标签: Array.isArray(patch.组织标签) ? patch.组织标签 : Array.isArray((patch as { 阵营标签?: 组织标签ID[] }).阵营标签) ? (patch as { 阵营标签?: 组织标签ID[] }).阵营标签 : undefined,
     阵营标签: undefined,
     关联系统: Array.isArray(patch.关联系统) ? patch.关联系统 : undefined,
     关联剧情系列ID: typeof patch.关联剧情系列ID === 'string' && patch.关联剧情系列ID.trim() ? patch.关联剧情系列ID.trim() : undefined,
@@ -416,14 +378,14 @@ function normalizePatch(patch: Partial<新闻条目补丁>): 新闻条目补丁 
 }
 
 function buildStoryWeavingNewsBrief(system?: 剧情编织系统): string {
-  if (!system?.系列列表?.length) return '';
+  if (!system?.系列列表.length) return '';
   const activeSeries = system.系列列表.find((item) => item.id === system.当前系列ID)
-    ?? system.系列列表.find((item) => item.激活注入 !== false)
-    ?? system.系列列表[0];
-  if (!activeSeries || activeSeries.激活注入 === false) return '';
+    ?? system.系列列表.find((item) => item.激活注入)
+    ?? system.系列列表.at(0);
+  if (!activeSeries || !activeSeries.激活注入) return '';
 
   const sideSeries = system.系列列表
-    .filter((item) => item.id !== activeSeries.id && item.激活注入 !== false)
+    .filter((item) => item.id !== activeSeries.id && item.激活注入)
     .filter((item) => item.来源类型 !== activeSeries.来源类型)
     .slice(0, 2);
 

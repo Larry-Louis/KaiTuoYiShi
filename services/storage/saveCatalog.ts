@@ -1,5 +1,6 @@
 import type { 存档类型 } from '@/models/settings';
 import type { 存档树元信息 } from '@/utils/saveTree';
+import type { SaveCatalogSnapshot, SaveListItemSummary } from '@/contracts/storage';
 
 export const SAVE_CATALOG_VERSION = 2 as const;
 
@@ -8,21 +9,6 @@ export type SaveCatalogVisibility =
   | 'hidden-delta-base'
   | 'legacy-backup'
   | 'unreadable';
-
-export interface SaveListItemSummary {
-  id: number;
-  type: 存档类型;
-  timestamp: number;
-  saveTree?: 存档树元信息;
-  travelerName: string;
-  turnCount: number;
-  worldPeriodName: string;
-  currentDate: string;
-  currentTime: string;
-  currentLocation: string;
-  lastSummary: string;
-  sizeBytes: number;
-}
 
 export interface VisibleSaveCatalogRecord extends SaveListItemSummary {
   catalogVersion: typeof SAVE_CATALOG_VERSION;
@@ -59,17 +45,6 @@ export type SaveCatalogRecord =
   | LegacyBackupCatalogRecord
   | HiddenDeltaBaseCatalogRecord
   | UnreadableSaveCatalogRecord;
-
-export interface SaveCatalogSnapshot {
-  items: SaveListItemSummary[];
-  legacyBackups: SaveListItemSummary[];
-  pendingIds: number[];
-  unreadableIds: number[];
-  staleCatalogIds: number[];
-  hiddenBaseCount: number;
-  totalStoredCount: number;
-  catalogComplete: boolean;
-}
 
 export function createCatalogRecordFromSummary(
   summary: SaveListItemSummary,
@@ -179,7 +154,7 @@ export function buildSaveCatalogSnapshot(
     if (record.visibility === 'visible') items.push(stripCatalogMetadata(record));
     else if (record.visibility === 'legacy-backup') legacyBackups.push(stripCatalogMetadata(record));
     else if (record.visibility === 'hidden-delta-base') hiddenBaseCount += 1;
-    else if (record.visibility === 'unreadable') unreadableIds.push(id);
+    else unreadableIds.push(id);
   }
 
   const pendingIds = saveIds.filter((id) => !byId.has(id)).sort((a, b) => b - a);
@@ -197,12 +172,6 @@ export function buildSaveCatalogSnapshot(
     totalStoredCount: saveIds.length,
     catalogComplete: pendingIds.length === 0 && unreadableIds.length === 0,
   };
-}
-
-export function isDisplaySaveCatalogRecord(
-  record: SaveCatalogRecord,
-): record is VisibleSaveCatalogRecord | LegacyBackupCatalogRecord {
-  return record.visibility === 'visible' || record.visibility === 'legacy-backup';
 }
 
 function stripCatalogMetadata(
@@ -227,6 +196,7 @@ function normalizeSaveListItemSummary(raw: Record<string, unknown>): SaveListIte
     type: normalizeSaveType(raw.type),
     timestamp,
     ...(saveTree ? { saveTree } : {}),
+    ...(raw.unsealedHead === true ? { unsealedHead: true } : {}),
     travelerName: normalizeText(raw.travelerName),
     turnCount: Math.max(0, Math.floor(Number(raw.turnCount) || 0)),
     worldPeriodName: normalizeText(raw.worldPeriodName),

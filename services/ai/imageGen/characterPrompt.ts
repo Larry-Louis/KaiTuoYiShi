@@ -1,0 +1,575 @@
+/**
+ * 角色提示词替换与名称匹配。
+ *
+ * 派生自 st-chatu8（智绘姬）index.js：
+ *   `processCharacterPrompt` L33416-L33658、`normalizeName` L33134、
+ *   `calculateMatchScore` L33137-L33151、`collectCharacterCandidates` L33152-L33191、
+ *   `findBestCharacterMatch` L33232-L33280、`findBestOutfitMatch` L33384-L33414、
+ *   `isCharacterTriggered` L29826-L29847。
+ *
+ * 修改声明（AFPL v9 §2(c)(i)）：
+ *   修改者：KaiTuoYiShi 移植作者；修改日期：2026-02-14；
+ *   修改目的：改写为 TypeScript 纯函数；去掉 `window.collectedCharacterNegatives`
+ *   这类进程级全局（并发生图时会互相串味），改为显式返回值；
+ *   保留 14 个部位字段的原始命名（`fullBody*` 实际承载下半身），不做事后纠偏。
+ */
+
+import type { 角色卡, 角色位置, 角色部位字段, 服装条目 } from '@/models/genSystem';
+
+export type 上下身档位 = 'sfw' | 'nsfw' | 'hidden' | 'visible';
+
+export interface 角色替换格式 {
+  upper: 上下身档位;
+  lower: 上下身档位;
+  fromBehind: boolean;
+  /** 构图词（可选）：原样拼进结果末尾，见 `解析段.framing`。 */
+  framing?: string;
+}
+
+export interface 角色替换结果 {
+  /** 替换后的提示词。 */
+  提示词: string;
+  /** 本次替入的角色负面词，由调用方追加到负面提示词末尾。 */
+  角色负面: string;
+}
+
+/** 整段提示词的替换结果（比单角色的 `角色替换结果` 多出「哪些段生效了」）。 */
+export interface 角色提示词结果 extends 角色替换结果 {
+  /** 命中的服装段（名称 + 实际拼进去的文本）。 */
+  命中服装: Array<{ 名称: string; 提示词: string }>;
+  /**
+   * 没能识别的 `$…$` 段（原文）。
+   *
+   * 上游行为是**原样保留** —— 这样作者能看出自己写错了。代价是：写错时那段
+   * （常见是一整段 JSON）会原封不动发给模型，既不生效又污染提示词。
+   * 所以这里把它回传给界面，让「提示词预览」能直接点名。
+   */
+  未识别段: string[];
+}
+
+/**
+ * `angle` 是不是「背面」。
+ *
+ * 上游只认 `from behind` 这一种写法；但 JSON 形式的 `angle` 是人手写/AI 生成的
+ * （`behind view`、`back view`、`背面` 都很自然），认不出来就会去取**正面**字段 ——
+ * 出了个正面图，还查不出原因。这里放宽成：含 `behind` / `back view` / `rear`，
+ * 或中文的「背面 / 背后 / 后背」。
+ */
+export function 是背面角度(angle: string | undefined): boolean {
+  const 文本 = (angle ?? '').trim().toLowerCase();
+  if (!文本) return false;
+  return 文本.includes('behind')
+    || 文本.includes('back view')
+    || 文本.includes('rear')
+    || 文本.includes('背面')
+    || 文本.includes('背后')
+    || 文本.includes('后背');
+}
+
+export function 归一化名称(名称: string): string {
+  return (名称 ?? '')
+    .toLowerCase()
+    // 弯引号与重音符号统一成直引号，`O’Brien` 与 `O'Brien` 才能互相匹配。
+    .replace(/[\u2018\u2019\u02BC\u0060\u00B4]/g, "'")
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 三档打分：完全相等 1000、输入包含预设名 100、预设名包含输入 50。 */
+export function 计算匹配分(输入名: string, 预设名: string): number {
+  if (!输入名 || !预设名) return 0;
+  if (输入名 === 预设名) return 1000 + 预设名.length;
+  if (输入名.includes(预设名)) return 100 + 预设名.length;
+  if (预设名.includes(输入名)) return 50 + 输入名.length;
+  return 0;
+}
+
+/** `nameEN` 与 `nameCN` 都按 `|` 切别名。 */
+export function 取别名列表(角色: 角色卡): string[] {
+  return [角色.nameCN, 角色.nameEN]
+    .flatMap((字段) => (字段 ?? '').split('|'))
+    .map((别名) => 别名.trim())
+    .filter(Boolean);
+}
+
+export interface 角色匹配上下文 {
+  启用列表: string[];
+  全部角色: Record<string, 角色卡>;
+}
+
+/**
+ * 三段搜索，第一段有结果就返回：启用列表 → （本应用无「常用列表」，跳过）→ 全部角色。
+ *
+ * 每段内取最高分；完全相等 > 输入包含预设名 > 预设名包含输入。
+ */
+export function 查找最佳角色(输入名: string, 上下文: 角色匹配上下文): 角色卡 | null {
+  const 归一输入 = 归一化名称(输入名);
+  if (!归一输入) return null;
+
+  const 打分 = (键列表: string[]) => {
+    let 最佳: { 角色: 角色卡; 分数: number } | null = null;
+    for (const 键 of 键列表) {
+      const 角色 = 上下文.全部角色[键];
+      if (!角色) continue;
+      for (const 别名 of 取别名列表(角色)) {
+        const 分数 = 计算匹配分(归一输入, 归一化名称(别名));
+        if (分数 > 0 && (!最佳 || 分数 > 最佳.分数)) 最佳 = { 角色, 分数 };
+      }
+    }
+    return 最佳?.角色 ?? null;
+  };
+
+  const 启用命中 = 打分(上下文.启用列表.filter((键) => 上下文.全部角色[键]));
+  if (启用命中) return 启用命中;
+
+  return 打分(Object.keys(上下文.全部角色));
+}
+
+/** 服装名候选：上游 `collectOutfitCandidates` 同时看 `nameEN` 与 `nameCN`，两者都按 `|` 切别名。 */
+export function 取服装名候选(服装: 服装条目): string[] {
+  return [服装.英文名称, 服装.name]
+    .flatMap((字段) => (字段 ?? '').split('|'))
+    .map((别名) => 别名.trim())
+    .filter(Boolean);
+}
+
+/** 服装同理，两段搜索：角色的服装列表 → 全部角色里的全部服装。 */
+export function 查找最佳服装(输入名: string, 上下文: 角色匹配上下文): 服装条目 | null {
+  const 归一输入 = 归一化名称(输入名);
+  if (!归一输入) return null;
+
+  const 全部服装: 服装条目[] = [];
+  for (const 键 of 上下文.启用列表) {
+    const 角色 = 上下文.全部角色[键];
+    if (角色) 全部服装.push(...角色.outfits);
+  }
+  if (全部服装.length === 0) {
+    for (const 角色 of Object.values(上下文.全部角色)) 全部服装.push(...角色.outfits);
+  }
+
+  let 最佳: { 服装: 服装条目; 分数: number } | null = null;
+  for (const 服装 of 全部服装) {
+    /*
+     * 中文名与英文名都要比：`$…$` 里写的通常是**英文**（正文模型生成的提示词尤其如此），
+     * 而角色卡上常见的是中文名 + 英文名两个字段。
+     * 这里曾经只比 `服装.name`（即中文名），于是「英文名对得上、中文名对不上」的
+     * 服装整段不替换 —— 用户看到的正是「衣服没穿上」。
+     * 上游 `collectOutfitCandidates` 两个字段都收，这里对齐。
+     */
+    for (const 候选名 of 取服装名候选(服装)) {
+      const 分数 = 计算匹配分(归一输入, 归一化名称(候选名));
+      if (分数 > 0 && (!最佳 || 分数 > 最佳.分数)) 最佳 = { 服装, 分数 };
+    }
+  }
+  return 最佳?.服装 ?? null;
+}
+
+const 旧版角色后缀 = [
+  '-sfw-upperbody-sfw-lowerbody',
+  '-sfw-upperbody-nsfw-lowerbody',
+  '-nsfw-upperbody-sfw-lowerbody',
+  '-nsfw-upperbody-nsfw-lowerbody',
+  '-sfw-upperbody-sfw-fullbody',
+  '-sfw-upperbody-nsfw-fullbody',
+  '-nsfw-upperbody-sfw-fullbody',
+  '-nsfw-upperbody-nsfw-fullbody',
+  '-sfw-upperbody',
+  '-nsfw-upperbody',
+  '-sfw-lowerbody',
+  '-nsfw-lowerbody',
+];
+
+const 旧版服装后缀 = ['-upperbody-lowerbody', '-upperbody', '-lowerbody'];
+
+interface 解析段 {
+  名称: string;
+  upper?: 上下身档位;
+  lower?: 上下身档位;
+  angle?: string;
+  /**
+   * 构图词（可选）：原样拼进替换结果，用来把画面限制在某个范围。
+   *
+   * 上游没有这个概念——它只决定**注入哪几段部位描述**，不会约束取景，
+   * 而「只出镜上半身 / 只出镜下半身」要的正是取景。写在这里的文案会被逐字使用
+   * （例如 `upper body` / `portrait` / `cowboy shot` / `lower body`），
+   * 不做词表校验：构图词本来就随模型与作者习惯变化。
+   */
+  framing?: string;
+}
+
+/**
+ * 遍历提示词里的角色 / 服装段，两种写法都认：
+ *
+ *   ① `$…$`：本应用与上游的写法 —— `$名字-sfw-upperbody$`、`${json}$`；
+ *   ② `${json}`：**AI 常写**的写法，整段就是一个 JSON 对象、没有收尾 `$`。
+ *
+ * 为什么必须把第二种显式认下来：按 `$…$` 去配对时，`${甲}$,${乙}` 里第一个 `$`
+ * 会与第二段的开头 `$` 配成一对，于是**甲被替换、乙原样留下**（实测就是这样），
+ * 看起来像「一半生效一半没生效」；而且单独一个 `${json}`（后面没有别的 `$`）
+ * 一次都不会被替换。
+ */
+function 遍历角色段(文本: string, 替换: (段: string, 完整: string) => string): string {
+  const 源 = 文本 ?? '';
+  let 结果 = '';
+  let 位置 = 0;
+  while (位置 < 源.length) {
+    const 起点 = 源.indexOf('$', 位置);
+    if (起点 < 0) {
+      结果 += 源.slice(位置);
+      break;
+    }
+    结果 += 源.slice(位置, 起点);
+
+    // ① `${…}`：花括号配对成功就整段吃掉（字符串里的括号不算）。
+    if (源[起点 + 1] === '{') {
+      const 终点 = 找配对花括号(源, 起点 + 1);
+      if (终点 > 0) {
+        const 段 = 源.slice(起点 + 1, 终点 + 1);
+        结果 += 替换(段, 源.slice(起点, 终点 + 1));
+        // 顺手吃掉 `${…}$` 这个混写里多出来的收尾 `$`。
+        位置 = 源[终点 + 1] === '$' ? 终点 + 2 : 终点 + 1;
+        continue;
+      }
+    }
+
+    // ② `$…$`
+    const 收尾 = 源.indexOf('$', 起点 + 1);
+    if (收尾 < 0) {
+      结果 += 源.slice(起点);
+      break;
+    }
+    结果 += 替换(源.slice(起点 + 1, 收尾), 源.slice(起点, 收尾 + 1));
+    位置 = 收尾 + 1;
+  }
+  return 结果;
+}
+
+/** 从 `{` 开始找配对的 `}`；字符串内的括号与转义符不算。找不到返回 -1。 */
+function 找配对花括号(文本: string, 开始: number): number {
+  let 深度 = 0;
+  let 在字符串 = false;
+  let 转义 = false;
+  for (let i = 开始; i < 文本.length; i += 1) {
+    const 字 = 文本[i];
+    if (转义) { 转义 = false; continue; }
+    if (字 === '\\') { 转义 = true; continue; }
+    if (字 === '"') { 在字符串 = !在字符串; continue; }
+    if (在字符串) continue;
+    if (字 === '{') 深度 += 1;
+    else if (字 === '}') {
+      深度 -= 1;
+      if (深度 === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 宽松解析一个 JSON 段。
+ *
+ * AI 直接写出来的变量常有三处小毛病：尾逗号、中文引号、全角冒号。
+ * 严格 JSON.parse 失败后再修一次 —— 少认一种，用户看到的就是「没生效」。
+ */
+function 解析JSON段(段: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(段) as Record<string, unknown>;
+  } catch {
+    // 继续走宽松路径
+  }
+  try {
+    return JSON.parse(修JSON标点(段)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 把中文标点修成 JSON 能认的写法（只在**字符串之外**动，避免改坏 tag 内容）。
+ *
+ * 全角引号既当引号也当定界符：中文输入法下写出来的 `{“name”：“流萤”，…}`
+ * 就是这一种，不修的话整段会被原样留在提示词里。
+ */
+function 修JSON标点(段: string): string {
+  let 结果 = '';
+  let 在字符串 = false;
+  for (const 字 of 段) {
+    if (字 === '"') {
+      在字符串 = !在字符串;
+      结果 += 字;
+      continue;
+    }
+    if (字 === '“' || 字 === '”') {
+      在字符串 = 字 === '“';
+      结果 += '"';
+      continue;
+    }
+    if (!在字符串) {
+      if (字 === '：') { 结果 += ':'; continue; }
+      if (字 === '，') { 结果 += ','; continue; }
+      if (字 === '‘' || 字 === '’') { 结果 += "'"; continue; }
+    }
+    结果 += 字;
+  }
+  // 尾逗号：`{"a":1,}` / `[1,2,]`
+  return 结果.replace(/,\s*([}\]])/g, '$1');
+}
+
+/** 解析 `$…$` / `${…}` 段：先 JSON，再旧版后缀。返回 null 表示无法识别。 */
+function 解析角色段(段: string): { 解析: 解析段; 是服装: boolean } | null {
+  const 裁剪 = 段.trim();
+  if (!裁剪) return null;
+
+  if (裁剪.startsWith('{')) {
+    const 对象 = 解析JSON段(裁剪);
+    if (对象) {
+      const 名称 = typeof 对象.name === 'string' ? 对象.name : '';
+      if (!名称) return null;
+      const upper = typeof 对象.upperBody === 'string' ? (对象.upperBody as 上下身档位) : undefined;
+      const lower = typeof 对象.lowerBody === 'string' ? (对象.lowerBody as 上下身档位) : undefined;
+      const angle = typeof 对象.angle === 'string' ? 对象.angle : undefined;
+      // 构图词接受 framing / frame / camera / 构图 几个写法，少认一种用户就以为没生效。
+      const framing源 = 对象.framing ?? 对象.frame ?? 对象.camera ?? 对象.构图;
+      const framing = typeof framing源 === 'string' ? framing源.trim() : undefined;
+      // `angle` 键的存在与否区分角色与服装。
+      return { 解析: { 名称, upper, lower, angle, framing }, 是服装: angle === undefined };
+    }
+    return null;
+  }
+
+  for (const 后缀 of 旧版角色后缀) {
+    if (裁剪.toLowerCase().endsWith(后缀)) {
+      const 名称 = 裁剪.slice(0, 裁剪.length - 后缀.length);
+      if (!名称) continue;
+      const 取档 = (标志: string): 上下身档位 | undefined => {
+        if (后缀.includes(`-nsfw-${标志}`)) return 'nsfw';
+        if (后缀.includes(`-sfw-${标志}`)) return 'sfw';
+        return undefined;
+      };
+      return {
+        解析: { 名称, upper: 取档('upperbody'), lower: 取档('lowerbody') ?? 取档('fullbody') },
+        是服装: false,
+      };
+    }
+  }
+
+  for (const 后缀 of 旧版服装后缀) {
+    if (裁剪.toLowerCase().endsWith(后缀)) {
+      const 名称 = 裁剪.slice(0, 裁剪.length - 后缀.length);
+      if (!名称) continue;
+      return {
+        解析: {
+          名称,
+          upper: 后缀.includes('upperbody') ? 'visible' : undefined,
+          lower: 后缀.includes('lowerbody') ? 'visible' : undefined,
+        },
+        是服装: true,
+      };
+    }
+  }
+
+  return null;
+}
+
+function 取字段(角色: 角色卡, 键: keyof 角色部位字段): string {
+  return (角色[键] ?? '').trim();
+}
+
+/** 角色主体替换：部位按档位与镜头方向拼接，负面词单独返回。 */
+export function 拼装角色替换(角色: 角色卡, 格式: 角色替换格式): 角色替换结果 {
+  const 片段: string[] = [];
+  const 追加 = (值: string) => {
+    if (值) 片段.push(值);
+  };
+  const 背后 = 格式.fromBehind;
+
+  追加(取字段(角色, 'characterTraits'));
+
+  /*
+   * 面部**只在上半身被请求时**注入 —— 对齐上游（`processCharacterPrompt`：
+   * 后缀形式的 `if (format.upper)`、JSON 形式的 `if (upperState !== 'hidden')`）。
+   *
+   * 这里曾经无条件注入，于是 `$名字-nsfw-lowerbody$` 这种「只要下半身」的写法
+   * 仍会把脸（绿眼睛、发型…）塞进去，模型顺势就给一个上半身镜头 ——
+   * 用户要的「只出镜下半身」根本落不了地。
+   */
+  if (格式.upper !== 'hidden') {
+    追加(背后 ? 取字段(角色, 'facialFeaturesBack') : 取字段(角色, 'facialFeatures'));
+    if (格式.upper === 'sfw') 追加(背后 ? 取字段(角色, 'upperBodySFWBack') : 取字段(角色, 'upperBodySFW'));
+    else if (格式.upper === 'nsfw') 追加(背后 ? 取字段(角色, 'upperBodyNSFWBack') : 取字段(角色, 'upperBodyNSFW'));
+  }
+
+  // 注意：fullBody* 承载的是下半身（界面文案「下半身」），不是全身。
+  if (格式.lower === 'sfw') 追加(背后 ? 取字段(角色, 'fullBodySFWBack') : 取字段(角色, 'fullBodySFW'));
+  else if (格式.lower === 'nsfw') 追加(背后 ? 取字段(角色, 'fullBodyNSFWBack') : 取字段(角色, 'fullBodyNSFW'));
+
+  // 构图词放最后：它是取景约束，不属于角色描述本身。
+  if (格式.framing) 追加(格式.framing);
+
+  return { 提示词: 片段.join(', '), 角色负面: 取字段(角色, 'negative') };
+}
+
+function 拼装服装替换(服装: 服装条目, 格式: 角色替换格式): string {
+  const 片段: string[] = [];
+  // 背后视角：优先用新增的背面字段；旧服装没有背面字段时沿用 `全身`（原行为）。
+  if (格式.fromBehind) {
+    const 背面 = [服装.上半身背面, 服装.下半身背面].filter((项): 项 is string => Boolean(项));
+    if (背面.length > 0) 片段.push(...背面);
+    else 片段.push(服装.全身);
+  } else {
+    if (格式.upper === 'visible') 片段.push(服装.上半身);
+    if (格式.lower === 'visible') 片段.push(服装.下半身);
+  }
+  // 构图词与角色那边同一口径：原样拼在最后，用来限定取景。
+  if (格式.framing) 片段.push(格式.framing);
+  return 片段.filter(Boolean).join(', ');
+}
+
+/** 尾部清理：换行转换行符、压掉重复逗号、去掉首尾逗号。 */
+export function 清理提示词(文本: string): string {
+  return 文本
+    .replace(/\r?\n/g, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,+/g, ',')
+    .replace(/^,\s*/, '')
+    .replace(/\s*,\s*$/, '')
+    .trim();
+}
+
+/**
+ * 处理 `$…$` 角色触发。
+ *
+ * 未识别的段原样保留（`$裸名字$` 不会被吞掉），这样作者能看出自己写错了。
+ */
+export function 处理角色提示词(提示词: string, 上下文: 角色匹配上下文): 角色提示词结果 {
+  const 归一 = (提示词 ?? '').replace(/\r?\n/g, ', ');
+  const 负面集合: string[] = [];
+  const 命中服装: Array<{ 名称: string; 提示词: string }> = [];
+  const 未识别段: string[] = [];
+
+  const 结果 = 遍历角色段(归一, (段, 完整) => {
+    const 解析结果 = 解析角色段(段);
+    if (!解析结果) {
+      未识别段.push(完整);
+      return 完整;
+    }
+    const { 解析, 是服装 } = 解析结果;
+    const fromBehind = 是背面角度(解析.angle);
+
+    if (是服装) {
+      const 服装 = 查找最佳服装(解析.名称, 上下文);
+      if (!服装) {
+        未识别段.push(完整);
+        return 完整;
+      }
+      /*
+       * 没写的那一段**不拼**（`hidden`），对齐上游的 `hasUpper`/`hasLower`：
+       * 后缀形式的 `-upperbody` 只给上半身、`-lowerbody` 只给下半身，
+       * 两者都写才是整套。这里曾经把缺省当 `visible`，于是
+       * `$战斗服-upperbody$` 会把下半身也一起拼进去，「只要上衣」根本写不出来。
+       * JSON 形式本来就是显式档位（visible / hidden），同样按写没写来算。
+       */
+      const 拼装 = 拼装服装替换(服装, {
+        upper: 解析.upper ?? 'hidden',
+        lower: 解析.lower ?? 'hidden',
+        fromBehind,
+        framing: 解析.framing,
+      });
+      if (!拼装) {
+        未识别段.push(完整);
+        return 完整;
+      }
+      命中服装.push({ 名称: 服装.name || 服装.英文名称 || 解析.名称, 提示词: 拼装 });
+      return 拼装;
+    }
+
+    const 角色 = 查找最佳角色(解析.名称, 上下文);
+    if (!角色) {
+      未识别段.push(完整);
+      return 完整;
+    }
+    const 替换 = 拼装角色替换(角色, {
+      upper: 解析.upper ?? 'hidden',
+      lower: 解析.lower ?? 'hidden',
+      fromBehind,
+      framing: 解析.framing,
+    });
+    if (替换.角色负面) 负面集合.push(替换.角色负面);
+    return 替换.提示词 || 完整;
+  });
+
+  return {
+    提示词: 清理提示词(结果),
+    角色负面: 负面集合.join(', '),
+    命中服装,
+    未识别段,
+  };
+}
+
+/** 普通化触发文本：去掉所有空白并小写。 */
+export function 归一化触发文本(文本: string): string {
+  return (文本 ?? '').replace(/[\s\u3000]+/g, '').toLowerCase();
+}
+
+/** `$…$` 角色段里解析出的角色，附上它在本段里的替换结果。 */
+export interface 出场角色 {
+  角色: 角色卡;
+  /** 该段替换出的正向提示词。 */
+  提示词: string;
+  角色负面: string;
+  位置: 角色位置 | null;
+}
+
+/**
+ * 从已组装的提示词里找出所有 `$…$` 角色段并解出角色本体。
+ *
+ * 用途是 NovelAI 的分角色载荷：`处理角色提示词` 只返回替换后的**文本**，
+ * 而 v4 载荷需要「每段提示词 + 该角色的坐标」成对出现，因此必须把角色找回来。
+ * 同一角色在一段里出现多次只记一次——NAI 的 char_captions 是按角色排的。
+ */
+export function 提取出场角色(提示词: string, 上下文: 角色匹配上下文): 出场角色[] {
+  const 归一 = (提示词 ?? '').replace(/\r?\n/g, ', ');
+  const 结果: 出场角色[] = [];
+  const 已见 = new Set<string>();
+
+  遍历角色段(归一, (段, 完整) => {
+    const 解析结果 = 解析角色段(段);
+    if (!解析结果 || 解析结果.是服装) return 完整;
+    const 角色 = 查找最佳角色(解析结果.解析.名称, 上下文);
+    if (!角色 || 已见.has(角色.id)) return 完整;
+    已见.add(角色.id);
+    const fromBehind = 是背面角度(解析结果.解析.angle);
+    const 替换 = 拼装角色替换(角色, {
+      upper: 解析结果.解析.upper ?? 'hidden',
+      lower: 解析结果.解析.lower ?? 'hidden',
+      fromBehind,
+      framing: 解析结果.解析.framing,
+    });
+    结果.push({
+      角色,
+      提示词: 替换.提示词,
+      角色负面: 替换.角色负面,
+      位置: 角色.位置 ?? null,
+    });
+    return 完整;
+  });
+
+  return 结果;
+}
+
+/**
+ * `{{角色启用列表}}` 式触发：纯子串包含，命中可能有很多个。
+ *
+ * 与 `$…$` 的区别：本方式**要求**角色在启用列表里，而 `$…$` 会回退到全部角色。
+ */
+export function 命中启用角色(触发文本: string, 上下文: 角色匹配上下文): 角色卡[] {
+  const 归一 = 归一化触发文本(触发文本);
+  if (!归一) return [];
+  const 命中: 角色卡[] = [];
+  for (const 键 of 上下文.启用列表) {
+    const 角色 = 上下文.全部角色[键];
+    if (!角色) continue;
+    if (取别名列表(角色).some((别名) => 别名 && 归一.includes(归一化触发文本(别名)))) 命中.push(角色);
+  }
+  return 命中;
+}

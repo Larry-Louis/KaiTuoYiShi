@@ -1,4 +1,3 @@
-import { applyApiCorsHeaders } from '../../utils/corsPolicy';
 type QianfanProxyBody = {
   baseUrl?: string;
   apiKey?: string;
@@ -6,16 +5,14 @@ type QianfanProxyBody = {
   body?: unknown;
 };
 
+import { proxyHeaders, readText } from './proxyCoreShared';
+
 type QianfanAttempt = {
   url: string;
   model?: string;
   status: number;
   errorCode?: string;
 };
-
-function readText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function buildQianfanChatUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -47,15 +44,6 @@ function buildQianfanModelsUrl(baseUrl: string): string {
   return `${root}/v2/models`;
 }
 
-function proxyHeaders(request: Request, upstream?: Response): Headers {
-  const headers = new Headers();
-  // CORS 收敛到统一白名单（utils/corsPolicy）：同源请求不受影响
-  applyApiCorsHeaders(request, headers);
-  headers.set('cache-control', 'no-store');
-  headers.set('content-type', upstream?.headers.get('content-type') || 'application/json; charset=utf-8');
-  return headers;
-}
-
 function buildQianfanChatPayloadVariants(body: unknown): unknown[] {
   const data = body && typeof body === 'object' ? body as Record<string, unknown> : null;
   const model = typeof data?.model === 'string' ? data.model.trim() : '';
@@ -75,7 +63,7 @@ function readModelFromBody(body: unknown): string {
 async function readQianfanErrorCode(response: Response): Promise<string> {
   try {
     const data = await response.clone().json() as { error?: { code?: unknown } };
-    return typeof data?.error?.code === 'string' ? data.error.code : '';
+    return typeof data.error?.code === 'string' ? data.error.code : '';
   } catch {
     return '';
   }
@@ -88,7 +76,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
   } catch {
     return new Response(JSON.stringify({ error: '请求体不是有效 JSON。' }), {
       status: 400,
-      headers: proxyHeaders(request),
+      headers: proxyHeaders(),
     });
   }
 
@@ -98,7 +86,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
   if (!baseUrl || !apiKey) {
     return new Response(JSON.stringify({ error: '缺少百度千帆 Base URL 或 API Key。' }), {
       status: 400,
-      headers: proxyHeaders(request),
+      headers: proxyHeaders(),
     });
   }
 
@@ -115,7 +103,7 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
       return new Response(upstream.body, {
         status: upstream.status,
         statusText: upstream.statusText,
-        headers: proxyHeaders(request, upstream),
+        headers: proxyHeaders(upstream),
       });
     }
 
@@ -191,20 +179,20 @@ export async function handleQianfanProxyRequest(request: Request): Promise<Respo
         attempts,
       }), {
         status: 404,
-        headers: proxyHeaders(request),
+        headers: proxyHeaders(),
       });
     }
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
-      headers: proxyHeaders(request, upstream),
+      headers: proxyHeaders(upstream),
     });
   } catch (error) {
     return new Response(JSON.stringify({
       error: error instanceof Error ? error.message : String(error),
     }), {
       status: 502,
-      headers: proxyHeaders(request),
+      headers: proxyHeaders(),
     });
   }
 }

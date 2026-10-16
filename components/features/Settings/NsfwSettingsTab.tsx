@@ -1,27 +1,26 @@
 ﻿import { useState } from 'react';
 import type { 游戏设置 } from '@/models/settings';
 import type { 提示词模块 } from '@/models/prompts';
-import { saveSetting } from '@/services/dbService';
+import { badgeClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
 function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): 提示词模块[] {
   return modules.map((m) => (m.id === id ? { ...m, enabled: v, updatedAt: Date.now() } : m));
 }
 
-export function NsfwSettingsTab({ settings, onChange }: Props) {
+export function NsfwSettingsTab({ settings, onChange, onPersistSettings }: Props) {
   const [saveMessage, setSaveMessage] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
 
   const handleSave = async () => {
     try {
-      await saveSetting('gameSettings', settings);
+      await onPersistSettings(settings);
       setSaveMessage('NSFW 设置已保存。');
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 1600);
@@ -45,8 +44,8 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
         className="px-4 py-4"
         style={{
           background: 'linear-gradient(135deg, rgba(var(--tj-tech-cyan), 0.10), rgba(var(--tj-accent-primary), 0.04))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.18)',
-          clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
+          border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
+          clipPath: badgeClip,
         }}
       >
         <div className="font-serif text-lg font-bold tracking-[0.24em]" style={{ color: 'rgb(var(--tj-text-primary))' }}>
@@ -67,7 +66,7 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
       <ToggleRow
         label="男性 NSFW 档案"
         desc="默认关闭。关闭时不写入男性身体档案、男性私密部位与男性长期私密事实；女性档案不受此开关影响。"
-        checked={Boolean(settings.enableNsfw && settings.enableMaleNsfwArchive)}
+        checked={settings.enableNsfw && settings.enableMaleNsfwArchive}
         disabled={!settings.enableNsfw}
         onChange={(v) => onChange({ ...settings, enableMaleNsfwArchive: v })}
       />
@@ -76,7 +75,7 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: smallClip,
         }}
       >
@@ -98,14 +97,14 @@ export function NsfwSettingsTab({ settings, onChange }: Props) {
         )}
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="relative w-full overflow-hidden py-3 font-serif text-sm font-bold tracking-[0.32em] transition-all hover:opacity-95"
           style={{
             color: 'rgb(var(--tj-on-accent))',
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(165, 230, 170, 0.96), rgba(105, 190, 130, 0.92))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-tech-cyan),0.14)',
+            border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath: smallClip,
           }}
         >
@@ -135,8 +134,8 @@ function ToggleRow({
       style={{
         opacity: disabled ? 0.58 : 1,
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="mr-3 min-w-0">
@@ -156,9 +155,9 @@ function ToggleRow({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: smallClip,
         }}
       >
@@ -167,7 +166,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>

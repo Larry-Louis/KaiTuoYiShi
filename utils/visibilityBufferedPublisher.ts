@@ -9,7 +9,6 @@ interface VisibilityBufferedPublisherOptions {
 }
 
 export interface VisibilityBufferedPublisher {
-  /** Returns true when the value was buffered because the page is hidden. */
   bufferWhenHidden: (text: string) => boolean;
   flush: () => void;
   dispose: () => void;

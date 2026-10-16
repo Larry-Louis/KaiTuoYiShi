@@ -1,27 +1,36 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState, memo } from 'react';
-import type { 聊天消息 } from '@/models/chat';
+import type { 聊天消息, 叙事插图 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
 import type { VisualTextSettings } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { useStreamingMessage } from '@/utils/streamingMessageStore';
+import { 发布实时事件, 是主机端 } from '@/services/localSave/liveSync';
+import type { TurnActionsApi, 回合动作上下文 } from '@/hooks/useGame/turnActionRuntime';
 import { TurnItem } from './TurnItem';
+import { mediumClip } from '@/components/ui/clipPaths';
+import type { 插图重生选项 } from './illustrationActions';
 
 interface ChatListProps {
   messages: 聊天消息[];
   loading: boolean;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onEditBody?: (id: string, newBody: string) => void;
-  onReparseVariables?: (messageId: string) => void | Promise<void>;
-  variableRepairingMessageId?: string | null;
-  onRegenerateNarrativeImage?: (messageId: string) => void | Promise<void>;
+  turnActions?: TurnActionsApi;
+  turnActionContext?: 回合动作上下文;
   narrativeImageManualEnabled?: boolean;
+  /** AVG 式逐句推进设置。 */
+  逐句推进?: { 启用: boolean; 立即全显: boolean };
+  /** 正文插图的显示方式（默认显示 / 默认展开）。 */
+  插图显示?: { 默认显示: boolean; 默认展开: boolean };
   npcRecords?: NPC记录[];
   traveler?: 角色数据结构;
   album?: 相册系统;
   showInnerVoice?: boolean;
   visualTextSettings?: VisualTextSettings;
   devMode?: boolean;
+  onIllustrationRegenerate?: (messageId: string, 插图: 叙事插图, 选项?: 插图重生选项) => void;
+  onIllustrationRerollPrompts?: (messageId: string) => void;
 }
 
 interface NeighborMeta {
@@ -46,48 +55,62 @@ interface ChatHistoryListProps {
   messages: 聊天消息[];
   neighborMeta: NeighborMeta[];
   onEditBody?: (id: string, newBody: string) => void;
-  onReparseVariables?: (messageId: string) => void | Promise<void>;
-  variableRepairingMessageId?: string | null;
-  onRegenerateNarrativeImage?: (messageId: string) => void | Promise<void>;
+  turnActions?: TurnActionsApi;
+  turnActionContext?: 回合动作上下文;
   narrativeImageManualEnabled?: boolean;
+  /** AVG 式逐句推进设置。 */
+  逐句推进?: { 启用: boolean; 立即全显: boolean };
+  /** 正文插图的显示方式（默认显示 / 默认展开）。 */
+  插图显示?: { 默认显示: boolean; 默认展开: boolean };
   npcRecords?: NPC记录[];
   traveler?: 角色数据结构;
   album?: 相册系统;
   showInnerVoice?: boolean;
   visualTextSettings?: VisualTextSettings;
   devMode?: boolean;
+  onIllustrationRegenerate?: (messageId: string, 插图: 叙事插图, 选项?: 插图重生选项) => void;
+  onIllustrationRerollPrompts?: (messageId: string) => void;
 }
 
-/** Isolated history list: scroll chrome (nearBottom / FAB) must not remap TurnItems. */
 const ChatHistoryList = memo(function ChatHistoryList({
   messages,
   neighborMeta,
   onEditBody,
-  onReparseVariables,
-  variableRepairingMessageId,
-  onRegenerateNarrativeImage,
+  turnActions,
+  turnActionContext,
   narrativeImageManualEnabled = false,
+  插图显示,
+  逐句推进,
   npcRecords,
   traveler,
   album,
   showInnerVoice = true,
   visualTextSettings,
   devMode = false,
+  onIllustrationRegenerate,
+  onIllustrationRerollPrompts,
 }: ChatHistoryListProps) {
   return (
     <>
       {messages.map((msg, idx) => {
         const meta = neighborMeta[idx];
+        const actionView = turnActions && turnActionContext
+          ? turnActions.视图状态(msg, turnActionContext)
+          : undefined;
+        const hasActions = actionView && Object.keys(actionView).length > 0;
         return (
           <TurnItem
             key={msg.id}
             message={msg}
             deferOffscreen
             onEditBody={onEditBody}
-            onReparseVariables={onReparseVariables}
-            variableRepairing={variableRepairingMessageId === msg.id}
-            onRegenerateNarrativeImage={onRegenerateNarrativeImage}
+            turnActionView={actionView}
+            onTurnAction={hasActions && turnActions && turnActionContext
+              ? (id) => { void turnActions.执行(msg, id, turnActionContext); }
+              : undefined}
             narrativeImageManualEnabled={narrativeImageManualEnabled}
+            插图显示={插图显示}
+        逐句推进={逐句推进}
             npcRecords={npcRecords}
             traveler={traveler}
             album={album}
@@ -96,6 +119,8 @@ const ChatHistoryList = memo(function ChatHistoryList({
             previousUserInput={meta.previousUserInput}
             visualTextSettings={visualTextSettings}
             devMode={devMode}
+            onIllustrationRegenerate={onIllustrationRegenerate}
+            onIllustrationRerollPrompts={onIllustrationRerollPrompts}
           />
         );
       })}
@@ -103,11 +128,10 @@ const ChatHistoryList = memo(function ChatHistoryList({
   );
 });
 
-/** One forward pass for previous-user / path-fallback neighbor metadata. */
 function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   let lastUserContent: string | undefined;
   let lastPathId: string | undefined;
-  const meta: NeighborMeta[] = new Array(messages.length);
+  const meta: NeighborMeta[] = new Array<NeighborMeta>(messages.length);
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -120,7 +144,7 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
       previousUserInput = lastUserContent;
       const needsFallback =
         !!msg.parsedResponse
-        && (msg.parsedResponse.awakenQuestions?.trim() || msg.parsedResponse.awakenJudgement?.trim())
+        && (msg.parsedResponse.awakenQuestions.trim() || msg.parsedResponse.awakenJudgement.trim())
         && !msg.parsedResponse.awakenPathId;
       if (needsFallback) {
         fallbackPathId = lastPathId;
@@ -135,33 +159,43 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   return meta;
 }
 
-export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVariables, variableRepairingMessageId, onRegenerateNarrativeImage, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, devMode = false }: ChatListProps) {
+export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions, turnActionContext, narrativeImageManualEnabled = false, 插图显示, 逐句推进, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, devMode = false, onIllustrationRegenerate, onIllustrationRerollPrompts }: ChatListProps) {
   const streamingMessage = useStreamingMessage();
+  // 只有「主机」才广播过程状态；遥控端（手机）只是显示，绝不转发。
+  // 结束（turn-done）不在这里发：它由 stage12_save 在回合真正封版后发，
+  // 好让其它端拿到的是变量结算完的完整回合。
+  useEffect(() => {
+    if (!是主机端()) return;
+    if (streamingMessage) {
+      void 发布实时事件({ kind: 'stream', source: 'host', text: streamingMessage });
+      return;
+    }
+    if (loading) {
+      void 发布实时事件({ kind: 'typing', source: 'host' });
+    }
+  }, [streamingMessage, loading]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
   const nearBottomRef = useRef(true);
   const [renderTurnLimit, setRenderTurnLimit] = useState(INITIAL_RENDER_TURNS);
-  const historyIdentityRef = useRef<{ lastId?: string; length: number }>({ length: 0 });
+  const [historyIdentity, setHistoryIdentity] = useState<{ lastId?: string; length: number }>({ length: 0 });
+  const [previousMessages, setPreviousMessages] = useState(messages);
   const scrollRafRef = useRef<number | null>(null);
   const scrollStateRafRef = useRef<number | null>(null);
   const pendingHistoryAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-  const previousHistoryIdentity = historyIdentityRef.current;
-  const previousHistoryStillPresent = !previousHistoryIdentity.lastId
-    || messages.some((message) => message.id === previousHistoryIdentity.lastId);
-  const historyWasReplaced = previousHistoryIdentity.length > 0
-    && (messages.length < previousHistoryIdentity.length || !previousHistoryStillPresent);
+  if (messages !== previousMessages) {
+    const wasReplaced = historyIdentity.length > 0
+      && (messages.length < historyIdentity.length
+        || (!!historyIdentity.lastId && !messages.some((message) => message.id === historyIdentity.lastId)));
+    setPreviousMessages(messages);
+    setHistoryIdentity({ lastId: messages[messages.length - 1]?.id, length: messages.length });
+    if (wasReplaced) setRenderTurnLimit(INITIAL_RENDER_TURNS);
+  }
+  const previousHistoryStillPresent = !historyIdentity.lastId
+    || messages.some((message) => message.id === historyIdentity.lastId);
+  const historyWasReplaced = historyIdentity.length > 0
+    && (messages.length < historyIdentity.length || !previousHistoryStillPresent);
   const effectiveRenderTurnLimit = historyWasReplaced ? INITIAL_RENDER_TURNS : renderTurnLimit;
-
-  useEffect(() => {
-    historyIdentityRef.current = {
-      lastId: messages[messages.length - 1]?.id,
-      length: messages.length,
-    };
-    if (historyWasReplaced) {
-      pendingHistoryAnchorRef.current = null;
-      setRenderTurnLimit(INITIAL_RENDER_TURNS);
-    }
-  }, [historyWasReplaced, messages]);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -169,20 +203,20 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
     return el.scrollHeight - el.scrollTop - el.clientHeight < 140;
   }, [scrollRef]);
 
-  // Instant/throttled stick-to-bottom: avoid per-chunk smooth scroll storms during stream.
   useEffect(() => {
     if (!nearBottom && streamingMessage) return;
     if (!nearBottom && messages.length > 0) return;
 
-    if (scrollRafRef.current != null) return;
+    if (scrollRafRef.current !== null) return;
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
-      const el = scrollRef.current!;
+      const el = scrollRef.current;
+      if (!el) return;
       el.scrollTop = el.scrollHeight;
     });
 
     return () => {
-      if (scrollRafRef.current != null) {
+      if (scrollRafRef.current !== null) {
         cancelAnimationFrame(scrollRafRef.current);
         scrollRafRef.current = null;
       }
@@ -190,7 +224,7 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
   }, [messages, streamingMessage, nearBottom, scrollRef]);
 
   const handleScroll = useCallback(() => {
-    if (scrollStateRafRef.current != null) return;
+    if (scrollStateRafRef.current !== null) return;
     scrollStateRafRef.current = requestAnimationFrame(() => {
       scrollStateRafRef.current = null;
       const nextNearBottom = isNearBottom();
@@ -201,19 +235,18 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
   }, [isNearBottom]);
 
   useEffect(() => () => {
-    if (scrollStateRafRef.current != null) {
+    if (scrollStateRafRef.current !== null) {
       cancelAnimationFrame(scrollStateRafRef.current);
       scrollStateRafRef.current = null;
     }
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current!.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     nearBottomRef.current = true;
     setNearBottom(true);
   }, []);
 
-  // 隐藏 [系统] 触发消息——chatHistory 中仍存在便于调试，但 UI 不渲染。
   const visibleMessages = useMemo(
     () => messages.filter((message) => !(message.role === 'user' && message.content.startsWith('[系统]'))),
     [messages],
@@ -236,10 +269,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
     () => allNeighborMeta.slice(renderedStartIndex),
     [allNeighborMeta, renderedStartIndex],
   );
-  const streamingPreviousUserInput = useMemo(
-    () => [...visibleMessages].reverse().find((message) => message.role === 'user')?.content,
-    [visibleMessages],
-  );
 
   const handleLoadEarlier = useCallback(() => {
     const el = scrollRef.current;
@@ -254,8 +283,8 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
 
   useLayoutEffect(() => {
     const anchor = pendingHistoryAnchorRef.current;
-    if (!anchor) return;
     pendingHistoryAnchorRef.current = null;
+    if (!anchor) return;
     if (historyWasReplaced) return;
     const el = scrollRef.current;
     if (!el) return;
@@ -283,7 +312,6 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
         </div>
       )}
 
-      {/* Empty state */}
       {visibleMessages.length === 0 && !loading && (
         <div className="flex h-full flex-col items-center justify-center text-center">
           <div
@@ -307,24 +335,25 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
         </div>
       )}
 
-      {/* Historical messages — isolated from nearBottom / FAB re-renders */}
       <ChatHistoryList
         messages={renderedMessages}
         neighborMeta={neighborMeta}
         onEditBody={onEditBody}
-        onReparseVariables={onReparseVariables}
-        variableRepairingMessageId={variableRepairingMessageId}
-        onRegenerateNarrativeImage={onRegenerateNarrativeImage}
+        turnActions={turnActions}
+        turnActionContext={turnActionContext}
         narrativeImageManualEnabled={narrativeImageManualEnabled}
+        插图显示={插图显示}
+        逐句推进={逐句推进}
         npcRecords={npcRecords}
         traveler={traveler}
         album={album}
         showInnerVoice={showInnerVoice}
         visualTextSettings={visualTextSettings}
         devMode={devMode}
+        onIllustrationRegenerate={onIllustrationRegenerate}
+        onIllustrationRerollPrompts={onIllustrationRerollPrompts}
       />
 
-      {/* Streaming preview — lives in parent so stream text does not remap history */}
       {streamingMessage && (
         <TurnItem
           message={{
@@ -338,14 +367,11 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
           npcRecords={npcRecords}
           traveler={traveler}
           album={album}
-          previousUserInput={streamingPreviousUserInput}
           showInnerVoice={showInnerVoice}
           visualTextSettings={visualTextSettings}
-          devMode={devMode}
         />
       )}
 
-      {/* Loading indicator (no stream yet) */}
       {loading && !streamingMessage && (
         <div className="flex items-center gap-2 py-4">
           <div className="flex gap-1">
@@ -376,13 +402,13 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, onReparseVa
         <button
           type="button"
           onClick={scrollToBottom}
-          className="fixed bottom-[calc(var(--app-safe-bottom,0px)+118px)] left-1/2 z-30 -translate-x-1/2 px-3 py-1.5 text-[11px] tracking-[0.16em] md:hidden"
+          className="fixed bottom-[calc(var(--app-safe-bottom)+118px)] left-1/2 z-30 -translate-x-1/2 px-3 py-1.5 text-[11px] tracking-[0.16em] md:hidden"
           style={{
             color: 'rgba(var(--tj-accent-primary), 0.92)',
             background: 'rgba(var(--tj-surface), 0.92)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34), 0 12px 28px rgba(var(--tj-shadow), 0.28)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             backdropFilter: 'blur(4px)',
-            clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+            clipPath: mediumClip,
           }}
         >
           回到底部

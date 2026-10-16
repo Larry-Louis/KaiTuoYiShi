@@ -1,15 +1,14 @@
 import type { 游戏设置 } from '@/models/settings';
-import { saveSetting } from '@/services/dbService';
+import { smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (settings: 游戏设置) => void;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
-export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
+export function ExtraFeaturesSettingsTab({ settings, onChange, onPersistSettings }: Props) {
   const cleanup = settings.额外功能.污染词清理;
   const tagHide = settings.额外功能.标签块隐藏;
   const patchCleanup = (patch: Partial<typeof cleanup>) => {
@@ -38,7 +37,7 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
   };
 
   const handleSave = async () => {
-    await saveSetting('gameSettings', settings);
+    await onPersistSettings(settings);
   };
 
   return (
@@ -47,7 +46,7 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         className="space-y-3 p-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: smallClip,
         }}
       >
@@ -96,7 +95,7 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         className="space-y-3 p-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: smallClip,
         }}
       >
@@ -118,10 +117,10 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
       </section>
 
       <section
-        className="mt-4 space-y-3 p-4"
+        className="space-y-3 p-4"
         style={{
-          background: 'rgba(var(--tj-bg-card), 0.72)',
-          border: '1px solid rgba(var(--tj-border), 0.72)',
+          background: 'rgba(var(--tj-bg-secondary), 0.42)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: smallClip,
         }}
       >
@@ -130,11 +129,11 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
             玩家额外要求
           </div>
           <p className="mt-1 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-            玩家自定义的输出前要求（如"多写环境描写""少用心理描写"）。非空时作为额外要求区注入（区7 与区8 之间），留空则不注入。
+            自定义输出前要求（如「多写环境描写」「少用心理描写」）。非空时注入到回顾区与协议区之间，留空则不注入。
           </p>
         </div>
         <textarea
-          value={settings.额外功能.玩家额外要求 ?? ''}
+          value={settings.额外功能.玩家额外要求}
           onChange={(e) => {
             onChange({
               ...settings,
@@ -144,14 +143,10 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
               },
             });
           }}
-          placeholder="在此填写你对本回合/长期生效的额外要求…"
+          placeholder="在此填写对本回合或长期生效的额外要求…"
           rows={4}
-          className="w-full resize-y bg-transparent p-3 text-sm outline-none"
-          style={{
-            border: '1px solid rgba(var(--tj-border), 0.72)',
-            color: 'rgb(var(--tj-text-primary))',
-            clipPath: smallClip,
-          }}
+          className="kaituo-input w-full resize-y px-3 py-2 text-sm"
+          style={{ clipPath: smallClip }}
         />
       </section>
 
@@ -162,7 +157,7 @@ export function ExtraFeaturesSettingsTab({ settings, onChange }: Props) {
         style={{
           color: 'rgb(var(--tj-on-accent))',
           background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-tech-cyan),0.14)',
+          border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
           clipPath: smallClip,
         }}
       >
@@ -188,7 +183,7 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -208,9 +203,9 @@ function ToggleRow({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: smallClip,
         }}
       >
@@ -219,7 +214,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>

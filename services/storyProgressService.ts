@@ -1,159 +1,56 @@
 import type { 剧情编织分段, 剧情编织进度锚点, 剧情编织系列, 剧情编织系统, 剧情编织历史归档 } from '@/models/storyWeaving';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
+import { 未知区域ID, 推断系列区域ID, 源文命中区域 } from '@/models/region';
 import type { 剧情编织门禁快照 } from '@/services/storyWeaving';
-
-/** 与 R1 适配器（services/storyRuntime/storyWeavingRuntimeAdapter.storyUnitIdOfSegment）一致的稳定单元 ID 规则。 */
-function storyUnitIdOfSegment(segment: 剧情编织分段): string {
-  return 'unit:' + segment.id;
-}
+import type { StoryAdvanceJudgement } from '@/services/storyAdvanceJudge';
+import { 切分中文词 } from '@/utils/chineseSegments';
+import { devLog } from '@/utils/devLog';
 
 export function getCurrentStoryChapterLabel(system: 剧情编织系统): string {
   const normalized = 归一化剧情编织系统(system);
-  const series = getActiveSeries(normalized);
-  if (!series || series.激活注入 === false) return '';
+  const series = 获取激活剧情系列(normalized);
+  if (!series || !series.激活注入) return '';
   const current = getCurrentSegment(series, normalized.当前进度);
   if (!current) return `${series.标题} · 未选择章节`;
-  const chapter = current.章节标题?.length ? current.章节标题.join(' / ') : current.标题;
+  const chapter = current.章节标题.length ? current.章节标题.join(' / ') : current.标题;
   return `${series.标题} · ${chapter}`;
 }
 
-export type 联合裁决决策 = 'stay' | 'advance_one' | 'resolve_early' | 'deviate' | 'pause' | 'jump_to';
-
-export interface 剧情编织推进诊断 {
-  /** 归一化后的原系统；诊断绝不修改运行状态或进度锚点。 */
-  system: 剧情编织系统;
-  wouldProgress: boolean;
-  targetSegmentId?: string;
-  reasons: string[];
-  completionScore: number;
-  evidenceTurns: number;
+export function 获取当前剧情分段(system: 剧情编织系统): 剧情编织分段 | undefined {
+  const normalized = 归一化剧情编织系统(system);
+  const series = 获取激活剧情系列(normalized);
+  return series ? getCurrentSegment(series, normalized.当前进度) : undefined;
 }
 
-/**
- * 只读诊断（R2）：按旧关键词评分规则计算「是否建议推进、目标分段、理由」，但绝不写入。
- * 普通回合不再由 autoAlignCanonStoryProgress 修改剧情进度；真实推进只来自联合裁决回执。
- */
-export function diagnoseCanonStoryProgress(params: {
-  storyWeaving: 剧情编织系统;
-  turnCount: number;
-  body: string;
-  userInput: string;
-  currentLocation?: string;
-  gateSnapshot?: 剧情编织门禁快照 | null;
-}): 剧情编织推进诊断 {
-  const normalized = 归一化剧情编织系统(params.storyWeaving);
-  const series = getActiveSeries(normalized);
-  if (!series || series.激活注入 === false) {
-    return { system: normalized, wouldProgress: false, reasons: ['剧情编织未启用或缺少激活系列'], completionScore: 0, evidenceTurns: 0 };
+export function buildStoryAdvanceDeclarationContract(system: 剧情编织系统): string {
+  const normalized = 归一化剧情编织系统(system);
+  const series = 获取激活剧情系列(normalized);
+  const current = series ? getCurrentSegment(series, normalized.当前进度) : undefined;
+  if (!series || !series.激活注入 || !current || current.处理状态 !== '已完成') return '';
+  const keyEvents = current.关键事件.slice(0, 5)
+    .map((event) => {
+      const results = event.事件结果.filter(Boolean).slice(0, 2).join('；');
+      return `  - ${event.事件说明}${results ? `（${results}）` : ''}`;
+    });
+  const lines = [
+    '## 当前剧情分段（推进申报）',
+    `- 当前分段：「${current.标题}」`,
+  ];
+  if (keyEvents.length) {
+    lines.push('- 关键事件：');
+    lines.push(...keyEvents);
   }
-  const segments = [...series.分段列表]
-    .filter((segment) => segment.启用注入 !== false && segment.处理状态 === '已完成')
-    .sort((a, b) => a.组号 - b.组号);
-  const rawCurrent = getCurrentSegment(series, normalized.当前进度);
-  if (rawCurrent && ['已经历', '已跳过', '已偏离', '暂停'].includes(rawCurrent.运行状态)) {
-    const next = segments.find((segment) => segment.组号 > rawCurrent.组号 && segment.运行状态 === '未开始');
-    if (next) {
-      return {
-        system: normalized,
-        wouldProgress: true,
-        targetSegmentId: next.id,
-        reasons: [`后台发现锚点分段「${rawCurrent.标题}」已归档，建议迁移到下一分段「${next.标题}」`],
-        completionScore: 0,
-        evidenceTurns: 0,
-      };
-    }
+  if (current.本段结束状态.length) {
+    lines.push(`- 本段结束状态：${current.本段结束状态.slice(0, 3).join('；')}`);
   }
-  const current = rawCurrent;
-  if (!current || current.处理状态 !== '已完成') {
-    return { system: normalized, wouldProgress: false, reasons: ['当前分段未完成分解或不存在'], completionScore: 0, evidenceTurns: 0 };
-  }
-
-  const source = `${params.currentLocation ?? ''}\n${params.userInput}\n${params.body}`;
-  const crossSeries = params.turnCount >= 4 ? findCrossSeriesCanonAlignment(normalized, series, current, source) : null;
-  if (crossSeries) {
-    return {
-      system: normalized,
-      wouldProgress: true,
-      targetSegmentId: crossSeries.segment.id,
-      reasons: crossSeries.reasons,
-      completionScore: 0,
-      evidenceTurns: 0,
-    };
-  }
-
-  const candidates = segments.filter((segment) =>
-    segment.组号 >= current.组号 && segment.组号 <= current.组号 + 4 && !['已跳过', '已偏离', '暂停'].includes(segment.运行状态),
+  lines.push(
+    '每回合请在《剧情规划》末尾输出 <剧情推进> 申报：本回合正文是否完成当前分段、下一段去向。',
+    '格式：<剧情推进>完成: 是/否；进入分段: <分段名或组号，未进入填"无">；依据: <简述> </剧情推进>',
+    '「完成」必须基于本回合正文实际写到的内容；系统只按正文证据校验，申报本身不能推进剧情。',
   );
-  const scored = candidates
-    .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))
-    .sort((a, b) => b.score.value - a.score.value || b.segment.组号 - a.segment.组号);
-  const best = scored[0];
-  const currentScore = scored.find((item) => item.segment.id === current.id)?.score.value ?? 0;
-  const completionScore = scoreCompletionSignals(current, source);
-  const progressEvidence = scoreProgressEvidence(current, source, params.gateSnapshot, completionScore);
-  const evidenceState = buildProgressEvidenceState({
-    previous: normalized.当前进度,
-    current,
-    turnCount: params.turnCount,
-    evidence: progressEvidence,
-  });
-  const alignmentDecision = decideSegmentAlignment({
-    series,
-    current,
-    best,
-    currentScore,
-    source,
-    completionScore,
-    evidenceState,
-  });
-  if (alignmentDecision.allow && alignmentDecision.target) {
-    return {
-      system: normalized,
-      wouldProgress: true,
-      targetSegmentId: alignmentDecision.target.segment.id,
-      reasons: alignmentDecision.reasons,
-      completionScore: completionScore.value,
-      evidenceTurns: evidenceState.consecutive,
-    };
-  }
-  if (completionScore.value >= 3 && completionScore.explicitEnding) {
-    return {
-      system: normalized,
-      wouldProgress: true,
-      reasons: completionScore.reasons.length ? completionScore.reasons : ['后台判定当前分段已达到结束状态'],
-      completionScore: completionScore.value,
-      evidenceTurns: evidenceState.consecutive,
-    };
-  }
-  if (evidenceState.consecutive >= 2 && progressEvidence.valid) {
-    return {
-      system: normalized,
-      wouldProgress: true,
-      reasons: [`连续 ${evidenceState.consecutive} 回合出现有效推进证据，旧规则建议归档`, ...progressEvidence.reasons],
-      completionScore: completionScore.value,
-      evidenceTurns: evidenceState.consecutive,
-    };
-  }
-  return {
-    system: normalized,
-    wouldProgress: false,
-    reasons: buildNoProgressReasons({
-      best,
-      currentScore,
-      completionScore,
-      alignmentReasons: alignmentDecision.reasons,
-      progressEvidence,
-      evidenceState,
-    }),
-    completionScore: completionScore.value,
-    evidenceTurns: evidenceState.consecutive,
-  };
+  return lines.join('\n');
 }
 
-/**
- * 兼容 helper（R2 起只读）：保留签名与归一化，不再修改剧情进度。
- * 普通回合的真实推进只来自联合裁决回执（applyAdjudicatedStoryProgress）。
- */
 export function autoAlignCanonStoryProgress(params: {
   storyWeaving: 剧情编织系统;
   turnCount: number;
@@ -161,46 +58,24 @@ export function autoAlignCanonStoryProgress(params: {
   userInput: string;
   currentLocation?: string;
   gateSnapshot?: 剧情编织门禁快照 | null;
+  advanceJudge?: StoryAdvanceJudgement | null;
+  declaredAdvance?: { completed: boolean; targetSegment?: string } | null;
+  /** 只参与「本段结束状态」命中：不参与分段存在性评分，阻断词仍只看正文。 */
+  factEvidence?: string[] | null;
+  /** 权威目标的向前窗口（组号跨度）；巡检调用可放宽以追赶漂移，默认 6。 */
+  advanceWindow?: number;
 }): { system: 剧情编织系统; changed: boolean; progressed: boolean } {
-  return {
-    system: 归一化剧情编织系统(params.storyWeaving),
-    changed: false,
-    progressed: false,
-  };
-}
-
-/**
- * 按联合裁决回执推进剧情编织（R2 唯一正式推进入口）：
- * - 归档锚点自愈：当前分段已归档（已经历/已跳过/已偏离/暂停）时迁移到下一分段——这是状态一致性修复，
- *   不是正文推进（decision 保持原值，仅修复进度锚点指向）；
- * - advance_one：当前分段归档为「已经历」，下一未开始分段进入「当前」，一次推进一格；
- * - stay / resolve_early / deviate / pause：不修改任何分段运行状态与进度锚点（玩家焦点不移动）。
- */
-export function applyAdjudicatedStoryProgress(params: {
-  storyWeaving: 剧情编织系统;
-  turnCount: number;
-  decision: 联合裁决决策;
-  completedUnitIds: string[];
-  reasons: string[];
-  /** jump_to 目标分段（AI 申报 + 正文背书）。 */
-  targetSegmentId?: string;
-}): { system: 剧情编织系统; changed: boolean } {
   const normalized = 归一化剧情编织系统(params.storyWeaving);
-  // 归一化层既有行为：输入锚点已归档时，归一化会自愈到当前运行段（归档锚点自愈，非正文推进）。
-  const inputAnchorId = params.storyWeaving.当前进度?.当前分段ID;
-  const normalizedAnchorId = normalized.当前进度?.当前分段ID;
-  const anchorHealed = Boolean(inputAnchorId && normalizedAnchorId && inputAnchorId !== normalizedAnchorId);
-  const series = getActiveSeries(normalized);
-  if (!series || series.激活注入 === false) {
-    return { system: normalized, changed: anchorHealed };
+  const series = 获取激活剧情系列(normalized);
+  if (!series || !series.激活注入) {
+    return { system: params.storyWeaving, changed: false, progressed: false };
   }
   const segments = [...series.分段列表]
-    .filter((segment) => segment.启用注入 !== false && segment.处理状态 === '已完成')
+    .filter((segment) => segment.启用注入 && segment.处理状态 === '已完成')
     .sort((a, b) => a.组号 - b.组号);
-  const current = getCurrentSegment(series, normalized.当前进度);
-  // 显式自愈兜底：归一化未覆盖的归档锚点（当前段仍是归档状态）时迁移到下一分段。
-  if (current && ['已经历', '已跳过', '已偏离', '暂停'].includes(current.运行状态)) {
-    const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
+  const rawCurrent = getCurrentSegment(series, normalized.当前进度);
+  if (rawCurrent && ['已经历', '已跳过', '已偏离', '暂停'].includes(rawCurrent.运行状态)) {
+    const next = segments.find((segment) => segment.组号 > rawCurrent.组号 && segment.运行状态 === '未开始');
     if (next) {
       const nextSeries: 剧情编织系列 = {
         ...series,
@@ -220,77 +95,171 @@ export function applyAdjudicatedStoryProgress(params: {
           previous: normalized.当前进度,
           series,
           current: next,
-          completedSegment: current.运行状态 === '已经历' ? current : undefined,
+          completedSegment: rawCurrent.运行状态 === '已经历' ? rawCurrent : undefined,
           turnCount: params.turnCount,
-          reasons: [`后台发现锚点分段「${current.标题}」已归档，自动迁移到下一分段`],
+          reasons: [`后台发现锚点分段「${rawCurrent.标题}」已归档，自动迁移到下一分段`],
           switchNote: `归档锚点自动迁移到「${next.标题}」`,
+          gateSnapshot: params.gateSnapshot,
         }),
       });
-      return { system: nextSystem, changed: true };
+      return { system: nextSystem, changed: true, progressed: false };
     }
   }
-  // 跳段对齐：AI 申报「进入分段N」且正文背书目标分段要素 → 直接对齐目标分段，
-  // 中间分段（当前之后、目标之前）标记已跳过，目标分段标记当前。
-  if (params.decision === 'jump_to' && params.targetSegmentId && current) {
-    const target = segments.find((segment) =>
-      segment.id === params.targetSegmentId && segment.组号 > current.组号 && segment.运行状态 === '未开始',
-    );
-    if (target) {
-      const nextSeries: 剧情编织系列 = {
-        ...series,
-        当前分段组号: target.组号,
-        分段列表: series.分段列表.map((segment) => {
-          if (segment.id === target.id) return { ...segment, 运行状态: '当前' as const, updatedAt: Date.now() };
-          if (segment.id === current.id) return { ...segment, 运行状态: '已经历' as const, updatedAt: Date.now() };
-          if (segment.组号 > current.组号 && segment.组号 < target.组号 && segment.运行状态 === '未开始') {
-            return { ...segment, 运行状态: '已跳过' as const, updatedAt: Date.now() };
-          }
-          return segment;
-        }),
-        updatedAt: Date.now(),
-      };
-      const nextSystem = 归一化剧情编织系统({
-        ...normalized,
-        当前系列ID: series.id,
-        系列列表: normalized.系列列表.map((item) => item.id === series.id ? nextSeries : item),
-        当前进度: buildProgressAnchor({
-          previous: normalized.当前进度,
-          series,
-          current: target,
-          completedSegment: current,
-          turnCount: params.turnCount,
-          reasons: params.reasons.length ? params.reasons : ['AI 申报跳段对齐到目标分段'],
-          switchNote: `跳段对齐到「${target.标题 || `第 ${target.组号} 段`}」`,
-        }),
-      });
-      return { system: nextSystem, changed: true };
-    }
+  const current = rawCurrent;
+  if (!current || current.处理状态 !== '已完成') {
+    // 引用稳定性契约：判定无变化时沿用入参引用，投影门禁靠引用相等判断「变没变」。
+    return { system: params.storyWeaving, changed: false, progressed: false };
   }
-  if (params.decision !== 'advance_one') {
-    return { system: normalized, changed: anchorHealed };
+
+  const source = `${params.currentLocation ?? ''}\n${params.userInput}\n${params.body}`;
+  const crossSeries = params.turnCount >= 4 ? findCrossSeriesCanonAlignment(normalized, series, current, source) : null;
+  if (crossSeries) {
+    const nextSystem = switchCanonSeries({
+      normalized,
+      fromSeries: series,
+      fromCurrent: current,
+      toSeries: crossSeries.series,
+      toCurrent: crossSeries.segment,
+      turnCount: params.turnCount,
+      reasons: crossSeries.reasons,
+      gateSnapshot: params.gateSnapshot,
+    });
+    return { system: nextSystem, changed: true, progressed: true };
   }
-  if (!current) return { system: normalized, changed: anchorHealed };
-  const currentUnitId = storyUnitIdOfSegment(current);
-  if (!params.completedUnitIds.includes(currentUnitId)) {
-    return { system: normalized, changed: anchorHealed };
+
+  // 申报/判定是语义推进信号：命中后续分段时直接采信，不再要求关键词字面匹配——玩家以不同路径抵达后续剧情也应被承认。
+  const authoritativeTarget = resolveAuthoritativeAdvanceTarget(series, current, params.advanceJudge, params.declaredAdvance, params.advanceWindow);
+  if (authoritativeTarget) {
+    const judgeCompleted = Boolean(params.advanceJudge?.completed);
+    const declaredCompleted = Boolean(params.declaredAdvance?.completed);
+    const completed = judgeCompleted || declaredCompleted
+      || scoreCompletionSignals(current, source, judgeCompleted, declaredCompleted, params.factEvidence ?? []).explicitEnding;
+    const alignedSystem = alignToLaterSegment({
+      normalized,
+      series,
+      current,
+      target: authoritativeTarget,
+      turnCount: params.turnCount,
+      reasons: [
+        `推进信号命中后续分段「${authoritativeTarget.标题}」（申报/判定驱动，不依赖关键词字面匹配）`,
+        params.declaredAdvance?.targetSegment ? `模型申报进入：${params.declaredAdvance.targetSegment}` : '',
+        params.advanceJudge?.actualSegmentId ? '独立判定给出了实际所在分段' : '',
+      ].filter(Boolean),
+      currentArchiveStatus: completed ? '已经历' : '已跳过',
+      gateSnapshot: params.gateSnapshot,
+    });
+    return { system: alignedSystem, changed: true, progressed: true };
   }
-  const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
-  const settled = settleCurrentSegment({
+
+  const candidates = segments.filter((segment) =>
+    segment.组号 >= current.组号 && segment.组号 <= current.组号 + 4 && !['已跳过', '已偏离', '暂停'].includes(segment.运行状态),
+  );
+  const scored = candidates
+    .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))
+    .sort((a, b) => b.score.value - a.score.value || b.segment.组号 - a.segment.组号);
+  const declaredTargetId = resolveDeclaredTargetId(scored, params.declaredAdvance?.targetSegment);
+  const judgedTargetId = params.advanceJudge?.actualSegmentId ?? declaredTargetId;
+  const judged = judgedTargetId ? scored.filter((item) => item.segment.id === judgedTargetId) : [];
+  const best = (judged.length ? judged : scored)[0];
+  const currentScore = scored.find((item) => item.segment.id === current.id)?.score.value ?? 0;
+  const completionScore = scoreCompletionSignals(
+    current,
+    source,
+    params.advanceJudge?.completed === true,
+    params.declaredAdvance?.completed === true,
+    params.factEvidence ?? [],
+  );
+  const progressEvidence = scoreProgressEvidence(current, source, params.gateSnapshot, completionScore);
+  const evidenceState = buildProgressEvidenceState({
+    previous: normalized.当前进度,
+    current,
+    turnCount: params.turnCount,
+    evidence: progressEvidence,
+  });
+  const alignmentDecision = decideSegmentAlignment({
+    series,
+    current,
+    best,
+    currentScore,
+    source,
+    completionScore,
+    evidenceState,
+  });
+  if (alignmentDecision.allow && alignmentDecision.target) {
+    const alignedSystem = alignToLaterSegment({
+      normalized,
+      series,
+      current,
+      target: alignmentDecision.target.segment,
+      turnCount: params.turnCount,
+      reasons: alignmentDecision.reasons,
+      currentArchiveStatus: alignmentDecision.currentArchiveStatus,
+      gateSnapshot: params.gateSnapshot,
+    });
+    return { system: alignedSystem, changed: true, progressed: true };
+  }
+
+  if (completionScore.value >= 3 && completionScore.explicitEnding) {
+    const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
+    const settledSystem = settleCurrentSegment({
+      normalized,
+      series,
+      current,
+      next,
+      turnCount: params.turnCount,
+      reasons: completionScore.reasons.length ? completionScore.reasons : ['后台判定当前分段已达到结束状态'],
+      mode: next ? 'advance' : 'complete',
+      gateSnapshot: params.gateSnapshot,
+    });
+    return { system: settledSystem, changed: true, progressed: true };
+  }
+
+  if (evidenceState.consecutive >= 2 && progressEvidence.valid) {
+    const next = segments.find((segment) => segment.组号 > current.组号 && segment.运行状态 === '未开始');
+    const settledSystem = settleCurrentSegment({
+      normalized,
+      series,
+      current,
+      next,
+      turnCount: params.turnCount,
+      reasons: uniqueText([
+        `连续 ${evidenceState.consecutive} 回合出现有效推进证据，后台允许当前段归档`,
+        ...progressEvidence.reasons,
+      ], 8),
+      mode: next ? 'advance' : 'complete',
+      gateSnapshot: params.gateSnapshot,
+    });
+    return { system: settledSystem, changed: true, progressed: true };
+  }
+
+  const diagnosticSystem = refreshProgressDiagnostics({
     normalized,
     series,
     current,
-    next,
     turnCount: params.turnCount,
-    reasons: params.reasons.length ? params.reasons : ['联合裁决：当前单元有明确完成证据，推进一格'],
-    mode: next ? 'advance' : 'complete',
-    gateSnapshot: undefined,
+    gateSnapshot: params.gateSnapshot,
+    evidenceState,
+    reasons: buildNoProgressReasons({
+      best,
+      currentScore,
+      completionScore,
+      alignmentReasons: alignmentDecision.reasons,
+      progressEvidence,
+      evidenceState,
+    }),
   });
-  return { system: settled, changed: true };
+  // 引用稳定性契约：诊断没有实际变化时沿用入参引用（投影门禁靠引用相等判断「变没变」）。
+  const changed = diagnosticSystem !== normalized;
+  return {
+    system: changed ? diagnosticSystem : params.storyWeaving,
+    changed,
+    progressed: false,
+  };
 }
 
-function getActiveSeries(system: 剧情编织系统): 剧情编织系列 | undefined {
+export function 获取激活剧情系列(system: 剧情编织系统): 剧情编织系列 | undefined {
   return system.系列列表.find((item) => item.id === system.当前系列ID)
-    ?? system.系列列表.find((item) => item.激活注入 !== false);
+    ?? system.系列列表.find((item) => item.激活注入);
 }
 
 function getCurrentSegment(series: 剧情编织系列, anchor?: 剧情编织进度锚点): 剧情编织分段 | undefined {
@@ -313,13 +282,13 @@ function findCrossSeriesCanonAlignment(
     .filter((series) =>
       series.id !== activeSeries.id &&
       series.来源类型 === 'canon' &&
-      series.激活注入 !== false &&
+      series.激活注入 &&
       !isSideCanonSeries(series)
     )
     .map((series) => {
       const score = scoreCanonSeriesPresence(series, source);
       const completedSegments = series.分段列表
-        .filter((segment) => segment.启用注入 !== false && segment.处理状态 === '已完成')
+        .filter((segment) => segment.启用注入 && segment.处理状态 === '已完成')
         .sort((a, b) => a.组号 - b.组号);
       const segmentScores = completedSegments
         .map((segment) => ({ segment, score: scoreSegmentPresence(segment, source) }))
@@ -329,10 +298,15 @@ function findCrossSeriesCanonAlignment(
     })
     .filter((item): item is { series: 剧情编织系列; score: { value: number; reasons: string[] }; bestSegment: 剧情编织分段 } => Boolean(item.bestSegment))
     .sort((a, b) => b.score.value - a.score.value);
-  const best = candidates[0];
+  const best = candidates.at(0);
   if (!best || best.score.value < 8 || best.score.value - activeScore.value < 4) return null;
-  const strongWorldShift = hasStrongCrossSeriesWorldShift(source, best.series);
-  if (!strongWorldShift) return null;
+  if (!hasStrongCrossSeriesWorldShift(source, best.series)) return null;
+  devLog('stage', 'cross_series_shift', {
+    from: activeSeries.标题,
+    to: best.series.标题,
+    region: 推断系列区域ID(best.series),
+    turn: activeCurrent.组号,
+  });
   return {
     series: best.series,
     segment: best.bestSegment,
@@ -345,25 +319,13 @@ function findCrossSeriesCanonAlignment(
 }
 
 function isSideCanonSeries(series: 剧情编织系列): boolean {
-  const text = `${series.id}\n${series.标题}\n${series.作品名 ?? ''}`;
+  const text = `${series.id}\n${series.标题}\n${series.作品名}`;
   return /(^|_)side_|【支线】|支线/.test(text);
 }
 
 function hasStrongCrossSeriesWorldShift(source: string, targetSeries: 剧情编织系列): boolean {
-  const normalizedSource = normalizeText(source);
-  const targetText = normalizeText([
-    targetSeries.id,
-    targetSeries.标题,
-    targetSeries.作品名,
-    targetSeries.涉及地点索引.join(' '),
-    targetSeries.涉及派系索引.join(' '),
-  ].join(' '));
-  const worldSignals = [
-    { target: /jarilo|雅利洛|贝洛伯格|银鬃铁卫|下层区|地火/i, source: /雅利洛|贝洛伯格|雪原|永冬岭|银鬃铁卫|下层区|地火|磐岩镇|克里珀堡/ },
-    { target: /xianzhou|luofu|仙舟|罗浮|建木|丹鼎司|太卜司/i, source: /仙舟|罗浮|星槎|建木|丹鼎司|太卜司|神策府|工造司|长乐天/ },
-    { target: /penacony|匹诺康尼|白日梦|黄金的时刻|晖长石/i, source: /匹诺康尼|白日梦|黄金的时刻|黄金时刻|晖长石|梦境|家族|星期日|流萤/ },
-  ];
-  return worldSignals.some((signal) => signal.target.test(targetText) && signal.source.test(normalizedSource));
+  const targetRegion = 推断系列区域ID(targetSeries);
+  return targetRegion !== 未知区域ID && 源文命中区域(source, targetRegion);
 }
 
 function switchCanonSeries(params: {
@@ -702,7 +664,7 @@ function buildHistoryArchiveEntry(params: {
     ? []
     : buildRoleProgressArchiveSummary(params.segment);
   const id = `story_archive_${params.series.id}_${params.segment.id}_${params.turnCount}`;
-  if (params.previous?.历史归档?.some((item) => item.id === id || (item.分段ID === params.segment.id && item.归档回合 === params.turnCount))) {
+  if (params.previous?.历史归档.some((item) => item.id === id || (item.分段ID === params.segment.id && item.归档回合 === params.turnCount))) {
     return undefined;
   }
   return {
@@ -779,18 +741,23 @@ type 跨段对齐判定 = {
   currentArchiveStatus: '已经历' | '已跳过';
 };
 
-function scoreCompletionSignals(segment: 剧情编织分段, text: string): 完成判定评分 {
+function scoreCompletionSignals(segment: 剧情编织分段, text: string, judgeCompleted = false, declaredCompleted = false, factEvidence: string[] = []): 完成判定评分 {
   const source = normalizeText(text);
+  const 词表 = 分段词表(segment);
   let value = 0;
   const reasons: string[] = [];
   const blockers = detectProgressBlockers(source);
   const endStates = [...segment.本段结束状态, ...segment.关键事件.flatMap((event) => event.事件结果)].filter(Boolean);
-  const endingHits = countHits(source, endStates);
-  if (endingHits > 0) {
-    value += Math.min(3, endingHits);
-    reasons.push(`命中本段结束状态 ${endingHits} 项`);
+  const endingHits = countHits(source, endStates, 词表);
+  const evidenceText = factEvidence.map((item) => item.trim()).filter(Boolean).join('\n');
+  const combinedEndingHits = evidenceText ? countHits(normalizeText(`${source}\n${evidenceText}`), endStates, 词表) : endingHits;
+  if (combinedEndingHits > 0) {
+    value += Math.min(3, combinedEndingHits);
+    reasons.push(combinedEndingHits > endingHits
+      ? `命中本段结束状态 ${combinedEndingHits} 项（含世界事实 ${combinedEndingHits - endingHits} 项）`
+      : `命中本段结束状态 ${combinedEndingHits} 项`);
   }
-  const titleTerms = splitMeaningfulTerms(segment.标题);
+  const titleTerms = splitMeaningfulTerms(segment.标题, 词表);
   const titleHits = titleTerms.filter((term) => source.includes(term)).length;
   if (titleHits >= 2) {
     value += 1;
@@ -806,18 +773,75 @@ function scoreCompletionSignals(segment: 剧情编织分段, text: string): 完�
     value = Math.max(0, value - 2);
     reasons.push(`出现否定/阻断信号：${blockers.slice(0, 4).join('、')}`);
   }
-  const explicitEnding = blockers.length === 0 && (endingHits > 0 || (titleHits >= 2 && resultHits >= 2));
+  if (judgeCompleted) {
+    value += 1;
+    reasons.push('独立判定：当前分段已完成');
+  }
+  const explicitEnding = blockers.length === 0 && (combinedEndingHits > 0 || (titleHits >= 2 && resultHits >= 2));
+  if (declaredCompleted) {
+    if (explicitEnding) {
+      value += 1;
+      reasons.push('申报背书：正文命中完成要素，当前分段申报已完成');
+    } else {
+      reasons.push('申报未获正文背书：缺少结束状态证据，申报完成不计');
+    }
+  }
   if (!explicitEnding) reasons.push('缺少明确结束状态或标题+收束词组合，暂不自动归档');
   return { value, explicitEnding, reasons, blockers };
 }
 
+/**
+ * 申报/判定这类语义信号命中后续分段时，直接采信为推进目标，不再要求关键词字面匹配。
+ * 限制在已验证、可注入、且组号在 (current, current+6] 的后续分段，避免误报导致无限大跳。
+ */
+function resolveAuthoritativeAdvanceTarget(
+  series: 剧情编织系列,
+  current: 剧情编织分段,
+  judge: StoryAdvanceJudgement | null | undefined,
+  declared: { completed: boolean; targetSegment?: string } | null | undefined,
+  maxWindow = 6,
+): 剧情编织分段 | null {
+  const declaredRaw = (declared?.targetSegment ?? '').trim();
+  const judgeId = (judge?.actualSegmentId ?? '').trim();
+  if (!declaredRaw && !judgeId) return null;
+  const isValid = (segment: 剧情编织分段): boolean =>
+    segment.启用注入
+    && segment.处理状态 === '已完成'
+    && segment.组号 > current.组号
+    && segment.组号 <= current.组号 + maxWindow;
+  if (judgeId) {
+    const byJudge = series.分段列表.find((segment) => isValid(segment) && segment.id === judgeId);
+    if (byJudge) return byJudge;
+  }
+  if (declaredRaw && declaredRaw !== '无' && declaredRaw !== '没有' && declaredRaw !== '未进入') {
+    return series.分段列表.find((segment) =>
+      isValid(segment) && (segment.标题 === declaredRaw || String(segment.组号) === declaredRaw),
+    ) ?? null;
+  }
+  return null;
+}
+
+function resolveDeclaredTargetId(
+  scored: Array<{ segment: 剧情编织分段; score: 分段存在评分 }>,
+  declaredTarget?: string,
+): string | undefined {
+  const raw = (declaredTarget ?? '').trim();
+  if (!raw || raw === '无' || raw === '没有' || raw === '未进入') return undefined;
+  const match = scored.find(
+    (item) => item.segment.标题 === raw || String(item.segment.组号) === raw,
+  );
+  if (!match || match.score.value < 3) return undefined;
+  return match.segment.id;
+}
+
 function scoreSegmentPresence(segment: 剧情编织分段, text: string): 分段存在评分 {
   const source = normalizeText(text);
+  const 词表 = 分段词表(segment);
   let value = 0;
   const reasons: string[] = [];
   const categories: string[] = [];
 
-  const titleTerms = splitMeaningfulTerms(segment.标题);
+  const titleTerms = splitMeaningfulTerms(segment.标题, 词表);
   const titleHits = titleTerms.filter((term) => source.includes(term)).length;
   if (titleHits >= 2) {
     value += 3;
@@ -829,7 +853,7 @@ function scoreSegmentPresence(segment: 剧情编织分段, text: string): 分段
     segment.原文摘要,
     segment.本段概括,
     ...segment.关键事件.map((event) => event.事件说明),
-  ].join(' ')).slice(0, 16);
+  ].join(' '), 词表).slice(0, 16);
   const summaryHits = summaryTerms.filter((term) => source.includes(term)).length;
   if (summaryHits >= 2) {
     value += Math.min(5, summaryHits);
@@ -859,7 +883,7 @@ function scoreSegmentPresence(segment: 剧情编织分段, text: string): 分段
     ...segment.本段结束状态,
     ...segment.给后续参考,
     ...segment.关键事件.flatMap((event) => event.事件结果),
-  ].join(' '));
+  ].join(' '), 词表);
   const eventHits = eventTerms.filter((term) => source.includes(term)).length;
   if (eventHits >= 2) {
     value += Math.min(3, eventHits);
@@ -1040,27 +1064,28 @@ function decideSegmentAlignment(params: {
   };
 }
 
+export const 剧情阻断词: readonly string[] = [
+  '还没有',
+  '还没',
+  '尚未',
+  '没有完成',
+  '没有被',
+  '并没有',
+  '并未',
+  '未能',
+  '未完成',
+  '暂未',
+  '没能',
+  '无法',
+  '失败',
+  '受阻',
+  '中断',
+  '被阻止',
+];
+
 function detectProgressBlockers(source: string): string[] {
   const normalized = normalizeText(source);
-  const blockers = [
-    '还没有',
-    '还没',
-    '尚未',
-    '没有完成',
-    '没有被',
-    '并没有',
-    '并未',
-    '未能',
-    '未完成',
-    '暂未',
-    '没能',
-    '无法',
-    '失败',
-    '受阻',
-    '中断',
-    '被阻止',
-  ];
-  return blockers.filter((word) => normalized.includes(word));
+  return 剧情阻断词.filter((word) => normalized.includes(word));
 }
 
 function detectExplicitStageJumpSignals(source: string): string[] {
@@ -1085,7 +1110,7 @@ function scoreCanonSeriesPresence(series: 剧情编织系列, text: string): { v
     series.标题,
     series.作品名,
     series.当前阶段概括,
-  ].join(' '));
+  ].join(' '), [...series.核心角色, ...series.涉及地点索引, ...series.涉及派系索引]);
   const titleHits = titleTerms.filter((term) => source.includes(term));
   if (titleHits.length) {
     value += Math.min(4, titleHits.length * 2);
@@ -1114,10 +1139,10 @@ function scoreCanonSeriesPresence(series: 剧情编织系列, text: string): { v
   return { value, reasons };
 }
 
-function countHits(source: string, candidates: string[]): number {
+function countHits(source: string, candidates: string[], 词表: string[]): number {
   let count = 0;
   for (const candidate of candidates.slice(0, 12)) {
-    const terms = splitMeaningfulTerms(candidate);
+    const terms = splitMeaningfulTerms(candidate, 词表);
     if (terms.length >= 2 && terms.filter((term) => source.includes(term)).length >= 2) {
       count += 1;
     }
@@ -1125,17 +1150,45 @@ function countHits(source: string, candidates: string[]): number {
   return count;
 }
 
-function splitMeaningfulTerms(text: string): string[] {
-  return Array.from(new Set(
-    normalizeText(text)
-      .split(/[\s，。；、：:,.!?！？「」『』（）()[\]【】\-—]+/g)
+const 分段词表缓存 = new WeakMap<剧情编织分段, string[]>();
+
+function 分段词表(segment: 剧情编织分段): string[] {
+  const cached = 分段词表缓存.get(segment);
+  if (cached) return cached;
+  const 词表 = [...segment.登场角色, ...segment.涉及地点, ...segment.涉及派系];
+  分段词表缓存.set(segment, 词表);
+  return 词表;
+}
+
+/** 返回的数组在调用方之间共享：只能读，不得就地修改。 */
+const termsCache = new Map<string, string[]>();
+const TERMS_CACHE_MAX = 4096;
+
+function splitMeaningfulTerms(text: string, 词表: string[]): string[] {
+  const cacheKey = JSON.stringify([词表, text]);
+  const cached = termsCache.get(cacheKey);
+  if (cached) return cached;
+  const terms = Array.from(new Set(
+    切分中文词(text, 词表)
       .map((item) => item.trim())
       .filter((item) => item.length >= 2 && !STOP_WORDS.has(item)),
   )).slice(0, 10);
+  if (termsCache.size >= TERMS_CACHE_MAX) termsCache.clear();
+  termsCache.set(cacheKey, terms);
+  return terms;
 }
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-const STOP_WORDS = new Set(['当前', '本段', '剧情', '玩家', '角色', '已经', '一个', '以及', '进行', '开始', '继续']);
+// 完成/收束/跳转信号词（完成、解决、抵达、启程…）是评分信号，禁止入表。
+const STOP_WORDS = new Set([
+  '当前', '本段', '剧情', '玩家', '角色', '已经', '一个', '以及', '进行', '开始', '继续',
+  '之后', '然后', '接着', '同时', '但是', '因为', '所以', '如果', '虽然', '尽管',
+  '为了', '通过', '作为', '之间', '之中', '以下', '以上', '比如', '例如',
+  '可以', '可能', '应该', '需要', '想要', '必须', '正在', '曾经', '刚刚', '一直',
+  '一起', '一样', '一般', '非常', '十分', '特别', '比较', '有点', '一些', '很多',
+  '所有', '一切', '每个', '各位', '我们', '你们', '他们', '自己',
+  '这里', '那里', '哪里', '现在', '今天', '明天', '时候', '地方', '事情', '东西', '问题', '情况',
+]);

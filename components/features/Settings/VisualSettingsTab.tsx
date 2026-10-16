@@ -1,25 +1,30 @@
-﻿import type { 游戏设置, VisualTextSettings } from '@/models/settings';
+import type { 游戏设置, VisualTextSettings } from '@/models/settings';
 import { 创建默认视觉文本设置, 归一化视觉文本设置 } from '@/models/settings';
+import { cardClip, mediumClip, smallClip } from '@/components/ui/clipPaths';
+import { 开关行 } from '@/components/features/Settings/settingsPrimitives';
 
 interface Props {
   settings: 游戏设置;
   onChange: (settings: 游戏设置) => void;
 }
 
-const smallClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
 const RANGE_MIN = 13;
 const RANGE_MAX = 30;
 
 export function VisualSettingsTab({ settings, onChange }: Props) {
   const visual = 归一化视觉文本设置(settings.visualTextSettings);
+  const 逐段 = settings.逐句推进 ?? { 启用: false, 立即全显: false };
 
   const update = (patch: Partial<VisualTextSettings>) => {
     onChange({
       ...settings,
       visualTextSettings: 归一化视觉文本设置({ ...visual, ...patch }),
     });
+  };
+
+  const 更新逐段 = (patch: Partial<游戏设置['逐句推进']>) => {
+    onChange({ ...settings, 逐句推进: { ...逐段, ...patch } });
   };
 
   const reset = () => {
@@ -35,8 +40,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.42)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
-          clipPath: smallClip,
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+          clipPath: mediumClip,
         }}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -55,8 +60,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
             style={{
               color: 'rgba(var(--tj-accent-primary), 0.92)',
               background: 'rgba(var(--tj-accent-primary), 0.06)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-              clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+              clipPath: smallClip,
             }}
           >
             恢复默认
@@ -88,12 +93,42 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
       <section
         className="px-4 py-4"
         style={{
-          background: 'rgba(var(--tj-bg-primary), 0.26)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.34)',
-          clipPath: smallClip,
+          background: 'rgba(var(--tj-bg-secondary), 0.45)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+          clipPath: mediumClip,
         }}
       >
-        <div className="mb-3 font-serif text-xs tracking-[0.24em]" style={{ color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.86), rgba(var(--tj-accent-secondary),0.82))' }}>
+        <h3 className="font-serif text-sm font-bold tracking-[0.24em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
+          galgame 模式
+        </h3>
+        <p className="mt-1 mb-3 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.72)' }}>
+          正文一次只显示<span style={{ color: 'rgb(var(--tj-accent-primary))' }}>一段</span>，前进时上一段消失：滚轮向下、空格或回车前进，滚轮向上回退一段。
+          段落按正文空行划分，所以对白和它前后的旁白会一起出现，不会被拆开。
+          生成过程中自动全显，不打断阅读。
+        </p>
+        <开关行
+          label="启用 galgame 模式"
+          desc="只影响正文的显示方式（逐段推进），不改动内容，也不影响存档、变量与后续发送给模型的文本。"
+          checked={逐段.启用}
+          onChange={(值) => 更新逐段({ 启用: 值 })}
+        />
+        <开关行
+          label="新回合立即全显"
+          desc="保留逐段交互的入口，但每次新正文直接整段铺开，适合想一次读完的场景。"
+          checked={逐段.立即全显}
+          onChange={(值) => 更新逐段({ 立即全显: 值 })}
+        />
+      </section>
+
+      <section
+        className="px-4 py-4"
+        style={{
+          background: 'rgba(var(--tj-bg-primary), 0.26)',
+          border: '1px solid rgba(var(--tj-border), var(--tj-edge-weak))',
+          clipPath: mediumClip,
+        }}
+      >
+        <div className="mb-3 font-serif text-xs tracking-[0.24em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
           预览
         </div>
         <div className="space-y-3">
@@ -114,8 +149,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
             style={{
               color: 'rgba(var(--tj-chat-text), 0.96)',
               background: 'rgba(var(--tj-chat-bubble), var(--tj-chat-bubble-alpha, 0.78))',
-              boxShadow: 'inset 0 0 0 1px rgba(140, 195, 230, 0.42), 0 4px 18px rgba(var(--tj-shadow), 0.24)',
-              clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+              border: '1px solid rgba(140, 195, 230, var(--tj-edge-tint-strong))',
+              clipPath: cardClip,
             }}
           >
             <p style={{ fontSize: `${visual.dialogueFontSize}px`, lineHeight: 1.8 }}>
@@ -128,8 +163,8 @@ export function VisualSettingsTab({ settings, onChange }: Props) {
               style={{
                 color: 'rgba(var(--tj-chat-text), 0.98)',
                 background: 'rgba(var(--tj-chat-bubble), var(--tj-chat-bubble-alpha, 0.78))',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.46), 0 4px 18px rgba(var(--tj-shadow), 0.24)',
-                clipPath: 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
+                clipPath: cardClip,
                 fontWeight: 600,
               }}
             >
@@ -160,7 +195,7 @@ function FontSizeSlider({
       className="px-4 py-3"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >

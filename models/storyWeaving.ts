@@ -123,7 +123,6 @@ export interface 剧情编织系列 {
   id: string;
   标题: string;
   作品名: string;
-  /** 结构化剧情区域；旧资产缺失时由标题、地点和派系索引保守推断。 */
   区域ID?: string;
   来源类型: 剧情编织来源类型;
   来源智库条目ID: string[];
@@ -181,7 +180,47 @@ export interface 剧情编织系统 {
   系列列表: 剧情编织系列[];
   当前系列ID?: string;
   当前进度?: 剧情编织进度锚点;
+  运行时?: 剧情编织运行时;
 }
+
+/** 到期领取用 resolution_pending；终态不重建（幂等重跑）。 */
+export type 世界事件状态 = 'scheduled' | 'resolution_pending' | 'resolved' | 'missed' | 'superseded';
+
+export interface 世界事件实例 {
+  eventInstanceId: string;
+  segmentId: string;
+  标题: string;
+  dueAt: number;
+  status: 世界事件状态;
+  /** 到期领取标记 due:<revision>:<id>：有值表示已被某次结算领取，防止同 revision 重复领取。 */
+  resolutionKey?: string;
+  outcome?: string;
+  resolvedAt?: number;
+  updatedAt: number;
+}
+
+export interface 世界事实 {
+  factId: string;
+  factType: string;
+  payload: Record<string, unknown>;
+  sourceEventInstanceId: string;
+  playerKnown: boolean;
+  committedAt: number;
+  /** 旧档缺省 world_evolution。 */
+  origin?: 'world_evolution' | 'player_early';
+  participants?: string[];
+}
+
+export interface 剧情编织运行时 {
+  schemaVersion: 1;
+  runtimeRevision: number;
+  worldEvents: 世界事件实例[];
+  factLedger: 世界事实[];
+  updatedAt: number;
+}
+
+export const 世界事件上限 = 80;
+export const 世界事实上限 = 240;
 
 export interface 剧情编织API覆盖 {
   provider: API配置项['provider'];
@@ -215,7 +254,7 @@ const 去重文本列表 = (items: string[], maxCount?: number): string[] => {
   }
   return result;
 };
-const 切换标题包裹 = (value: string): string => 读文本(value).trim().replace(/^[【\[\(（《「『]+|[】\]\)）》」』]+$/g, '').trim();
+const 切换标题包裹 = (value: string): string => 读文本(value).trim().replace(/^[【[(（《「『]+|[】\])）》」』]+$/g, '').trim();
 
 const 章节标题层级规则 = {
   volume: /^(?:正文\s*)?(?:第\s*[0-9零一二三四五六七八九十百千万两〇○壹贰叁肆伍陆柒捌玖拾]+[\s]*[卷部篇册季集辑])[^。\n]{0,48}$/u,
@@ -316,8 +355,6 @@ const 是否疑似目录章节 = (title: string, content: string): boolean => {
   return false;
 };
 
-const 解析章节范围文本 = (start: number, end: number): string => (start === end ? `第${start}章` : `第${start}章-第${end}章`);
-
 const 规范化时间线事件 = (raw: Partial<剧情编织时间线事件>): 剧情编织时间线事件 => ({
   标题: 读文本(raw.标题).trim(),
   时间锚点: 读文本(raw.时间锚点).trim(),
@@ -360,7 +397,7 @@ const 归一化地点档案 = (raw: Partial<剧情编织地点档案>): 剧情�
 });
 
 const 聚合剧情编织系列信息 = (series: 剧情编织系列): 剧情编织系列 => {
-  const completed = series.分段列表.filter((segment) => segment.处理状态 === '已完成' && segment.启用注入 !== false);
+  const completed = series.分段列表.filter((segment) => segment.处理状态 === '已完成' && segment.启用注入);
   const mainlineCompleted = completed.filter((segment) => !['已跳过', '已偏离', '暂停'].includes(segment.运行状态));
   const indexSource = mainlineCompleted.length ? mainlineCompleted : completed;
   const recent = indexSource.slice(-3);
@@ -401,11 +438,13 @@ const 聚合剧情编织系列信息 = (series: 剧情编织系列): 剧情编�
   };
 };
 
-const 默认可见性 = (): 剧情编织可见性 => ({
-  谁知道: [],
-  谁不知道: [],
-  是否仅读者视角可见: false,
-});
+function 归一化信息可见性(value?: Partial<剧情编织可见性>): 剧情编织可见性 {
+  return {
+    谁知道: 文本列表(value?.谁知道),
+    谁不知道: 文本列表(value?.谁不知道),
+    是否仅读者视角可见: value?.是否仅读者视角可见 === true,
+  };
+}
 
 const 运行状态列表: 剧情编织运行状态[] = ['未开始', '当前', '已经历', '已跳过', '已偏离', '暂停'];
 const 推进状态列表: 剧情编织推进状态[] = ['未开始', '推进中', '已完成', '已偏离', '暂停'];
@@ -430,14 +469,90 @@ export function 创建空剧情编织系统(): 剧情编织系统 {
   return { 系列列表: [] };
 }
 
+const 世界事件状态集合 = new Set<世界事件状态>(['scheduled', 'resolution_pending', 'resolved', 'missed', 'superseded']);
+
+function 归一化世界事件实例(raw: Partial<世界事件实例> | null | undefined): 世界事件实例 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const eventInstanceId = 读文本(raw.eventInstanceId).trim();
+  if (!eventInstanceId) return null;
+  return {
+    eventInstanceId,
+    segmentId: 读文本(raw.segmentId).trim(),
+    标题: 读文本(raw.标题).trim(),
+    dueAt: Math.max(0, Math.trunc(Number(raw.dueAt) || 0)),
+    status: 世界事件状态集合.has(raw.status as 世界事件状态) ? raw.status as 世界事件状态 : 'scheduled',
+    resolutionKey: 读文本(raw.resolutionKey).trim() || undefined,
+    outcome: 读文本(raw.outcome).trim() || undefined,
+    resolvedAt: typeof raw.resolvedAt === 'number' ? Math.max(0, Math.trunc(raw.resolvedAt)) : undefined,
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+  };
+}
+
+/** 参与者名单的唯一规范形；AI 候选、事实裁决、存档归一化三处都必须走这里（各写一份会让裁剪规则漂移）。 */
+export function 归一化参与者名单(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const list = 去重文本列表(文本列表(raw), 8);
+  return list.length ? list : undefined;
+}
+
+function 归一化世界事实(raw: Partial<世界事实> | null | undefined): 世界事实 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const factId = 读文本(raw.factId).trim();
+  if (!factId) return null;
+  return {
+    factId,
+    factType: 读文本(raw.factType).trim() || 'unknown',
+    payload: raw.payload && typeof raw.payload === 'object' ? raw.payload : {},
+    sourceEventInstanceId: 读文本(raw.sourceEventInstanceId).trim(),
+    playerKnown: raw.playerKnown === true,
+    committedAt: Math.max(0, Math.trunc(Number(raw.committedAt) || 0)),
+    origin: raw.origin === 'player_early' ? 'player_early' : 'world_evolution',
+    participants: 归一化参与者名单(raw.participants),
+  };
+}
+
+export function 归一化剧情编织运行时(input?: Partial<剧情编织运行时> | null): 剧情编织运行时 {
+  return {
+    schemaVersion: 1,
+    runtimeRevision: Math.max(0, Math.trunc(Number(input?.runtimeRevision) || 0)),
+    worldEvents: Array.isArray(input?.worldEvents)
+      ? input.worldEvents.map(归一化世界事件实例).filter((item): item is 世界事件实例 => item !== null).slice(-世界事件上限)
+      : [],
+    factLedger: Array.isArray(input?.factLedger)
+      ? input.factLedger.map(归一化世界事实).filter((item): item is 世界事实 => item !== null).slice(-世界事实上限)
+      : [],
+    updatedAt: Math.trunc(Number(input?.updatedAt)) || Date.now(),
+  };
+}
+
+/** 不可信输入（IDB 旧档、导入文本、外部载荷）的唯一清洗入口。返回值不提供私有副本：调用方不得原地修改。 */
 export function 归一化剧情编织系统(input?: Partial<剧情编织系统> | null): 剧情编织系统 {
   if (!input) return 创建空剧情编织系统();
-  const 系列列表 = Array.isArray(input.系列列表) ? input.系列列表.map(归一化剧情编织系列) : [];
+  return 构造剧情编织系统({
+    系列列表: Array.isArray(input.系列列表) ? input.系列列表.map(归一化剧情编织系列) : [],
+    当前系列ID: input.当前系列ID,
+    当前进度: input.当前进度,
+    运行时: 归一化剧情编织运行时(input.运行时),
+  });
+}
+
+/** 可信构造：输入为已定型资产，缺字段即契约破坏（由契约测试拦截，不在此悄悄修复）。引用稳定性是契约：内容未变时调用方沿用原引用；返回值不提供私有副本，调用方不得原地修改。 */
+export function 构造剧情编织系统(input: {
+  系列列表: 剧情编织系列[];
+  当前系列ID?: string;
+  当前进度?: 剧情编织进度锚点;
+  运行时?: 剧情编织运行时;
+}): 剧情编织系统 {
+  const 系列列表 = input.系列列表;
   const 当前系列ID = input.当前系列ID && 系列列表.some((s) => s.id === input.当前系列ID)
     ? input.当前系列ID
     : 系列列表[0]?.id;
   const 当前进度 = 归一化剧情编织进度锚点(input.当前进度, 系列列表, 当前系列ID);
-  return { 系列列表, 当前系列ID, 当前进度 };
+  return { 系列列表, 当前系列ID, 当前进度, 运行时: input.运行时 ?? 归一化剧情编织运行时(undefined) };
+}
+
+export function 构造剧情编织系列(raw: 剧情编织系列): 剧情编织系列 {
+  return 聚合剧情编织系列信息(raw);
 }
 
 export function 归一化剧情编织进度锚点(
@@ -446,11 +561,11 @@ export function 归一化剧情编织进度锚点(
   当前系列ID?: string,
 ): 剧情编织进度锚点 | undefined {
   const series = 系列列表.find((item) => item.id === (raw?.当前系列ID || 当前系列ID))
-    ?? 系列列表.find((item) => item.激活注入 !== false)
-    ?? 系列列表[0];
+    ?? 系列列表.find((item) => item.激活注入)
+    ?? 系列列表.at(0);
   if (!series) return undefined;
   const requestedById = series.分段列表.find((segment) => segment.id === raw?.当前分段ID);
-  const requestedGroup = Number(raw?.当前分段组号 || series.当前分段组号);
+  const requestedGroup = Math.trunc(raw?.当前分段组号 || series.当前分段组号);
   const requestedByGroup = series.分段列表.find((segment) => segment.组号 === requestedGroup);
   const currentRuntime = series.分段列表.find((segment) => segment.运行状态 === '当前');
   const currentSegment =
@@ -497,27 +612,27 @@ function 归一化历史归档列表(value: unknown): 剧情编织历史归档[]
   const seen = new Set<string>();
   const result: 剧情编织历史归档[] = [];
   for (const raw of value as Array<Partial<剧情编织历史归档>>) {
-    const 分段组号 = Math.max(1, Math.trunc(Number(raw?.分段组号 ?? 1) || 1));
-    const id = 读文本(raw?.id).trim() || `story_archive_${读文本(raw?.系列ID)}_${读文本(raw?.分段ID)}_${分段组号}_${Number(raw?.归档回合) || 0}`;
-    const key = id || `${读文本(raw?.系列ID)}_${读文本(raw?.分段ID)}_${分段组号}_${Number(raw?.归档回合) || 0}`;
+    const 分段组号 = Math.max(1, Math.trunc(raw.分段组号 ?? 1) || 1);
+    const id = 读文本(raw.id).trim() || `story_archive_${读文本(raw.系列ID)}_${读文本(raw.分段ID)}_${分段组号}_${raw.归档回合 || 0}`;
+    const key = id || `${读文本(raw.系列ID)}_${读文本(raw.分段ID)}_${分段组号}_${raw.归档回合 || 0}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const status = ['已经历', '已跳过', '已偏离', '已完成'].includes(raw?.归档状态 as string)
-      ? raw?.归档状态 as 剧情编织历史归档['归档状态']
+    const status = ['已经历', '已跳过', '已偏离', '已完成'].includes(raw.归档状态 as string)
+      ? raw.归档状态 as 剧情编织历史归档['归档状态']
       : '已经历';
     result.push({
       id,
-      系列ID: 读文本(raw?.系列ID).trim() || undefined,
-      分段ID: 读文本(raw?.分段ID).trim() || undefined,
+      系列ID: 读文本(raw.系列ID).trim() || undefined,
+      分段ID: 读文本(raw.分段ID).trim() || undefined,
       分段组号,
-      分段标题: 读文本(raw?.分段标题).trim() || `分段 ${分段组号}`,
-      归档回合: Number(raw?.归档回合) || undefined,
+      分段标题: 读文本(raw.分段标题).trim() || `分段 ${分段组号}`,
+      归档回合: raw.归档回合 || undefined,
       归档状态: status,
-      摘要: 读文本(raw?.摘要).trim(),
-      角色推进摘要: 去重文本列表(文本列表(raw?.角色推进摘要), 12),
-      切换说明: 读文本(raw?.切换说明).trim(),
-      判定理由: 去重文本列表(文本列表(raw?.判定理由), 8),
-      createdAt: Number(raw?.createdAt) || Date.now(),
+      摘要: 读文本(raw.摘要).trim(),
+      角色推进摘要: 去重文本列表(文本列表(raw.角色推进摘要), 12),
+      切换说明: 读文本(raw.切换说明).trim(),
+      判定理由: 去重文本列表(文本列表(raw.判定理由), 8),
+      createdAt: raw.createdAt || Date.now(),
     });
     if (result.length >= 30) break;
   }
@@ -530,7 +645,7 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
   const 章节列表 = Array.isArray(raw.章节列表)
     ? raw.章节列表.map((chapter, index) => 归一化剧情编织章节(chapter, id, index + 1))
     : [];
-  const 当前分段组号 = Math.max(1, Math.trunc(Number(raw.当前分段组号 ?? 1) || 1));
+  const 当前分段组号 = Math.max(1, Math.trunc(raw.当前分段组号 ?? 1) || 1);
   const rawSegments = Array.isArray(raw.分段列表)
     ? raw.分段列表.map((segment, index) => 归一化剧情编织分段(segment, index + 1))
     : [];
@@ -550,15 +665,7 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
     id,
     标题: 读文本(raw.标题).trim() || 读文本(raw.作品名).trim() || '未命名剧情',
     作品名: 读文本(raw.作品名).trim() || 读文本(raw.标题).trim() || '未命名作品',
-    区域ID: infer剧情编织区域(raw.区域ID, raw.标题, raw.作品名, [
-      ...(Array.isArray(raw.涉及地点索引) ? 文本列表(raw.涉及地点索引) : []),
-      ...(Array.isArray(raw.涉及派系索引) ? 文本列表(raw.涉及派系索引) : []),
-      ...(rawSegments.flatMap((segment) => [
-        ...segment.涉及地点,
-        ...segment.涉及派系,
-        ...segment.地图地点档案.map((item) => item.名称),
-      ])),
-    ]),
+    区域ID: 读文本(raw.区域ID).trim() || undefined,
     来源类型: 归一化来源类型(raw.来源类型),
     来源智库条目ID: 去重文本列表(文本列表(raw.来源智库条目ID), 80),
     内置预设ID: 读文本(raw.内置预设ID).trim() || undefined,
@@ -566,7 +673,7 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
     原始文本: 读文本(raw.原始文本),
     章节列表,
     分段列表,
-    每段章数: Math.max(1, Math.trunc(Number(raw.每段章数 ?? 1) || 1)),
+    每段章数: Math.max(1, Math.trunc(raw.每段章数 ?? 1) || 1),
     激活注入: raw.激活注入 !== false,
     当前分段组号,
     当前阶段概括: 读文本(raw.当前阶段概括).trim(),
@@ -580,32 +687,14 @@ export function 归一化剧情编织系列(raw: Partial<剧情编织系列>): �
   return 聚合剧情编织系列信息(系列);
 }
 
-function infer剧情编织区域(...values: unknown[]): string | undefined {
-  const source = values
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .map((value) => 读文本(value).replace(/\s+/g, '').toLowerCase())
-    .filter(Boolean)
-    .join('｜');
-  if (!source) return undefined;
-  const aliases: Array<[string, string[]]> = [
-    ['herta_space_station', ['黑塔空间站', '空间站', '主控舱段', '收容舱段', '支援舱段']],
-    ['jarilo_vi', ['雅利洛', '贝洛伯格', '永冬岭', '下层区', '上层区', '磐岩镇', '大矿区', '残响回廊']],
-    ['xianzhou_luofu', ['仙舟罗浮', '罗浮', '长乐天', '太卜司', '鳞渊境', '丹鼎司', '工造司']],
-    ['penacony', ['匹诺康尼', '白日梦酒店', '流梦礁', '朝露公馆', '梦境']],
-    ['amphoreus', ['翁法罗斯', '奥赫玛', '永恒之地', '悬锋城', '刻法勒']],
-    ['erxiang_paradise', ['二相乐园', '乐园']],
-  ];
-  return aliases.find(([, terms]) => terms.some((term) => source.includes(term.toLowerCase())))?.[0];
-}
-
 function 归一化剧情编织章节(raw: Partial<剧情编织章节>, _seriesId: string, index: number): 剧情编织章节 {
   const 内容 = 读文本(raw.内容);
   return {
     id: 读文本(raw.id).trim() || 生成ID('story_chapter'),
-    序号: Math.max(1, Math.trunc(Number(raw.序号 ?? index) || index)),
+    序号: Math.max(1, Math.trunc(raw.序号 ?? index) || index),
     标题: 读文本(raw.标题).trim() || `第 ${index} 章`,
     内容,
-    字数: Number(raw.字数) || [...内容].length,
+    字数: raw.字数 || Array.from(内容).length,
   };
 }
 
@@ -613,16 +702,16 @@ export function 归一化剧情编织分段(raw: Partial<剧情编织分段>, in
   const 原文内容 = 读文本(raw.原文内容);
   const 分段: 剧情编织分段 = {
     id: 读文本(raw.id).trim() || 生成ID('story_segment'),
-    组号: Math.max(1, Math.trunc(Number(raw.组号 ?? index) || index)),
+    组号: Math.max(1, Math.trunc(raw.组号 ?? index) || index),
     标题: 读文本(raw.标题).trim() || `分段 ${index}`,
     章节范围: 读文本(raw.章节范围).trim(),
     章节标题: 文本列表(raw.章节标题),
     是否开局组: raw.是否开局组 === true,
-    起始章序号: Math.max(1, Math.trunc(Number(raw.起始章序号 ?? index) || index)),
-    结束章序号: Math.max(1, Math.trunc(Number(raw.结束章序号 ?? index) || index)),
+    起始章序号: Math.max(1, Math.trunc(raw.起始章序号 ?? index) || index),
+    结束章序号: Math.max(1, Math.trunc(raw.结束章序号 ?? index) || index),
     启用注入: raw.启用注入 !== false,
     原文内容,
-    字数: Number(raw.字数) || [...原文内容].length,
+    字数: raw.字数 || Array.from(原文内容).length,
     原文摘要: 读文本(raw.原文摘要).trim(),
     本段概括: 读文本(raw.本段概括).trim(),
     时间线起点: 读文本(raw.时间线起点).trim(),
@@ -653,14 +742,8 @@ export function 归一化剧情编织分段(raw: Partial<剧情编织分段>, in
 function 归一化约束列表(value: unknown): 剧情编织约束条目[] {
   return Array.isArray(value)
     ? value.map((item: Partial<剧情编织约束条目>) => ({
-        内容: 读文本(item?.内容).trim(),
-        信息可见性: {
-          ...默认可见性(),
-          ...(item?.信息可见性 ?? {}),
-          谁知道: 文本列表(item?.信息可见性?.谁知道),
-          谁不知道: 文本列表(item?.信息可见性?.谁不知道),
-          是否仅读者视角可见: item?.信息可见性?.是否仅读者视角可见 === true,
-        },
+        内容: 读文本(item.内容).trim(),
+        信息可见性: 归一化信息可见性(item.信息可见性),
       })).filter((item) => item.内容)
     : [];
 }
@@ -674,13 +757,7 @@ function 归一化事件(raw: Partial<剧情编织事件>): 剧情编织事件 {
     阻断条件: 文本列表(raw.阻断条件),
     事件结果: 文本列表(raw.事件结果),
     对后续影响: 文本列表(raw.对后续影响),
-    信息可见性: {
-      ...默认可见性(),
-      ...(raw.信息可见性 ?? {}),
-      谁知道: 文本列表(raw.信息可见性?.谁知道),
-      谁不知道: 文本列表(raw.信息可见性?.谁不知道),
-      是否仅读者视角可见: raw.信息可见性?.是否仅读者视角可见 === true,
-    },
+    信息可见性: 归一化信息可见性(raw.信息可见性),
   };
 }
 
@@ -725,7 +802,7 @@ export function 从TXT提取剧情章节(text: string): 剧情编织章节[] {
     let count = 0;
     for (const p of paragraphs) {
       bucket.push(p);
-      count += [...p].length;
+      count += Array.from(p).length;
       if (count >= 4000) {
         result.push(bucket);
         bucket = [];
@@ -738,7 +815,7 @@ export function 从TXT提取剧情章节(text: string): 剧情编织章节[] {
       序号: index + 1,
       标题: `片段 ${index + 1}`,
       内容: body.join('\n\n'),
-      字数: [...body.join('\n\n')].length,
+      字数: Array.from(body.join('\n\n')).length,
     }));
   }
 
@@ -751,7 +828,7 @@ export function 从TXT提取剧情章节(text: string): 剧情编织章节[] {
       序号: index + 1,
       标题: chunk.title || explicitTitle || `第 ${index + 1} 章`,
       内容: finalContent,
-      字数: [...finalContent].length,
+      字数: Array.from(finalContent).length,
     };
   }).filter((chapter) => chapter.内容 || chapter.标题);
   const filtered = mapped.filter((chapter) => !是否疑似目录章节(chapter.标题, chapter.内容));
@@ -759,7 +836,7 @@ export function 从TXT提取剧情章节(text: string): 剧情编织章节[] {
 }
 
 export function 根据章节生成剧情分段(chapters: 剧情编织章节[], 每段章数 = 1): 剧情编织分段[] {
-  const size = Math.max(1, Math.trunc(Number(每段章数) || 1));
+  const size = Math.max(1, Math.trunc(每段章数 || 1));
   const result: 剧情编织分段[] = [];
   for (let index = 0; index < chapters.length; index += size) {
     const group = chapters.slice(index, index + size);
@@ -776,7 +853,7 @@ export function 根据章节生成剧情分段(chapters: 剧情编织章节[], �
       起始章序号: start,
       结束章序号: end,
       原文内容,
-      字数: [...原文内容].length,
+      字数: Array.from(原文内容).length,
       原文摘要: group.map((chapter, chapterIndex) => `${chapterIndex + 1}. ${规范化章节标题文本(chapter.标题) || chapter.标题}`).join(' / '),
       时间线起点: '',
       时间线终点: '',
@@ -798,7 +875,7 @@ export function 创建剧情编织系列FromText(input: {
 }): 剧情编织系列 {
   const now = Date.now();
   const chapters = 从TXT提取剧情章节(input.text);
-  const 每段章数 = Math.max(1, Math.trunc(Number(input.chaptersPerSegment ?? 1) || 1));
+  const 每段章数 = Math.max(1, Math.trunc(input.chaptersPerSegment ?? 1) || 1);
   const segments = 根据章节生成剧情分段(chapters, 每段章数);
   return 归一化剧情编织系列({
     id: 生成ID('story_series'),

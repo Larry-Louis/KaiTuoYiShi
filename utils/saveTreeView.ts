@@ -1,4 +1,4 @@
-import type { SaveListItemSummary } from '@/services/dbService';
+import type { SaveListItemSummary } from '@/contracts/storage';
 
 export interface SaveTreeDisplayNode {
   save: SaveListItemSummary;
@@ -162,4 +162,50 @@ function normalizeLegacyKey(value: string): string {
     .map((char) => /[a-zA-Z0-9]/.test(char) ? char.toLowerCase() : char.charCodeAt(0).toString(36))
     .join('-')
     .slice(0, 80) || 'unknown';
+}
+
+export type SaveTabFilter = 'all' | 'auto' | 'imported';
+
+export function resolveSelectedSaveTree(
+  groups: SaveTreeDisplayGroup[],
+  selectedRootId: string | null,
+): SaveTreeDisplayGroup | null {
+  return groups.find((group) => group.rootId === selectedRootId) ?? groups.at(0) ?? null;
+}
+
+export function resolveEffectiveSaveTab(
+  tab: SaveTabFilter,
+  totalSaveCount: number,
+  visibleGroupCount: number,
+): SaveTabFilter {
+  return tab !== 'all' && totalSaveCount > 0 && visibleGroupCount === 0 ? 'all' : tab;
+}
+
+export function matchesSaveTab(save: SaveListItemSummary, tab: SaveTabFilter): boolean {
+  if (tab === 'all') return true;
+  if (tab === 'auto') return save.type === 'auto';
+  return save.type === 'imported';
+}
+
+export function buildVisibleSaveTreeGroup(group: SaveTreeDisplayGroup, tab: SaveTabFilter): SaveTreeDisplayGroup | null {
+  const nodes = group.nodes.filter((node) => matchesSaveTab(node.save, tab));
+  if (!nodes.length) return null;
+  const latestSave = [...nodes].sort((a, b) => b.save.timestamp - a.save.timestamp || b.save.id - a.save.id)[0].save;
+  const rootSave = nodes.find((node) => node.isRoot)?.save ?? nodes[nodes.length - 1].save;
+  const forkNodeIds = new Set<string>();
+  for (const node of nodes) {
+    const parentNodeId = node.save.saveTree?.parentNodeId;
+    if (parentNodeId && nodes.some((candidate) => candidate.save.saveTree?.nodeId === parentNodeId)) {
+      forkNodeIds.add(parentNodeId);
+    }
+  }
+  return {
+    ...group,
+    rootSave,
+    latestSave,
+    nodes,
+    nodeCount: nodes.length,
+    branchCount: Math.max(0, forkNodeIds.size ? group.branchCount : 0),
+    totalSizeBytes: nodes.reduce((sum, node) => sum + Math.max(0, node.save.sizeBytes || 0), 0),
+  };
 }

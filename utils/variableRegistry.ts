@@ -1,43 +1,31 @@
-// 变量登记表 + 命令校验。
-//
-// 用途：
-// 1. 构建登记表 → 注入 system prompt 末尾，告诉 AI "只能写入这些路径"。
-// 2. 校验命令 → AI 输出后逐条比对，路径不在白名单的直接拒绝（防止 AI 瞎编字段）。
 
 import type { 变量命令 } from '@/models/variableCommand';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { 解析路径片段, 读取路径值 } from './variablePath';
 
-/** 变量命令允许操作的根路径，全部对应 useGameState 的一个 setter。 */
 export const VARIABLE_ROOT_KEYS = [
-  '旅人',   // 旅人档案（含 命途列表/背包/状态效果；装备系统已退役）
-  '世界',   // 世界状态
-  '记忆',   // 记忆系统
-  '忆庭',   // 忆庭回忆档案
-  '智库',   // 原著资料库
-  '手机',   // 手机通讯系统
-  'NPC',    // 伙伴档案库（含 companion / extra / 图像预留 / NSFW 预留）
-  '新闻',   // 新闻档案
-  '剧情',   // 旧剧情节点兼容
+  '旅人',
+  '世界',
+  '记忆',
+  '忆庭',
+  '智库',
+  '手机',
+  'NPC',
+  '新闻',
+  '剧情',
 ] as const;
 
 const NPC_ARRAY_ITEM_FIELDS = new Set([
   'id',
   '姓名',
   '别名',
-  '职务',
   '阶位',
-  '阶位来源',
-  '手动阶位覆盖',
   '好感度',
   '关系',
   '亲密关系',
   '同行',
   '初见回合',
   '最近回合',
-  '累计互动次数',
-  '归档',
-  '归档回合',
   '性别',
   '对玩家称呼',
   '外貌',
@@ -56,7 +44,6 @@ const NPC_ARRAY_ITEM_FIELDS = new Set([
   '必须记得',
   '禁止遗忘',
   '总结记忆',
-  '约定',
   '备注',
   '原著角色',
   'NSFW档案',
@@ -209,9 +196,9 @@ const ARRAY_SCHEMA_TEMPLATES: ArraySchemaTemplate[] = [
   {
     path: 'NPC',
     title: 'NPC[] 伙伴/路人档案对象',
-    actionHint: '仅在旧 `<变量更新>` 兼容命令中，新角色入档使用 `push NPC = {...完整对象...}`；事实协议由前端 handler 创建最小对象，模型不要自行补齐未知字段。已有角色更新使用 `NPC[id=xxx].字段`。',
+    actionHint: '新角色入档使用 `push NPC = {...完整对象...}`；已有角色更新使用 `NPC[id=xxx].字段`。',
     required: ['id', '姓名', '阶位'],
-    recommended: ['好感度', '关系', '亲密关系', '同行', '初见回合', '最近回合', '累计互动次数', '归档', '归档回合', '备注', '性别', '别名', '职务', '对玩家称呼', '外貌', '穿着', '说话方式', '性格', '介绍', '同行记忆', '最近互动', '对玩家长期印象', '当前关系阶段', '共同经历', '未完成事项', '未解决冲突', '必须记得', '禁止遗忘', '原著角色', '图像档案', 'NSFW档案'],
+    recommended: ['好感度', '关系', '亲密关系', '同行', '初见回合', '最近回合', '备注', '性别', '别名', '对玩家称呼', '外貌', '穿着', '说话方式', '性格', '介绍', '同行记忆', '最近互动', '对玩家长期印象', '当前关系阶段', '共同经历', '未完成事项', '未解决冲突', '必须记得', '禁止遗忘', '原著角色', '图像档案', 'NSFW档案'],
     example: '{"id":"npc_march7th","姓名":"三月七","阶位":"companion","好感度":5,"关系":"acquaintance","同行":true,"初见回合":1,"最近回合":1,"备注":["星穹列车乘员"],"原著角色":true,"外貌":"粉色短发，蓝粉渐变眼眸，少女体态轻快，常带相机。","穿着":"星穹列车风格短外套与裙装，配色明亮。","说话方式":"语速轻快，常用吐槽和感叹把紧张气氛拉回来。","性格":"活泼外向，遇事先冲上去，但会认真记住同伴的安危。","介绍":"星穹列车乘员，失去过去记忆，却以开拓的热情面对旅途。"}',
     forbidden: ['怪物、泛称敌人、一次性杂兵不要入档。', '不要重复 push 同一人物的别称或状态称呼。', '对玩家称呼不明确时写“未知”，不要写“你”“喂”等临时指代。'],
   },
@@ -225,18 +212,9 @@ const ARRAY_SCHEMA_TEMPLATES: ArraySchemaTemplate[] = [
     forbidden: ['不要把 A 的经历写进 B 的同行记忆。', '无法确认归属时不写同行记忆。'],
   },
   {
-    path: 'NPC[id=...].约定',
-    title: 'NPC约定[] 对象（玩家承诺结构化载体）',
-    actionHint: '仅在旧 `<变量更新>` 兼容命令中，正文明确约定「之后要做某事」或玩家做出承诺时使用 `push NPC[id=xxx].约定 = {...}`；事实协议由 handler 生成稳定 ID。履行/违约/作废用 `set NPC[id=xxx].约定[id=yyy].当前状态 = ...`。',
-    required: ['id', '标题', '内容', '当前状态', '回合'],
-    recommended: ['约定时间', '后果', '来源'],
-    example: '{"id":"agreement_march7th_1_escape_route","标题":"确认撤离路线","内容":"与三月七约定，撤离时确认安全路线并在汇合点碰头。","当前状态":"等待中","回合":1,"约定时间":"星历第二纪元","后果":"若未履行，三月七会担心并追问","来源":"正文"}',
-    forbidden: ['不要把随口一句寒暄写成约定。', '当前状态只能是 等待中/已履行/已违约/已作废。', '回合 必须是非负有限数字。'],
-  },
-  {
     path: '旅人.背包',
     title: '旅人.背包[] 物品对象',
-    actionHint: '仅在旧 `<变量更新>` 兼容命令中，获得明确物品时使用 `push 旅人.背包 = {...完整对象...}`；事实协议只写有证据的字段。',
+    actionHint: '获得明确物品时使用 `push 旅人.背包 = {...完整对象...}`。',
     required: ['类别', '名称', '描述'],
     recommended: ['数量', '品质', '可堆叠', '叙事效果', '使用效果', '来源', '来源描述', '获得时间'],
     example: '{"类别":"key","名称":"临时权限卡","描述":"黑塔空间站安保终端签发的临时通行卡，边缘还残留着微弱蓝光。","数量":1,"品质":"蓝","可堆叠":false,"来源":"剧情掉落","来源描述":"主控舱段撤离途中取得"}',
@@ -287,31 +265,26 @@ const ARRAY_SCHEMA_TEMPLATES: ArraySchemaTemplate[] = [
   },
 ];
 
-/** 一份精简版游戏 state，用于变量系统读写（不包含 UI/loading 等 transient state）。 */
 export type VariableState = Record<VariableRootKey, unknown>;
 
 export interface RegistryOptions {
-  /** 最大递归深度，避免对象层级太深炸栈 */
   maxDepth?: number;
-  /** 最大行数，超出截断；避免 prompt 膨胀 */
   maxLines?: number;
 }
 
-/** 把单个值的可达路径递归收集到 result 里。 */
 function 收集路径(value: unknown, prefix: string, result: string[], depth: number) {
   result.push(prefix);
   if (depth <= 0 || value === null || value === undefined || typeof value !== 'object') return;
 
   if (Array.isArray(value)) {
     if (value.length > 0) {
-      // 数组用 [] 表示"任意 index 都合法"，并展开第一个元素的字段（作为同类元素的字段模板）
       result.push(`${prefix}[]`);
       收集路径(value[0], `${prefix}[0]`, result, depth - 1);
     }
     return;
   }
 
-  Object.keys(value as Record<string, unknown>)
+  Object.keys(value)
     .sort((a, b) => a.localeCompare(b, 'zh-CN'))
     .forEach((k) => {
       收集路径((value as Record<string, unknown>)[k], `${prefix}.${k}`, result, depth - 1);
@@ -340,7 +313,7 @@ function buildArraySchemaPrompt(): string[] {
   return [
     '## 数组对象 schema 模板',
     '',
-    '即使当前数组为空，以下数组路径也视为可 `push`。下列完整对象要求只适用于旧 `<变量更新>` 兼容命令；事实协议使用结构化增量字段，不要补齐未知值。不要输出字段列表、占位符或省略号。',
+    '即使当前数组为空，以下数组路径也视为可 `push`。必须传入完整 JSON，不要输出字段列表、占位符或省略号。',
     '',
     ...ARRAY_SCHEMA_TEMPLATES.flatMap((template) => [
       `### ${template.title}`,
@@ -355,7 +328,6 @@ function buildArraySchemaPrompt(): string[] {
   ];
 }
 
-/** 扫存档生成路径清单，作为 AI 命令白名单。 */
 export function buildVariableRegistry(state: Partial<VariableState>, options?: RegistryOptions): string[] {
   const maxDepth = Math.max(1, options?.maxDepth ?? 4);
   const maxLines = Math.max(20, options?.maxLines ?? 300);
@@ -377,7 +349,6 @@ function isPromptBinaryImagePath(path: string): boolean {
   return PROMPT_BINARY_IMAGE_PATH_RE.test(path);
 }
 
-/** 把登记表格式化成 prompt 注入文本。 */
 export function buildVariableRegistryPrompt(state: Partial<VariableState>): string {
   const paths = buildVariableRegistry(state);
   if (paths.length === 0) return '';
@@ -403,13 +374,10 @@ export function buildVariableRegistryPrompt(state: Partial<VariableState>): stri
 export interface CommandValidation {
   allowed: boolean;
   reason?: string;
-  /** 解析出的根路径，便于执行器路由 */
   root?: VariableRootKey;
-  /** 去掉根的剩余路径 */
   rest?: string;
 }
 
-/** 提取根路径：从 "旅人.属性.力量" 中取出 "旅人" + ".属性.力量"。 */
 export function extractRoot(rawKey: string): { root: VariableRootKey; rest: string } | null {
   const key = (rawKey || '').trim();
   if (!key) return null;
@@ -421,7 +389,6 @@ export function extractRoot(rawKey: string): { root: VariableRootKey; rest: stri
   return null;
 }
 
-/** 判断同数组其它对象里是否存在该字段（用于允许 set/add 给数组对象新增字段）。 */
 function 同数组其它对象存在字段(rootValue: unknown, rawPath: string): boolean {
   const tokens = 解析路径片段(rawPath);
   const lastToken = tokens[tokens.length - 1];
@@ -634,67 +601,24 @@ function validateSchemaPushValue(root: VariableRootKey, rest: string, value: unk
     if (messages.length > 0) return '变量模型只允许创建空会话频道，不允许直接写完整聊天 messages';
   }
 
-  if (template.path === 'NPC[id=...].约定') {
-    return validateNpcAgreementPushValue(fullPath, value);
-  }
-
   return null;
 }
 
-const NPC_AGREEMENT_STATUSES = new Set(['等待中', '已履行', '已违约', '已作废']);
-const NPC_AGREEMENT_SOURCES = new Set(['正文', '通讯', '历史正文']);
-
-/** NPC 约定 push 专项校验：非法结构明确拒绝，不允许空泛对象通过。 */
-function validateNpcAgreementPushValue(fullPath: string, value: Record<string, unknown>): string | null {
-  const id = typeof value.id === 'string' ? value.id.trim() : '';
-  if (!id || id === 'undefined' || id === 'null') return `${fullPath} 约定缺少合法 id`;
-  const 标题 = typeof value.标题 === 'string' ? value.标题.trim() : '';
-  if (!标题) return `${fullPath} 约定缺少合法 标题`;
-  const 内容 = typeof value.内容 === 'string' ? value.内容.trim() : '';
-  if (!内容) return `${fullPath} 约定缺少合法 内容`;
-  const status = value.当前状态 ?? value.status;
-  if (typeof status !== 'string' || !NPC_AGREEMENT_STATUSES.has(status)) {
-    return `${fullPath} 约定.当前状态 只能是 等待中/已履行/已违约/已作废`;
-  }
-  const turn = Number(value.回合 ?? value.turn);
-  if (!Number.isFinite(turn) || turn < 0) return `${fullPath} 约定.回合 必须是非负有限数字`;
-  if (value.约定时间 !== undefined && typeof value.约定时间 !== 'string') {
-    return `${fullPath} 约定.约定时间 必须是字符串`;
-  }
-  if (value.后果 !== undefined && typeof value.后果 !== 'string') {
-    return `${fullPath} 约定.后果 必须是字符串`;
-  }
-  if (value.来源 !== undefined && (typeof value.来源 !== 'string' || !NPC_AGREEMENT_SOURCES.has(value.来源))) {
-    return `${fullPath} 约定.来源 只能是 正文/通讯/历史正文`;
-  }
-  return null;
-}
-
-// 命途狭间状态机硬只读名单:这些字段只能由 服务层(踏入命途狭间 / 应用狭间结果 / 推进命途进度)写,
-// 变量模型一旦碰到必须拒绝——否则 AI 误判「踏入虚境」当成「狭间完成」,会清掉 进行中狭间,
-// 下一回合就退回主剧情 scope,AI 不知道是评判回合,直接卡死虚境。
-function isAwakeningProtectedPath(rawKey: string, action: 变量命令['action']): boolean {
+// 只能由服务层写：AI 误判「踏入虚境」为「狭间完成」会清掉 进行中狭间，下一回合卡死虚境。
+function isAwakeningProtectedPath(rawKey: string): boolean {
   const k = rawKey.trim();
-  // 世界·狭间状态机字段:任何 action 都拒
   if (k === '世界.进行中狭间' || k === '世界.待触发狭间') return true;
   if (k.startsWith('世界.进行中狭间.') || k.startsWith('世界.待触发狭间.')) return true;
 
-  // 旅人.命途列表:整个数组只读(新命途条目只能由 踏上命途 服务层创建,
-  // 否则变量模型会凭空造 id=path_xxx 的伪条目,导致升阶找不到正确的命途)。
+  // 新命途条目只能由 踏上命途 服务层创建，否则变量模型会造出 id=path_xxx 伪条目，升阶找不到正确命途。
   if (k === '旅人.命途列表') {
     return true;
   }
-  // 命途列表[i] / 命途列表[id=xxx] 整条目:也禁止 push/delete/set,避免覆盖整条
   if (/^旅人\.命途列表\[[^\]]+\]$/.test(k)) return true;
-  // 命途列表[i].阶段:阶段变化只能走 升阶 / 星神授力 服务层
   if (/^旅人\.命途列表\[[^\]]+\]\.阶段$/.test(k)) return true;
-  // 命途列表[i].待升阶:状态机字段,只能由 推进命途进度 / 应用狭间结果 写
   if (/^旅人\.命途列表\[[^\]]+\]\.待升阶$/.test(k)) return true;
-  // 命途列表[i].是否主命途 / 主命途:主命途选择是玩家行为,不允许 AI 改
   if (/^旅人\.命途列表\[[^\]]+\]\.是否主命途$/.test(k)) return true;
   if (k === '旅人.主命途') return true;
-  // 进度由 reduceVariableCommands 的专用通道处理(走 24h cap),这里不拦,直通专用通道。
-  // 备注 / 觉醒于 等叙事字段允许 AI 写。
   return false;
 }
 
@@ -729,9 +653,8 @@ export function isTravelerPlayerAuthoredVariablePath(rawKey: string): boolean {
   return key === '旅人' || key === '旅人.穿着' || isTravelerPlayerAuthoredPath(key);
 }
 
-/** 校验一条命令是否符合登记表。 */
 export function validateCommand(cmd: 变量命令, state: Partial<VariableState>): CommandValidation {
-  if (!cmd || typeof cmd.key !== 'string') {
+  if (typeof cmd.key !== 'string') {
     return { allowed: false, reason: '命令格式错误：缺少 key' };
   }
   if (isTravelerPlayerAuthoredVariablePath(cmd.key) && cmd.key.trim() === '旅人.穿着') {
@@ -743,8 +666,7 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
       reason: `旅人核心档案 ${cmd.key} 由玩家手写维护，变量模型不得 ${cmd.action}。请改写为 NPC 记忆、世界事件、物品或剧情正文承接。`,
     };
   }
-  // 狭间状态机 + 命途结构字段:变量模型只能读不能写,违者直接拒
-  if (isAwakeningProtectedPath(cmd.key, cmd.action)) {
+  if (isAwakeningProtectedPath(cmd.key)) {
     return {
       allowed: false,
       reason: `命途/狭间状态机字段 ${cmd.key} 只能由服务层维护,变量模型不许 ${cmd.action}`,
@@ -767,7 +689,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: false, reason: `根 ${parsed.root} 在当前存档中不存在` };
   }
 
-  // 整段根：始终允许（push/set/delete 根本身）
   if (parsed.rest.length === 0) {
     if (parsed.root === '旅人') {
       return {
@@ -793,7 +714,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: true, root: parsed.root, rest: parsed.rest };
   }
 
-  // 有子路径：先看路径是否已存在
   const { exists, value: targetValue } = 读取路径值(rootValue, parsed.rest);
   if (exists) {
     if (cmd.action === 'push' && !Array.isArray(targetValue)) {
@@ -807,7 +727,6 @@ export function validateCommand(cmd: 变量命令, state: Partial<VariableState>
     return { allowed: false, reason: selectorMissingReason };
   }
 
-  // 路径不存在：仅在 set/add/sub 给「同数组其它对象已有字段」时允许（让 AI 可以补全可选字段）
   if ((cmd.action === 'set' || cmd.action === 'add' || cmd.action === 'sub') && 同数组其它对象存在字段(rootValue, parsed.rest)) {
     return { allowed: true, root: parsed.root, rest: parsed.rest };
   }

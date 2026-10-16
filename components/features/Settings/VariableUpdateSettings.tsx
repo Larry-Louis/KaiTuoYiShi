@@ -1,41 +1,30 @@
 ﻿import { useState } from 'react';
 import type { AI提供商, API配置项, API设置, 游戏设置, 变量API覆盖 } from '@/models/settings';
-import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { providerOptions } from './settingsShared';
+import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   gameSettings: 游戏设置;
   onGameSettingsChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
 
 export function VariableUpdateTab({
   gameSettings,
   onGameSettingsChange,
   apiSettings,
+  onPersistSettings,
+  fetchModels,
 }: Props) {
   const enabled = gameSettings.enableVariableUpdate;
   const override = gameSettings.variableApi;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
 
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -50,13 +39,12 @@ export function VariableUpdateTab({
     });
   };
 
-  // 计算「实际生效」的字段（用于回退提示和拉取模型）。
   const effective = {
-    provider: override.provider || mainConfig?.provider || 'openai_compatible',
+    provider: override.provider,
     baseUrl: override.baseUrl.trim() || mainConfig?.baseUrl || '',
     apiKey: override.apiKey.trim() || mainConfig?.apiKey || '',
     model: override.model.trim() || mainConfig?.model || '',
-    enableClaudeMode: gameSettings.enableClaudeMode === true,
+    enableClaudeMode: gameSettings.enableClaudeMode,
   };
 
   const usingMain = {
@@ -78,11 +66,10 @@ export function VariableUpdateTab({
     setLoadingModels(true);
     setFetchMessage(null);
     try {
-      // 构造一个临时 config 给 fetchModels 用
       const tempConfig: API配置项 = {
         id: '__variable_override__',
         name: '变量模型',
-        provider: effective.provider as AI提供商,
+        provider: effective.provider,
         baseUrl: effective.baseUrl,
         apiKey: effective.apiKey,
         model: effective.model,
@@ -103,7 +90,7 @@ export function VariableUpdateTab({
   const handleSave = async () => {
     setSaveMessage(null);
     try {
-      await saveSetting('gameSettings', gameSettings);
+      await onPersistSettings(gameSettings);
       setSavedFlash(true);
       setSaveMessage({ kind: 'info', text: '变量更新设置已保存。' });
       window.setTimeout(() => setSavedFlash(false), 1800);
@@ -120,7 +107,7 @@ export function VariableUpdateTab({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -144,12 +131,12 @@ export function VariableUpdateTab({
           style={{
             color: 'rgba(var(--tj-text-secondary), 0.7)',
             background: 'rgba(var(--tj-bg-secondary), 0.45)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
             clipPath: smallClip,
           }}
         >
           下方任一字段留空时，将自动回退到「主 API」的同名字段。
-          {noMainHint && <span style={{ color: 'rgba(220, 120, 120, 0.85)' }}>　{noMainHint}</span>}
+          {noMainHint && <span style={{ color: 'rgba(220, 120, 120, 0.85)' }}>{'\u3000'}{noMainHint}</span>}
         </div>
 
         <Field label="◆ 服务商">
@@ -209,12 +196,12 @@ export function VariableUpdateTab({
                 style={{ clipPath: smallClip }}
               />
               <button
-                onClick={handleFetchModels}
+                onClick={() => void handleFetchModels()}
                 disabled={loadingModels}
                 className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
                 style={{
                   color: 'rgba(var(--tj-accent-primary), 0.85)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                  border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                   background: 'rgba(var(--tj-accent-primary), 0.05)',
                   clipPath: smallClip,
                 }}
@@ -287,7 +274,7 @@ export function VariableUpdateTab({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.7)',
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.1)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -297,16 +284,16 @@ export function VariableUpdateTab({
 
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: savedFlash
-              ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
-              : 'inset 0 0 0 1px rgba(var(--tj-border), 0.72), 0 0 18px rgba(var(--tj-tech-cyan), 0.14)',
+            border: savedFlash
+              ? '1px solid rgba(220, 255, 230, var(--tj-edge-tint-strong))'
+              : '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath: cardClip,
           }}
         >
@@ -318,9 +305,9 @@ export function VariableUpdateTab({
             style={{
               color: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.9)' : 'rgba(160, 200, 160, 0.85)',
               background: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.06)' : 'rgba(120, 200, 140, 0.06)',
-              boxShadow: saveMessage.kind === 'error'
-                ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
-                : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
+              border: saveMessage.kind === 'error'
+                ? '1px solid rgba(220, 120, 120, var(--tj-edge-tint))'
+                : '1px solid rgba(120, 200, 140, var(--tj-edge-tint))',
               clipPath: smallClip,
             }}
           >
@@ -370,9 +357,9 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -390,11 +377,11 @@ function ToggleRow({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath:
-            'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            smallClip,
         }}
       >
         <div
@@ -403,7 +390,7 @@ function ToggleRow({
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
             clipPath:
-              'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              tinyClip,
           }}
         />
       </button>

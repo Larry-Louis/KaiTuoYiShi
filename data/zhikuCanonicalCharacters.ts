@@ -1,6 +1,3 @@
-// 由 public/zhiku-presets/*character*.json 的人物档案整理而来。
-// 这里只保留角色主体名称与智库明确使用的别名/形态名，不包含敌对生物档案。
-
 export const ZHIKU_CANONICAL_CHARACTER_ALIASES: Record<string, readonly string[]> = {
   阿格莱雅: ['Aglaea', '金织·阿格莱雅', '翁法罗斯黄金裔阿格莱雅', '奥赫玛改衣师阿格莱雅'],
   白厄: ['Phainon', '卡厄斯兰那', 'Khaslana', '哀丽秘榭的白厄', '黄金裔白厄', '负世黄金裔白厄'],

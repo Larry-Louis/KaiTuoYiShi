@@ -1,65 +1,62 @@
-// 路径解析与按路径修改 state 的工具。
-// 设计参考：应用路径命令 / 解析路径片段。
-// 关键不同：我们不区分 "gameState." 前缀（前端协议直接用根名），路径使用当前中文 schema 根名。
-//
-// 支持的路径语法：
-//   foo                       根字段
-//   foo.bar                   对象字段
-//   foo.bar.baz               嵌套对象
-//   foo[0]                    数组索引
-//   foo[0].bar                数组元素的字段
-//   foo[id=abc].bar           按 id 字段匹配数组元素的字段（语法糖；解析时转成具体 index）
 
 import type { 变量命令动作 } from '@/models/variableCommand';
-import { canonicalizeJsonValue, cloneJsonValue, JsonValueError } from './jsonValue';
 
 export type PathToken = string | number;
 
-const 深拷贝 = <T,>(value: T): T => cloneJsonValue(value);
+/**
+ * JSON 往返深拷贝。
+ *
+ * 坑：`JSON.stringify(undefined)` 返回的是 `undefined` 而不是字符串，直接交给 `JSON.parse`
+ * 会抛 `"undefined" is not valid JSON`。变量事实对象里遍地是 `xx || undefined` 的字段，
+ * 一旦没值就走进写入/合并路径，会直接弄挂整轮变量结算。
+ */
+const 深拷贝 = <T,>(value: T): T =>
+  value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
 
 const 是对象 = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
 const 深合并对象 = (left: unknown, right: unknown): unknown => {
+  // `undefined` 在这套数据里表示“本回合该字段没有值”：保留原值，不要把已有内容抹掉。
+  if (right === undefined) return left;
   if (Array.isArray(right)) return 深拷贝(right);
   if (!是对象(right)) return 深拷贝(right);
-  const seed: Record<string, unknown> = 是对象(left) ? 深拷贝(left as Record<string, unknown>) : {};
+  const seed: Record<string, unknown> = 是对象(left) ? 深拷贝(left) : {};
   Object.entries(right).forEach(([k, v]) => {
-    if (v === undefined) return;
     seed[k] = 深合并对象(seed[k], v);
   });
   return seed;
 };
 
-/** 把路径字符串拆成片段。`foo.bar[0].baz` → ['foo','bar',0,'baz'] */
 export function 解析路径片段(rawPath: string): PathToken[] {
   const tokens: PathToken[] = [];
-  // 匹配三种：纯字段名、[数字]、[key=value] 语法糖（保留原样为字符串）
-  const regex = /([^.\[\]]+)|\[(\d+)\]|\[([^\]]+)\]/g;
+  const regex = /([^.[\]]+)|\[(\d+)\]|\[([^\]]+)\]/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(rawPath || ''))) {
-    if (match[1]) tokens.push(match[1]);
-    else if (match[2] !== undefined) tokens.push(Number(match[2]));
-    else if (match[3] !== undefined) tokens.push(`[${match[3]}]`); // 包一层 [] 留给后续 resolveByMatcher
+    const field = match[1] as string | undefined;
+    const index = match[2] as string | undefined;
+    const matcher = match[3] as string | undefined;
+    if (field) tokens.push(field);
+    else if (index !== undefined) tokens.push(Number(index));
+    else if (matcher !== undefined) tokens.push(`[${matcher}]`);
   }
   return tokens;
 }
 
-/** 把 `[id=abc]` 这种匹配语法糖在 rootValue 上转成具体 index。失败返回 null。 */
 function 解析数组匹配语法糖(tokens: PathToken[], rootValue: unknown): PathToken[] | null {
-  if (rootValue == null) return tokens; // 没有数据，原样返回，让后续报路径未登记
+  if (rootValue === null || rootValue === undefined) return tokens;
   const result: PathToken[] = [];
   let cursor: unknown = rootValue;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (typeof t === 'string' && t.startsWith('[') && t.endsWith(']')) {
       if (!Array.isArray(cursor)) return null;
-      const inner = t.slice(1, -1); // 形如 "id=abc"
+      const inner = t.slice(1, -1);
       const eq = inner.indexOf('=');
       if (eq < 0) return null;
       const field = inner.slice(0, eq).trim();
       const expected = inner.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
-      const idx = (cursor as Array<Record<string, unknown>>).findIndex((item) =>
+      const idx = (cursor as Array<Record<string, unknown>>).findIndex((item: Record<string, unknown> | undefined) =>
         item ? matchArrayItem(item, field, expected) : false,
       );
       if (idx < 0) return null;
@@ -68,7 +65,7 @@ function 解析数组匹配语法糖(tokens: PathToken[], rootValue: unknown): P
       continue;
     }
     result.push(t);
-    if (cursor == null) return result.concat(tokens.slice(i + 1));
+    if (cursor === null || cursor === undefined) return result.concat(tokens.slice(i + 1));
     if (typeof t === 'number') {
       cursor = Array.isArray(cursor) ? cursor[t] : undefined;
     } else {
@@ -106,46 +103,18 @@ export interface 应用结果 {
   reason?: string;
 }
 
-/** 在 rootValue 上按 path 应用 action+value，返回新 root（不修改原对象）。
- *  rootValue 可以是 object / array / undefined。tokens 为空时直接对 rootValue 做整段操作。 */
 export function 应用路径命令(
   rootValue: unknown,
   rawPath: string,
   action: 变量命令动作,
   nextValue: unknown,
 ): 应用结果 {
-  try {
-    return 应用路径命令内部(rootValue, rawPath, action, nextValue);
-  } catch (error) {
-    const reason = error instanceof JsonValueError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : String(error);
-    return { ok: false, nextRootValue: rootValue, reason: `JSON 值边界失败：${reason}` };
-  }
-}
-
-function 应用路径命令内部(
-  rootValue: unknown,
-  rawPath: string,
-  action: 变量命令动作,
-  nextValue: unknown,
-): 应用结果 {
-  if (action !== 'delete') {
-    const canonical = canonicalizeJsonValue(nextValue);
-    if (!canonical.ok) {
-      throw new JsonValueError(canonical.issues);
-    }
-    nextValue = canonical.value;
-  }
   const rawTokens = 解析路径片段(rawPath);
   const tokens = 解析数组匹配语法糖(rawTokens, rootValue);
   if (tokens === null) {
     return { ok: false, nextRootValue: rootValue, reason: '数组匹配语法 [id=xxx] 未找到对应元素' };
   }
 
-  // 空路径：直接对根做整段操作
   if (tokens.length === 0) {
     if (action === 'delete') return { ok: true, nextRootValue: undefined };
     if (action === 'push') {
@@ -161,7 +130,6 @@ function 应用路径命令内部(
     return { ok: true, nextRootValue: 深拷贝(nextValue) };
   }
 
-  // 有路径：克隆根，定位到倒数第二级，再操作最后一级
   const draft: unknown =
     rootValue === undefined
       ? typeof tokens[0] === 'number'
@@ -179,7 +147,7 @@ function 应用路径命令内部(
       cursor = cursor[t];
     } else {
       if (!是对象(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 在 .${t} 处不是对象` };
-      const c = cursor as Record<string, unknown>;
+      const c = cursor;
       if (c[t] === undefined || c[t] === null || typeof c[t] !== 'object') {
         c[t] = typeof next === 'number' ? [] : {};
       }
@@ -189,7 +157,6 @@ function 应用路径命令内部(
 
   const last = tokens[tokens.length - 1];
 
-  // 处理 number last（数组索引）
   if (typeof last === 'number') {
     if (!Array.isArray(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 末端 [${last}] 不是数组` };
     if (action === 'delete') {
@@ -214,11 +181,10 @@ function 应用路径命令内部(
     return { ok: true, nextRootValue: draft };
   }
 
-  // 处理 string last（对象字段）
   if (!是对象(cursor)) return { ok: false, nextRootValue: rootValue, reason: `路径 ${rawPath} 末端父节点不是对象` };
-  const obj = cursor as Record<string, unknown>;
+  const obj = cursor;
   if (action === 'delete') {
-    delete obj[last];
+    Reflect.deleteProperty(obj, last);
     return { ok: true, nextRootValue: draft };
   }
   if (action === 'push') {
@@ -243,7 +209,6 @@ function 应用路径命令内部(
   return { ok: true, nextRootValue: draft };
 }
 
-/** 只读取路径上的值（用于校验路径是否存在）。 */
 export function 读取路径值(rootValue: unknown, rawPath: string): { exists: boolean; value: unknown } {
   const rawTokens = 解析路径片段(rawPath);
   const tokens = 解析数组匹配语法糖(rawTokens, rootValue);
@@ -251,7 +216,7 @@ export function 读取路径值(rootValue: unknown, rawPath: string): { exists: 
 
   let cursor: unknown = rootValue;
   for (const t of tokens) {
-    if (cursor == null) return { exists: false, value: undefined };
+    if (cursor === null || cursor === undefined) return { exists: false, value: undefined };
     if (typeof t === 'number') {
       if (!Array.isArray(cursor) || t < 0 || t >= cursor.length) return { exists: false, value: undefined };
       cursor = cursor[t];

@@ -1,8 +1,4 @@
-﻿// 背包系统面板(v4)。
-// 左侧概览 + 分类切换，右侧方格网格 + 详情浮层。
-// 所有写入走 utils/inventoryActions 服务层，避免直接戳数组遗漏堆叠合并等副作用。
-
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 物品分类, 背包物品 } from '@/models/inventory';
 import {
@@ -14,6 +10,7 @@ import {
   使用物品,
   丢弃物品,
 } from '@/utils/inventoryActions';
+import { badgeClip as cardClip, cardClip as cellClip, smallClip } from '@/components/ui/clipPaths';
 
 interface InventoryPanelProps {
   traveler: 角色数据结构;
@@ -23,12 +20,6 @@ interface InventoryPanelProps {
 
 type 标签 = 物品分类 | '全部';
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
-const cellClip =
-  'polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px)';
 
 const USABLE_CATEGORIES: 物品分类[] = ['food', 'consumable'];
 
@@ -46,13 +37,12 @@ const CATEGORY_GLYPHS: Record<物品分类, string> = {
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-tech-cyan), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-  boxShadow:
-    'inset 0 0 0 1px rgba(var(--tj-border), 0.62), 0 14px 32px rgba(var(--tj-shadow), 0.1)',
+  border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
   clipPath: cardClip,
 };
 
 export function InventoryPanel({ traveler, onTravelerChange, turnCount }: InventoryPanelProps) {
-  const inventory = traveler.背包 ?? [];
+  const inventory = traveler.背包;
   const [tab, setTab] = useState<标签>('全部');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState('');
@@ -79,7 +69,7 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
   );
 
   const totalQuantity = useMemo(
-    () => inventory.reduce((sum, it) => sum + Math.max(1, it.数量 ?? 1), 0),
+    () => inventory.reduce((sum, it) => sum + Math.max(1, it.数量), 0),
     [inventory],
   );
 
@@ -95,20 +85,14 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
 
   useEffect(() => {
     return () => {
-      if (flashTimerRef.current != null) {
+      if (flashTimerRef.current !== null) {
         window.clearTimeout(flashTimerRef.current);
       }
     };
   }, []);
 
-  useEffect(() => {
-    if (selectedId && !inventory.some((it) => it.id === selectedId)) {
-      setSelectedId(null);
-    }
-  }, [inventory, selectedId]);
-
   const showFlash = (msg: string) => {
-    if (flashTimerRef.current != null) {
+    if (flashTimerRef.current !== null) {
       window.clearTimeout(flashTimerRef.current);
     }
     setFlash(msg);
@@ -128,10 +112,9 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
 
   const handleDrop = (itemId: string, count?: number) => {
     if (!confirm(count ? `确认丢弃 ${count} 件?` : '确认全部丢弃该物品?')) return;
-    let willEmpty = false;
+    const current = inventory.find((it) => it.id === itemId);
+    const willEmpty = Boolean(current && (count === undefined || count >= current.数量));
     onTravelerChange((prev) => {
-      const cur = (prev.背包 ?? []).find((it) => it.id === itemId);
-      if (cur && (count == null || count >= cur.数量)) willEmpty = true;
       const res = 丢弃物品(prev, itemId, count);
       showFlash(res.message);
       return res.ok ? res.traveler : prev;
@@ -142,7 +125,7 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
   const cellMinCount = 12;
   const cells: (背包物品 | null)[] = [
     ...visible,
-    ...Array(Math.max(0, cellMinCount - visible.length)).fill(null),
+    ...Array<null>(Math.max(0, cellMinCount - visible.length)).fill(null),
   ];
 
   return (
@@ -181,9 +164,9 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
                     background: active
                       ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.16), rgba(var(--tj-accent-primary), 0.04))'
                       : 'rgba(var(--tj-text-secondary), 0.04)',
-                    boxShadow: active
-                      ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.58), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))'
-                      : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.18)',
+                    border: active
+                      ? '1px solid transparent'
+                      : '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
                     clipPath: smallClip,
                   }}
                 >
@@ -238,7 +221,7 @@ export function InventoryPanel({ traveler, onTravelerChange, turnCount }: Invent
                 style={{
                   color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
                   background: 'rgba(var(--tj-accent-primary), 0.06)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
+                  border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -295,7 +278,7 @@ function ItemCell({
   selected: boolean;
   onClick: () => void;
 }) {
-  const qualityColor = ITEM_QUALITY_COLORS[item.品质] ?? ITEM_QUALITY_COLORS.蓝;
+  const qualityColor = ITEM_QUALITY_COLORS[item.品质];
   const qualityStroke = qualityColor.replace(/0\.\d+\)/, '0.52)');
 
   return (
@@ -308,7 +291,9 @@ function ItemCell({
         background: selected
           ? 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.05))'
           : 'rgba(20, 16, 22, 0.62)',
-        boxShadow: `inset 0 0 0 ${selected ? 2 : 1}px ${selected ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))' : qualityStroke}`,
+        // 选中分支的 box-shadow 颜色不是合法 <color>，会被浏览器整条丢弃，选中态因此没有描边；
+        // 保持透明边并把宽度定死 1px：改成真边框后 2px 会让选中时的内容框位移。
+        border: `1px solid ${selected ? 'transparent' : qualityStroke}`,
         clipPath: cellClip,
       }}
     >
@@ -326,7 +311,7 @@ function ItemCell({
         style={{
           color: 'rgba(var(--tj-tech-cyan-deep),0.9)',
           background: 'rgba(var(--tj-ui-panel-strong), 0.5)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.42)',
+          border: '1px solid rgba(var(--tj-border), var(--tj-edge-weak))',
           clipPath: smallClip,
         }}
       >
@@ -358,7 +343,7 @@ function ItemCell({
           style={{
             color: 'rgb(var(--tj-text-primary))',
             background: 'rgba(var(--tj-bubble), 0.92)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             paddingTop: 2,
             paddingBottom: 2,
           }}
@@ -376,7 +361,7 @@ function EmptyCell() {
       className="aspect-square w-full"
       style={{
         background: 'rgba(var(--tj-surface-strong), 0.46)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.24)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-tint))',
         clipPath: cellClip,
       }}
     />
@@ -402,7 +387,7 @@ function ItemDetailOverlay({
         className="px-3 py-4 md:px-4 md:py-5"
         style={{
           background: 'linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}
       >
@@ -413,12 +398,11 @@ function ItemDetailOverlay({
   }
 
   const usable = USABLE_CATEGORIES.includes(item.类别);
-  const qualityColor = ITEM_QUALITY_COLORS[item.品质] ?? ITEM_QUALITY_COLORS.蓝;
+  const qualityColor = ITEM_QUALITY_COLORS[item.品质];
   const effectEntries = item.叙事效果 ?? [];
   const effects = Array.isArray(item.使用效果)
     ? item.使用效果.filter(
         (e) =>
-          e &&
           typeof e === 'object' &&
           typeof e.目标属性 === 'string' &&
           typeof e.数值 === 'number',
@@ -430,7 +414,7 @@ function ItemDetailOverlay({
       className="relative z-10 mt-1 overflow-hidden px-3 py-4 md:mt-0 md:px-4 md:py-4"
       style={{
         background: `radial-gradient(circle at 12% 0%, ${qualityColor.replace(/0\.\d+\)/, '0.16)')}, transparent 38%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.98), rgba(var(--tj-surface-strong), 0.94))`,
-        boxShadow: `inset 0 0 0 1px ${qualityColor}, 0 14px 32px rgba(var(--tj-shadow), 0.08)`,
+        border: `1px solid ${qualityColor}`,
         clipPath: cardClip,
       }}
     >
@@ -441,7 +425,7 @@ function ItemDetailOverlay({
             style={{
               color: qualityColor,
               background: 'rgba(var(--tj-bg-primary), 0.56)',
-              boxShadow: `inset 0 0 0 1px ${qualityColor}, 0 0 20px rgba(var(--tj-accent-primary), 0.08)`,
+              border: `1px solid ${qualityColor}`,
               clipPath: smallClip,
             }}
           >
@@ -468,7 +452,7 @@ function ItemDetailOverlay({
           className="font-serif text-[14px] tracking-wider px-2 py-1 transition-all hover:bg-[rgba(var(--tj-accent-primary),0.08)]"
           style={{
             color: 'rgba(200, 188, 160, 0.85)',
-            boxShadow: 'inset 0 0 0 1px rgba(200, 188, 160, 0.22)',
+            border: '1px solid rgba(200, 188, 160, var(--tj-edge-tint))',
             clipPath: smallClip,
           }}
           aria-label="关闭"
@@ -534,7 +518,7 @@ function MetaChip({ text, color }: { text: string; color: string }) {
       style={{
         color,
         background: 'rgba(var(--tj-bubble), 0.78)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -564,7 +548,7 @@ function ActionButton({
       className="font-serif text-[12px] tracking-[0.2em] px-3 py-1 transition-all hover:bg-[rgba(var(--tj-accent-primary),0.08)]"
       style={{
         color: palette.color,
-        boxShadow: `inset 0 0 0 1px ${palette.stroke}`,
+        border: `1px solid ${palette.stroke}`,
         clipPath: smallClip,
       }}
     >
@@ -594,7 +578,7 @@ function DetailBlock({ title, children }: { title: string; children: React.React
       className="px-3 py-3"
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-bubble), 0.78), rgba(var(--tj-surface-strong), 0.58))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.48)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-weak))',
         clipPath: smallClip,
       }}
     >
@@ -612,7 +596,7 @@ function MetricTile({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -635,7 +619,7 @@ function MiniBar({ value }: { value: number }) {
           className="h-1.5 flex-1"
           style={{
             background: index < Math.min(8, Math.max(0, value)) ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-text-secondary), 0.18)',
-            boxShadow: index < Math.min(8, Math.max(0, value)) ? '0 0 8px rgba(var(--tj-accent-primary), 0.45)' : undefined,
+            border: index < Math.min(8, Math.max(0, value)) ? '0 0 8px rgba(var(--tj-accent-primary), 0.45)' : undefined,
           }}
         />
       ))}
@@ -650,7 +634,7 @@ function StatChip({ label, value }: { label: string; value: number }) {
       style={{
         color: 'rgba(245, 235, 210, 0.96)',
         background: 'rgba(var(--tj-accent-primary), 0.08)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -667,7 +651,7 @@ function EffectChip({ text }: { text: string }) {
       style={{
         color: 'rgba(245, 235, 210, 0.96)',
         background: 'rgba(var(--tj-tech-cyan), 0.08)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.28)',
+        border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -695,7 +679,7 @@ function EmptyNotice({ title, text }: { title: string; text: string }) {
       className="px-4 py-5 text-center"
       style={{
         background: 'rgba(var(--tj-text-secondary), 0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.2)',
+        border: '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >

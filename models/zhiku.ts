@@ -1,7 +1,19 @@
+import type { VariableExecContext } from '@/utils/variableExecContext';
+import { DEFAULT_EXEC_CTX } from '@/utils/variableExecContext';
 import type { 智库治理分类, 智库资料所有者 } from './zhikuGovernance';
+import { isZhikuDataOwner, isZhikuGovernanceCategory } from './zhikuGovernance';
 
-export type 智库分类 = 'story' | 'character' | 'location' | 'faction' | 'term' | 'event' | 'enemy';
+export type 智库分类 = 'story' | 'character' | 'npc' | 'location' | 'item' | 'faction' | 'term' | 'event' | 'enemy' | 'system';
 export type 智库辅助关键词逻辑 = 'AND_ANY' | 'AND_ALL' | 'NOT_ANY' | 'NOT_ALL';
+
+export type ZhikuCatalogStatus = 'pending' | 'ready' | 'failed';
+
+export const RETIRED_ZHIKU_CATEGORIES = ['npc', 'item', 'system'] as const satisfies readonly 智库分类[];
+const RETIRED_ZHIKU_CATEGORY_SET = new Set<智库分类>(RETIRED_ZHIKU_CATEGORIES);
+
+export function isRetiredZhikuCategory(category: 智库分类): boolean {
+  return RETIRED_ZHIKU_CATEGORY_SET.has(category);
+}
 
 export const ZHIKU_CHARACTER_INJECTION_FIELDS = [
   '核心身份与阵营',
@@ -53,11 +65,14 @@ export interface 智库关键词匹配结果 {
 export const ZHIKU_CATEGORY_LABELS: Record<智库分类, string> = {
   story: '剧情',
   character: '人物',
+  npc: 'NPC',
   location: '地点',
+  item: '道具',
   faction: '派系',
   term: '术语',
   event: '事件',
   enemy: '敌对生物',
+  system: '系统',
 };
 
 export interface 智库条目 {
@@ -116,8 +131,6 @@ export interface 智库条目 {
 
 export interface 智库系统 {
   条目: 智库条目[];
-  自制资料契约版本?: number;
-  自制资料下一个序号?: number;
   目录版本?: string;
   目录修订?: number;
 }
@@ -185,15 +198,17 @@ export function 创建智库条目(input: {
   系列序号?: number;
   章节序号?: number;
   builtin?: boolean;
-}): 智库条目 {
-  const now = Date.now();
+}, ctx?: VariableExecContext): 智库条目 {
+  const eff = ctx ?? DEFAULT_EXEC_CTX;
+  const now = eff.now();
+  const category = input.分类 ?? 'story';
   return {
-    id: `zhiku_${now}_${Math.random().toString(36).slice(2, 7)}`,
+    id: `zhiku_${now}_${eff.randomString(5)}`,
     标题: input.标题.trim() || '未命名资料',
-    分类: input.分类 ?? 'story',
+    分类: category,
     摘要: input.摘要?.trim() ?? '',
     原文: input.原文?.trim() ?? '',
-    注入内容: 归一化智库注入内容(input.注入内容, input.分类 ?? 'story'),
+    注入内容: 归一化智库注入内容(input.注入内容, category),
     角色故事摘要: normalizeOptionalText(input.角色故事摘要),
     来源: input.来源?.trim() || undefined,
     关键词: normalizeKeywords(input.关键词),
@@ -235,17 +250,16 @@ export function 创建智库条目(input: {
   };
 }
 
-export function 归一化智库系统(input?: Partial<智库系统> | null): 智库系统 {
+/** 不可信输入（IDB 旧档、外部载荷）的唯一清洗入口。返回值不提供私有副本：调用方不得原地修改。 */
+export function 归一化智库系统(input?: Partial<智库系统> | null, ctx?: VariableExecContext): 智库系统 {
   if (!input || !Array.isArray(input.条目)) return 创建空智库系统();
   const seen = new Set<string>();
   return {
-    自制资料契约版本: normalizeNonNegativeInteger(input.自制资料契约版本),
-    自制资料下一个序号: normalizeNonNegativeInteger(input.自制资料下一个序号),
     目录版本: normalizeOptionalText(input.目录版本),
     目录修订: normalizeNonNegativeInteger(input.目录修订),
     条目: input.条目
-      .filter((entry) => !!entry && typeof entry === 'object')
-      .map((entry) => normalizeEntry(entry))
+      .filter((entry) => typeof entry === 'object')
+      .map((entry) => normalizeEntry(entry, ctx))
       .filter((entry) => {
         if (seen.has(entry.id)) return false;
         seen.add(entry.id);
@@ -254,14 +268,18 @@ export function 归一化智库系统(input?: Partial<智库系统> | null): 智
   };
 }
 
-export function 按ID查找智库条目(system: 智库系统 | undefined, id: string): 智库条目 | undefined {
-  const target = id.trim();
-  return target ? (system?.条目 ?? []).find((entry) => entry.id === target) : undefined;
+/** 可信构造：不逐字段清洗、不补默认、不去重兜底；重复 ID 或缺字段属于契约破坏，由契约测试拦截。 */
+export function 构造智库系统(input: {
+  条目: 智库条目[];
+  目录版本?: string;
+  目录修订?: number;
+}): 智库系统 {
+  return { 条目: input.条目, 目录版本: input.目录版本, 目录修订: input.目录修订 };
 }
 
 export function 搜索智库条目(system: 智库系统, query: string, limit = 8): 智库条目[] {
   const q = query.trim().toLowerCase();
-  const entries = system.条目 ?? [];
+  const entries = system.条目;
   if (!q) {
     return [...entries]
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -290,7 +308,7 @@ export function 获取智库显式触发词(entry: 智库条目): string[] {
 
   const tagged: string[] = [];
   const plain: string[] = [];
-  for (const keyword of entry.关键词 ?? []) {
+  for (const keyword of entry.关键词) {
     const parsed = parseKeywordTag(keyword);
     if (!parsed) {
       plain.push(keyword);
@@ -333,7 +351,7 @@ export function 匹配智库关键词(entry: 智库条目, scanText: string): �
 }
 
 export function 召回智库关键词匹配(system: 智库系统, scanText: string): 智库关键词匹配结果[] {
-  const matches = (system.条目 ?? [])
+  const matches = system.条目
     .map((entry) => 匹配智库关键词(entry, scanText))
     .filter((match): match is 智库关键词匹配结果 => Boolean(match));
   return 选择智库关键词互斥结果(matches);
@@ -365,8 +383,8 @@ export function 智库分类计数(system: 智库系统): Record<智库分类, n
   const counts = Object.fromEntries(
     Object.keys(ZHIKU_CATEGORY_LABELS).map((key) => [key, 0]),
   ) as Record<智库分类, number>;
-  for (const entry of system.条目 ?? []) {
-    counts[entry.分类] = (counts[entry.分类] ?? 0) + 1;
+  for (const entry of system.条目) {
+    counts[entry.分类] += 1;
   }
   return counts;
 }
@@ -378,7 +396,7 @@ export function 解析智库软结构标签(
   >>,
 ): 智库软结构标签 {
   const tagMap = new Map<string, string[]>();
-  for (const keyword of entry.关键词 ?? []) {
+  for (const keyword of entry.关键词) {
     const parsed = parseKeywordTag(keyword);
     if (!parsed) continue;
     const current = tagMap.get(parsed.key) ?? [];
@@ -424,16 +442,15 @@ export function 获取智库人物名(entry: 智库条目): string {
 export function 获取智库人物名列表(entry: Pick<智库条目, '标题' | '关键词'> & Partial<Pick<智库条目, '关联角色ID'>>): string[] {
   const names: string[] = [];
   const explicitRole = normalizeOptionalText(entry.关联角色ID);
-  const taggedNames = (entry.关键词 ?? [])
-    .map((keyword) => parseKeywordTag(keyword))
-    .filter((tag): tag is { key: string; value: string } => !!tag && ['角色', '人物', '归属角色'].includes(tag.key))
-    .map((tag) => tag.value.trim())
-    .filter(Boolean);
+  if (explicitRole) names.push(explicitRole);
 
-  const explicitRoleIsInternalId = !!explicitRole && /^[a-z][a-z0-9_-]*$/u.test(explicitRole);
-  if (explicitRole && !explicitRoleIsInternalId) names.push(explicitRole);
-  names.push(...taggedNames);
-  if (explicitRole && !names.includes(explicitRole)) names.push(explicitRole);
+  names.push(
+    ...(entry.关键词)
+    .map((keyword) => parseKeywordTag(keyword))
+      .filter((tag): tag is { key: string; value: string } => !!tag && ['角色', '人物', '归属角色'].includes(tag.key))
+    .map((tag) => tag.value.trim())
+      .filter(Boolean),
+  );
   if (names.length) return Array.from(new Set(names));
 
   return entry.标题
@@ -450,7 +467,7 @@ export function 获取智库人物名列表(entry: Pick<智库条目, '标题' |
 }
 
 export function 获取智库核心触发词(entry: Pick<智库条目, '原文'>): string[] {
-  const source = String(entry.原文 ?? '');
+  const source = typeof entry.原文 === 'string' ? entry.原文 : '';
   const match = source.match(/核心触发词[:：]\s*([^\n]+)/u);
   if (!match) return [];
   return Array.from(new Set(
@@ -562,18 +579,17 @@ export function 比较智库人物节点(a: 智库条目, b: 智库条目): numb
   return b.updatedAt - a.updatedAt || a.标题.localeCompare(b.标题, 'zh-Hans-CN');
 }
 
-function normalizeEntry(entry: Partial<智库条目>): 智库条目 {
-  const now = Date.now();
+function normalizeEntry(entry: Partial<智库条目>, ctx?: VariableExecContext): 智库条目 {
+  const eff = ctx ?? DEFAULT_EXEC_CTX;
+  const now = eff.now();
   const category = isZhikuCategory(entry.分类) ? entry.分类 : 'story';
   return {
-    id: typeof entry.id === 'string' && entry.id ? entry.id : `zhiku_${now}_${Math.random().toString(36).slice(2, 7)}`,
+    id: typeof entry.id === 'string' && entry.id ? entry.id : `zhiku_${now}_${eff.randomString(5)}`,
     治理分类: isZhikuGovernanceCategory(entry.治理分类) ? entry.治理分类 : undefined,
     资料所有者: isZhikuDataOwner(entry.资料所有者) ? entry.资料所有者 : undefined,
     来源预设ID: normalizeOptionalText(entry.来源预设ID),
     来源文件: normalizeOptionalText(entry.来源文件),
-    来源序号: Number.isInteger(entry.来源序号) && Number(entry.来源序号) >= 0
-      ? Number(entry.来源序号)
-      : undefined,
+    来源序号: normalizeNonNegativeInteger(entry.来源序号),
     资料版本: normalizeNonNegativeInteger(entry.资料版本),
     辅助字段版本: normalizeNonNegativeInteger(entry.辅助字段版本),
     标题: typeof entry.标题 === 'string' && entry.标题.trim() ? entry.标题.trim() : '未命名资料',
@@ -648,18 +664,6 @@ function isZhikuCategory(value: unknown): value is 智库分类 {
   return typeof value === 'string' && value in ZHIKU_CATEGORY_LABELS;
 }
 
-function isZhikuGovernanceCategory(value: unknown): value is 智库治理分类 {
-  return typeof value === 'string'
-    && ['character', 'story', 'location', 'faction', 'event', 'enemy', 'aeon', 'path', 'term'].includes(value);
-}
-
-function isZhikuDataOwner(value: unknown): value is 智库资料所有者 {
-  return value === 'builtin-json'
-    || value === 'story-weaving'
-    || value === 'custom-user-data'
-    || value === 'pending-user-data';
-}
-
 function normalizeNonNegativeInteger(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
@@ -678,7 +682,7 @@ function normalizeKeywords(value: unknown): string[] {
         .map((item) => item.trim())
         .filter(Boolean),
     ),
-  ).slice(0, 24);
+  ).slice(0, 80);
 }
 
 function normalizeOptionalText(value: unknown): string | undefined {
@@ -696,7 +700,7 @@ function normalizeTextList(value: unknown): string[] {
       .filter((item): item is string => typeof item === 'string')
       .map((item) => item.trim())
       .filter(Boolean),
-  )).slice(0, 12);
+  )).slice(0, 64);
 }
 
 function normalizeOptionalTextList(value: unknown): string[] | undefined {
@@ -760,7 +764,7 @@ function isPositiveSecondaryLogic(logic: 智库辅助关键词逻辑 | undefined
 }
 
 function clampImportance(value: number): number {
-  const n = Math.trunc(Number(value) || 3);
+  const n = Math.trunc(value || 3);
   return Math.min(5, Math.max(1, n));
 }
 
@@ -769,13 +773,9 @@ function scoreEntry(entry: 智库条目, query: string, terms: string[]): number
   const summary = entry.摘要.toLowerCase();
   const source = (entry.来源 ?? '').toLowerCase();
   const raw = entry.原文.toLowerCase();
-  // 关键词取「标签值」：正文写「符玄」，匹配的是「角色:符玄」的值而不是带前缀原文
-  // （正文里永远不会出现「角色:」这种标签格式，用原文匹配会让关键词命中路径全部失效）。
-  const keywordValues = (entry.关键词 ?? [])
-    .map((keyword) => {
-      const parsed = parseKeywordTag(keyword);
-      return parsed ? parsed.value : keyword;
-    })
+  // 关键词取标签值：正文写「符玄」要匹配「角色:符玄」的值，而不是带前缀的原文。
+  const keywordValues = entry.关键词
+    .map((keyword) => parseKeywordTag(keyword)?.value ?? keyword)
     .map((keyword) => keyword.toLowerCase());
   const seriesTitle = (entry.系列标题 ?? '').toLowerCase();
   const structured = [
@@ -795,6 +795,8 @@ function scoreEntry(entry: 智库条目, query: string, terms: string[]): number
     entry.行为习惯,
     entry.关系边界,
     entry.禁止误写,
+    ...(entry.触发关键词 ?? []),
+    ...(entry.辅助关键词 ?? []),
     ...(entry.使用范围 ?? []),
   ].filter(Boolean).join(' ').toLowerCase();
   let score = 0;
@@ -806,10 +808,6 @@ function scoreEntry(entry: 智库条目, query: string, terms: string[]): number
   if (structured.includes(query)) score += 24;
   if (source.includes(query)) score += 12;
   if (raw.includes(query)) score += 8;
-  // 关联角色ID 命中：本体档案优先于「关键词里提到该角色」的关联条目
-  // （如仙舟「罗浮」关键词含「符玄」会与符玄本体同分竞争，本体必须排前面）。
-  const roleId = String(entry.关联角色ID ?? '').toLowerCase();
-  if (roleId && query.includes(roleId) && !/^[a-z][a-z0-9_-]*$/u.test(roleId)) score += 40;
 
   for (const term of terms) {
     if (title.includes(term)) score += 22;
@@ -820,8 +818,5 @@ function scoreEntry(entry: 智库条目, query: string, terms: string[]): number
     if (raw.includes(term)) score += 3;
   }
 
-  // 重要度只作同分排序参考：无任何命中（score=0）时不得返回正分，
-  // 否则「搜索智库条目」的 score>0 过滤形同虚设，全表按重要度返回（AI 候选被无关条目挤占）。
-  if (score === 0) return 0;
   return score + entry.重要度;
 }

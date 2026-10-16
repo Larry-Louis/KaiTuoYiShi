@@ -1,11 +1,11 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 命途ID } from '@/models/journey';
-import type { 命途进度, 命途阶段 } from '@/models/path';
-import type { API设置 } from '@/models/settings';
+import type { 命途进度 } from '@/models/path';
+import type { API设置, API配置项 } from '@/models/settings';
 import { PATH_STAGE_DEFS } from '@/models/path';
 import { getPath } from '@/data/journeyPresets';
-import { generateSkillDraft } from '@/services/ai/skillGenerator';
+import type { 战技生成草稿, 战技生成上下文 } from '@/contracts/ai';
 import {
   NORMAL_SKILL_SLOT_COUNT,
   创建战技记录,
@@ -15,11 +15,15 @@ import {
   type 战技记录,
   type 战技槽位摘要,
 } from '@/models/skill';
+import { badgeClip as cardClip, mediumClip as smallClip } from '@/components/ui/clipPaths';
+import { resolveMainApiConfig } from '@/services/apiConfig';
 
 interface SkillPanelProps {
   traveler: 角色数据结构;
   onTravelerChange: React.Dispatch<React.SetStateAction<角色数据结构>>;
   apiSettings: API设置;
+  /** 由 useGame 门面提供。 */
+  onGenerateSkillDraft: (apiConfig: API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
 }
 
 type SlotKey = `normal:${number}` | `path:${命途ID}:${number}`;
@@ -34,10 +38,6 @@ interface SkillDraft {
   备注: string;
 }
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
 const emptyDraft: SkillDraft = {
   名称: '',
@@ -49,10 +49,10 @@ const emptyDraft: SkillDraft = {
   备注: '',
 };
 
-export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPanelProps) {
-  const pathRecords = traveler.命途列表 ?? [];
+export function SkillPanel({ traveler, onTravelerChange, apiSettings, onGenerateSkillDraft }: SkillPanelProps) {
+  const pathRecords = traveler.命途列表;
   const skillRecords = useMemo(
-    () => (traveler.战技列表 ?? []).map(归一化战技记录).filter(isVisibleSkillRecord),
+    () => traveler.战技列表.map(归一化战技记录).filter(isVisibleSkillRecord),
     [traveler.战技列表],
   );
   const slotSummary = useMemo(
@@ -62,27 +62,24 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
   const normalSlots = slotSummary.filter((slot) => slot.kind === 'normal');
   const pathSlots = slotSummary.filter((slot) => slot.kind === 'path');
 
-  const defaultPath = pathRecords.find((p) => p.是否主命途) ?? pathRecords[0] ?? null;
+  const defaultPath = pathRecords.find((p) => p.是否主命途) ?? pathRecords.at(0);
   const [selectedPathId, setSelectedPathId] = useState<命途ID | ''>(defaultPath?.id ?? '');
   const [selectedSlotKey, setSelectedSlotKey] = useState<SlotKey>('normal:1');
-  const [draft, setDraft] = useState<SkillDraft>(emptyDraft);
+  const [draftState, setDraftState] = useState<{ key: string; draft: SkillDraft }>({ key: '', draft: emptyDraft });
   const [generationHint, setGenerationHint] = useState('');
   const [generatingSkill, setGeneratingSkill] = useState(false);
   const [generationMessage, setGenerationMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
 
-  const selectedPath = pathRecords.find((path) => path.id === selectedPathId) ?? defaultPath ?? null;
+  const effectiveSelectedPathId: 命途ID | '' = selectedPathId || (defaultPath?.id ?? '');
+  const selectedPath = pathRecords.find((path) => path.id === effectiveSelectedPathId) ?? defaultPath ?? null;
   const selectedSlot = resolveSlot(slotSummary, selectedSlotKey);
   const selectedSkill = selectedSlot?.occupiedSkillId
     ? skillRecords.find((skill) => skill.id === selectedSlot.occupiedSkillId)
     : undefined;
 
-  useEffect(() => {
-    if (!selectedPathId && defaultPath) setSelectedPathId(defaultPath.id);
-  }, [defaultPath, selectedPathId]);
-
-  useEffect(() => {
-    setDraft(selectedSkill ? draftFromSkill(selectedSkill) : emptyDraft);
-  }, [selectedSkill?.id, selectedSlotKey]);
+  const draftKey = `${selectedSlotKey}|${selectedSkill?.id ?? ''}`;
+  const draft = draftState.key === draftKey ? draftState.draft : selectedSkill ? draftFromSkill(selectedSkill) : emptyDraft;
+  const updateDraft = (next: SkillDraft) => setDraftState({ key: draftKey, draft: next });
 
   const filledNormal = normalSlots.filter((slot) => slot.occupiedSkillId).length;
   const filledPath = pathSlots.filter((slot) => slot.occupiedSkillId).length;
@@ -93,12 +90,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
   const pathSkillRecords = skillRecords
     .filter((skill) => skill.槽位类型 === 'path')
     .sort((a, b) => sortSkill(a, b));
-  const activeApiConfig = useMemo(() => {
-    if (apiSettings.activeConfigId) {
-      return apiSettings.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
-    }
-    return apiSettings.configs[0] ?? null;
-  }, [apiSettings.activeConfigId, apiSettings.configs]);
+  const activeApiConfig = useMemo(() => resolveMainApiConfig(apiSettings), [apiSettings]);
 
   const saveSkill = () => {
     if (!selectedSlot) return;
@@ -148,7 +140,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
     setGeneratingSkill(true);
     setGenerationMessage({ kind: 'info', text: '正在根据当前槽位生成小说化战技草稿……' });
     try {
-      const generated = await generateSkillDraft(activeApiConfig, {
+      const generated = await onGenerateSkillDraft(activeApiConfig, {
         traveler,
         slotKind: selectedSlot.kind,
         slotIndex: selectedSlot.slotIndex,
@@ -166,14 +158,17 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
           备注: draft.备注,
         },
       });
-      setDraft({
-        名称: generated.名称,
-        描述: generated.描述,
-        来源: generated.来源 || (selectedSlot.kind === 'normal' ? 'AI 普通战技草稿' : 'AI 命途战技草稿'),
-        关键词: generated.关键词.join('、'),
-        消耗: generated.消耗,
-        冷却: generated.冷却,
-        备注: generated.备注,
+      setDraftState({
+        key: draftKey,
+        draft: {
+          名称: generated.名称,
+          描述: generated.描述,
+          来源: generated.来源 || (selectedSlot.kind === 'normal' ? 'AI 普通战技草稿' : 'AI 命途战技草稿'),
+          关键词: generated.关键词.join('、'),
+          消耗: generated.消耗,
+          冷却: generated.冷却,
+          备注: generated.备注,
+        },
       });
       setGenerationMessage({ kind: 'info', text: '已生成草稿。你可以继续修改，确认后再写入槽位。' });
     } catch (error) {
@@ -185,7 +180,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
 
   const upsertSkill = (nextSkill: 战技记录) => {
     onTravelerChange((prev) => {
-      const oldSkills = prev.战技列表 ?? [];
+      const oldSkills = prev.战技列表;
       const withoutSameSlot = oldSkills.filter(
         (skill) => skill.id !== nextSkill.id && !sameSlot(skill, nextSkill),
       );
@@ -200,14 +195,14 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
     if (!window.confirm('确认移除此战技？槽位会恢复为空。')) return;
     onTravelerChange((prev) => ({
       ...prev,
-      战技列表: (prev.战技列表 ?? []).filter((skill) => skill.id !== skillId),
+      战技列表: prev.战技列表.filter((skill) => skill.id !== skillId),
     }));
   };
 
   const toggleSkill = (skillId: string) => {
     onTravelerChange((prev) => ({
       ...prev,
-      战技列表: (prev.战技列表 ?? []).map((skill) =>
+      战技列表: prev.战技列表.map((skill) =>
         skill.id === skillId ? { ...skill, 已启用: skill.已启用 === false, 更新时间: Date.now() } : skill,
       ),
     }));
@@ -286,7 +281,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
                           style={{
                             color: active ? 'rgb(var(--tj-text-primary))' : 'rgba(var(--tj-text-secondary),0.78)',
                             background: active ? 'rgba(var(--tj-accent-primary),0.12)' : 'rgba(var(--tj-tech-cyan), 0.045)',
-                            boxShadow: active ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.42)' : 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.16)',
+                            border: active ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))' : '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))',
                             clipPath: smallClip,
                           }}
                         >
@@ -346,7 +341,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
                   <button className="panel-btn danger" onClick={() => deleteSkill(selectedSkill.id)}>移除</button>
                 </>
               )}
-              <button className="panel-btn" disabled={!selectedSlot || generatingSkill} onClick={generateDraftWithAI}>
+              <button className="panel-btn" disabled={!selectedSlot || generatingSkill} onClick={() => void generateDraftWithAI()}>
                 {generatingSkill ? '生成中…' : 'AI 生成'}
               </button>
               <button className="panel-btn strong" disabled={!selectedSlot || generatingSkill} onClick={saveSkill}>
@@ -360,7 +355,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
               style={{
                 color: generationMessage.kind === 'error' ? 'rgba(255, 135, 135, 0.95)' : 'rgba(var(--tj-text-secondary),0.88)',
                 background: generationMessage.kind === 'error' ? 'rgba(160, 40, 40, 0.12)' : 'rgba(var(--tj-tech-cyan), 0.055)',
-                boxShadow: generationMessage.kind === 'error' ? 'inset 0 0 0 1px rgba(255, 135, 135, 0.24)' : 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.18)',
+                border: generationMessage.kind === 'error' ? '1px solid rgba(255, 135, 135, var(--tj-edge-tint))' : '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
                 clipPath: smallClip,
               }}
             >
@@ -391,7 +386,7 @@ export function SkillPanel({ traveler, onTravelerChange, apiSettings }: SkillPan
                     style={{ clipPath: smallClip }}
                   />
                 </Field>
-                <SkillEditor draft={draft} onChange={setDraft} selectedSlot={selectedSlot} selectedPath={selectedPath} />
+                <SkillEditor draft={draft} onChange={updateDraft} selectedSlot={selectedSlot} selectedPath={selectedPath} />
               </>
             ) : (
               <EmptyNotice text="先选择普通槽位或命途槽位创建战技。" />
@@ -555,11 +550,11 @@ function ModePill({
             ? 'rgba(var(--tj-tech-cyan), 0.12)'
             : 'rgba(var(--tj-accent-primary),0.12)'
           : 'rgba(var(--tj-accent-primary),0.04)',
-        boxShadow: active
+        border: active
           ? isCyan
-            ? 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.35)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.35)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
+            ? '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-strong))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -584,9 +579,9 @@ function ModeNotice({
       style={{
         color: isCyan ? 'rgba(204,240,240,0.82)' : 'rgba(var(--tj-text-secondary),0.82)',
         background: isCyan ? 'rgba(var(--tj-tech-cyan), 0.045)' : 'rgba(var(--tj-accent-primary),0.045)',
-        boxShadow: isCyan
-          ? 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.16)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.16)',
+        border: isCyan
+          ? '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -615,9 +610,9 @@ function SkillRecordGroup({
       className="px-2.5 py-2.5 md:px-3 md:py-3"
       style={{
         background: isCyan ? 'rgba(var(--tj-tech-cyan), 0.03)' : 'rgba(var(--tj-accent-primary),0.03)',
-        boxShadow: isCyan
-          ? 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.14)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
+        border: isCyan
+          ? '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -665,12 +660,13 @@ function SlotGroup({
               className="w-[112px] shrink-0 px-2 py-2 text-left transition-all md:w-full md:px-3"
               onClick={() => onSelect(slot)}
               style={{
+                // 垫片会丢弃内阴影，强调条只能画成背景条纹，且必须排在第一层。
                 background: active
-                  ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.13), rgba(var(--tj-tech-cyan), 0.06))'
+                  ? `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge-strong)) 0 3px, transparent 3px), linear-gradient(135deg, rgba(var(--tj-accent-primary),0.13), rgba(var(--tj-tech-cyan), 0.06))`
                   : 'rgba(var(--tj-bg-primary),0.45)',
-                boxShadow: active
-                  ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.48), inset 3px 0 0 rgba(var(--tj-accent-primary),0.82)'
-                  : 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.14)',
+                border: active
+                  ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+                  : '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))',
                 clipPath: smallClip,
               }}
             >
@@ -718,9 +714,9 @@ function SkillRecordCard({
           : skill.已启用 === false
             ? 'rgba(var(--tj-text-secondary),0.04)'
             : 'rgba(var(--tj-bg-primary),0.46)',
-        boxShadow: selected
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.48)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.14)',
+        border: selected
+          ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -756,7 +752,7 @@ function SkillRecordCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)', clipPath: smallClip }}>
+    <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.055)', border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))', clipPath: smallClip }}>
       <div className="text-[12px]" style={{ color: 'rgba(var(--tj-text-secondary),0.72)' }}>{label}</div>
       <div className="mt-0.5 font-serif text-[17px] font-bold" style={{ color: 'rgb(var(--tj-text-primary))' }}>{value}</div>
     </div>
@@ -786,7 +782,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-2.5 py-1.5 md:px-3 md:py-2" style={{ background: 'rgba(var(--tj-tech-cyan), 0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.18)', clipPath: smallClip }}>
+    <div className="px-2.5 py-1.5 md:px-3 md:py-2" style={{ background: 'rgba(var(--tj-tech-cyan), 0.055)', border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))', clipPath: smallClip }}>
       <div className="text-[10px] md:text-[12px]" style={{ color: 'rgba(var(--tj-tech-cyan), 0.72)' }}>{label}</div>
       <div className="mt-0.5 truncate font-serif text-[12px] md:text-[14px]" style={{ color: 'rgb(var(--tj-text-primary))' }}>{value}</div>
     </div>
@@ -795,7 +791,7 @@ function InfoTile({ label, value }: { label: string; value: string }) {
 
 function EmptyNotice({ text }: { text: string }) {
   return (
-    <div className="px-2.5 py-2.5 text-[11px] leading-relaxed md:px-3 md:py-3 md:text-[12px]" style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-text-secondary),0.055)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-secondary),0.18)', clipPath: smallClip }}>
+    <div className="px-2.5 py-2.5 text-[11px] leading-relaxed md:px-3 md:py-3 md:text-[12px]" style={{ color: 'rgba(var(--tj-text-secondary),0.78)', background: 'rgba(var(--tj-text-secondary),0.055)', border: '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))', clipPath: smallClip }}>
       {text}
     </div>
   );
@@ -804,7 +800,7 @@ function EmptyNotice({ text }: { text: string }) {
 function panelStyle(background = 'linear-gradient(180deg, rgba(var(--tj-bg-secondary),0.96), rgba(var(--tj-bg-primary),0.98))') {
   return {
     background,
-    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.62), 0 14px 32px rgba(var(--tj-shadow),0.1)',
+    border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
     clipPath: cardClip,
   };
 }
@@ -850,7 +846,7 @@ function sameSlot(a: 战技记录, b: 战技记录): boolean {
 
 function sortSkill(a: 战技记录, b: 战技记录): number {
   if (a.槽位类型 !== b.槽位类型) return a.槽位类型 === 'normal' ? -1 : 1;
-  if (a.关联命途 !== b.关联命途) return String(a.关联命途 ?? '').localeCompare(String(b.关联命途 ?? ''));
+  if (a.关联命途 !== b.关联命途) return (a.关联命途 ?? '').localeCompare(b.关联命途 ?? '');
   return a.槽位序号 - b.槽位序号;
 }
 

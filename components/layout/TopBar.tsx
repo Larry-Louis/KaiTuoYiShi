@@ -1,8 +1,9 @@
-﻿import { memo, useState } from 'react';
+﻿import { memo, useState, type CSSProperties } from 'react';
 import type { 世界状态 } from '@/models/world';
 import type { 主题预设 } from '@/models/settings';
 import type { 新闻条目 } from '@/models/news';
 import { 天气Emoji映射, 天气名映射 } from '@/data/weatherRules';
+import { badgeClip, cardClip, mediumClip } from '@/components/ui/clipPaths';
 
 interface TopBarProps {
   worldState: 世界状态;
@@ -13,17 +14,17 @@ interface TopBarProps {
 }
 
 const clip10 =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
+  cardClip;
 
 const clip12 =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
+  badgeClip;
 
-export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNews }: TopBarProps) {
+export const TopBar = memo(function TopBar({ worldState, onHome, news }: TopBarProps) {
   const [mobileCollapsed, setMobileCollapsed] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
-  const dateText = worldState.当前日期?.trim() || '日期未设定';
+  const dateText = worldState.当前日期.trim() || '日期未设定';
   const timeText = formatClock(worldState.当前时间) || '时间未设定';
-  const locationText = worldState.当前地点?.trim() || '地点未设定';
+  const locationText = worldState.当前地点.trim() || '地点未设定';
   const dayText = `DAY ${Math.max(1, worldState.开拓天数 || 1).toString().padStart(2, '0')}`;
 
   const weatherId = worldState.当前天气;
@@ -37,11 +38,13 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
   ) : null;
 
   const headlines = buildHeadlines(news);
+  const marqueeStyle: CSSProperties & Record<'--marquee-duration', string> = {
+    '--marquee-duration': headlines.length > 3 ? '40s' : '60s',
+  };
 
   return (
     <>
-      {/* ===== 移动端悬浮面板（不变） ===== */}
-      <div className="fixed left-2 top-[calc(var(--app-safe-top,0px)+10px)] z-40 flex items-start gap-2 md:hidden">
+      <div className="fixed left-2 top-[calc(var(--app-safe-top)+10px)] z-40 flex items-start gap-2 md:hidden">
         <button
           type="button"
           onClick={() => {
@@ -52,7 +55,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
           style={{
             color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
             background: 'rgba(var(--tj-surface), 0.88)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34), 0 10px 28px rgba(var(--tj-shadow), 0.28)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             backdropFilter: 'blur(4px)',
             clipPath: clip10,
           }}
@@ -70,7 +73,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
               style={{
                 color: 'rgb(var(--tj-text-primary))',
                 background: 'rgba(var(--tj-surface), 0.90)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3), 0 12px 30px rgba(var(--tj-shadow), 0.28)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                 backdropFilter: 'blur(5px)',
                 clipPath: clip10,
               }}
@@ -94,7 +97,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
                 style={{
                   color: 'rgba(var(--tj-text-primary), 0.92)',
                   background: 'rgba(var(--tj-surface), 0.94)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.26), 0 16px 36px rgba(var(--tj-shadow), 0.32)',
+                  border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   backdropFilter: 'blur(6px)',
                   clipPath: clip12,
                 }}
@@ -110,8 +113,8 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
                   style={{
                     color: 'rgba(var(--tj-accent-primary), 0.92)',
                     background: 'rgba(var(--tj-accent-primary), 0.08)',
-                    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-                    clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+                    border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+                    clipPath: mediumClip,
                   }}
                 >
                   返回首页
@@ -122,14 +125,12 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
         )}
       </div>
 
-      {/* ===== 桌面端顶栏：新闻底层 + 日期芯片上层 ===== */}
       <div
         className="kaituo-topbar relative hidden items-center overflow-hidden px-5 py-2.5 text-sm md:grid"
         style={{
           gridTemplateColumns: 'minmax(160px, 1fr) auto minmax(160px, 1fr)',
         }}
       >
-        {/* ── 底层：新闻滚动条（absolute 铺满） ── */}
         <div className="pointer-events-none absolute inset-0 z-0 flex items-center overflow-hidden">
           {headlines.length > 0 && (
             <div className="w-full overflow-hidden">
@@ -137,7 +138,7 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
                 className="flex items-center gap-0 whitespace-nowrap min-w-max animate-marquee-linear"
                 style={{
                   animation: 'marqueeLinear var(--marquee-duration, 36s) linear infinite',
-                  ['--marquee-duration' as any]: headlines.length > 3 ? '40s' : '60s',
+                  ...marqueeStyle,
                   fontSize: '15px',
                   color: 'rgba(var(--tj-text-secondary), 0.72)',
                   fontFamily: '"Noto Serif SC", SimSun, serif',
@@ -164,7 +165,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
           )}
         </div>
 
-        {/* ── 上层：左列品牌 ── */}
         <button
           onClick={onHome}
           className="relative z-10 flex items-center gap-2.5 transition-opacity hover:opacity-80 justify-self-start"
@@ -183,7 +183,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
           </span>
         </button>
 
-        {/* ── 上层：中列日期芯片（浮在新闻上方） ── */}
         <div className="relative z-10 justify-self-center">
           <div
             className="flex max-w-[min(56vw,720px)] items-center gap-2 px-3 py-1.5"
@@ -202,14 +201,13 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
           </div>
         </div>
 
-        {/* ── 上层：右列 DAY 徽章 ── */}
         <div className="relative z-10 justify-self-end">
           <div
             className="flex items-baseline gap-2 px-3 py-1"
             style={{
               background: 'rgba(var(--tj-bg-primary), 0.9)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
-              clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+              clipPath: mediumClip,
             }}
             title="开拓天数"
           >
@@ -225,8 +223,6 @@ export const TopBar = memo(function TopBar({ worldState, onHome, news, onOpenNew
     </>
   );
 });
-
-// ---- helpers ----
 
 function MobileDetail({ label, value }: { label: string; value: string }) {
   return (
@@ -310,7 +306,7 @@ function buildHeadlines(news: 新闻条目[]): string[] {
     return 2;
   };
   const sorted = [...items]
-    .filter((n) => n.标题?.trim())
+    .filter((n) => n.标题.trim())
     .sort((a, b) => rank(a.状态) - rank(b.状态));
   const seen = new Set<string>();
   return sorted

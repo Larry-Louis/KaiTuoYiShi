@@ -1,12 +1,11 @@
 import type { API配置项, API设置, 游戏设置 } from '@/models/settings';
-import type { 角色数据结构 } from '@/models/character';
-import type { 世界状态 } from '@/models/world';
-import type { 手机会话, 手机联系人, 主动来信种子 } from '@/models/phone';
+import type { 手机联系人, 主动来信种子 } from '@/models/phone';
 import type { NPC记录 } from '@/models/npc';
-import { 格式化NPC关系, 提取NPC同行记忆文本列表, 筛选活跃NPC } from '@/models/npc';
-import type { 新闻条目 } from '@/models/news';
+import { 格式化NPC关系, 提取NPC同行记忆文本列表 } from '@/models/npc';
 import type { 聊天消息 } from '@/models/chat';
-import type { 智库系统 } from '@/models/zhiku';
+import type { 智库条目 } from '@/models/zhiku';
+import type { 手机回复上下文 } from '@/contracts/phone';
+import { 解析智库软结构标签, 获取智库人物名, 比较智库人物节点 } from '@/models/zhiku';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import { PHONE_COT_PROMPT as PHONE_LEGACY_COT_PROMPT } from '@/prompts/cot/phoneCot';
 import { PHONE_OUTPUT_FORMAT_PROMPT as PHONE_LEGACY_OUTPUT_FORMAT_PROMPT } from '@/prompts/cot/phoneOutputFormat';
@@ -14,25 +13,11 @@ import { PHONE_STYLE_PROMPT as PHONE_LEGACY_STYLE_PROMPT } from '@/prompts/cot/p
 import { PHONE_WORLD_BOOK_PROMPT as PHONE_LEGACY_WORLD_BOOK_PROMPT } from '@/data/phoneWorldbook';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
-import { compileZhikuPhoneView } from '@/services/zhikuRuntimeCompiler';
 import { chatCompletionNonStream } from './chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
+import { resolveApiConfig } from '@/services/apiConfig';
+import { devLogError } from '@/utils/devLog';
 import { extractJsonLikeText, normalizeStructuredModelText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
-
-export interface 手机回复上下文 {
-  traveler: 角色数据结构;
-  world: 世界状态;
-  npcRecords: NPC记录[];
-  news: 新闻条目[];
-  turnCount: number;
-  chat: 手机会话;
-  contacts?: 手机联系人[];
-  contact?: 手机联系人;
-  userText?: string;
-  seed?: 主动来信种子;
-  mainChatHistory?: 聊天消息[];
-  zhiku?: 智库系统;
-}
 
 export interface 手机回复结果 {
   messages: string[];
@@ -51,11 +36,10 @@ interface 手机回复质量结果 {
   reasons: string[];
 }
 
-export class PhoneReplyQualityError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'PhoneReplyQualityError';
-  }
+export function createPhoneReplyQualityError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'PhoneReplyQualityError';
+  return error;
 }
 
 function getPhoneReplyLimits(ctx: 手机回复上下文): 手机回复数量限制 {
@@ -63,30 +47,7 @@ function getPhoneReplyLimits(ctx: 手机回复上下文): 手机回复数量限�
 }
 
 export function buildPhoneApiConfig(settings: 游戏设置, apiSettings: API设置): API配置项 | null {
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
-  const phoneApi = settings.手机系统.api;
-  const phoneFieldsEmpty = !phoneApi.baseUrl.trim() && !phoneApi.apiKey.trim() && !phoneApi.model.trim();
-  const provider = phoneFieldsEmpty ? mainConfig?.provider : phoneApi.provider || mainConfig?.provider;
-  const baseUrl = phoneApi.baseUrl.trim() || mainConfig?.baseUrl || '';
-  const apiKey = phoneApi.apiKey.trim() || mainConfig?.apiKey || '';
-  const model = phoneApi.model.trim() || mainConfig?.model || '';
-
-  if (!provider || !baseUrl || !apiKey || !model) return null;
-
-  return {
-    id: '__phone_runtime__',
-    name: '手机系统',
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    maxTokens: phoneApi.maxTokens ?? mainConfig?.maxTokens ?? 900,
-    temperature: phoneApi.temperature ?? mainConfig?.temperature ?? 0.75,
-    retryCount: phoneApi.retryCount ?? mainConfig?.retryCount ?? 2,
-    enableClaudeMode: settings.enableClaudeMode === true,
-    createdAt: 0,
-    updatedAt: Date.now(),
-  };
+  return resolveApiConfig(apiSettings, settings, 'phone');
 }
 
 export async function generatePhoneReply(
@@ -127,7 +88,7 @@ export async function generatePhoneReply(
   }, safeCtx, limits);
   if (final.accepted) return final.reply;
 
-  throw new PhoneReplyQualityError(
+  throw createPhoneReplyQualityError(
     `手机回复质量校验失败：${final.reasons.join('；') || `未达到 ${limits.min}-${limits.max} 条有效短讯`}`,
   );
 }
@@ -153,6 +114,7 @@ export function buildPhoneSystemPrompt(ctx: 手机回复上下文, promptModules
       ? '{"messages":["角色甲：短讯1","角色乙：短讯2"],"summary":"一句话群聊摘要"}'
       : '{"messages":["短讯1","短讯2","短讯3","短讯4"],"summary":"一句话通讯摘要"}',
   ].join('\n');
+  // contextSnapshot 等旧调用点在模块段为空时不传 promptModules，需保留常量拼接回退。
   const effectiveModules = modulesSection || [
     PHONE_LEGACY_WORLD_BOOK_PROMPT,
     PHONE_LEGACY_STYLE_PROMPT,
@@ -215,7 +177,7 @@ export function buildPhoneMessages(ctx: 手机回复上下文): Array<{ role: st
       : '',
   ].filter(Boolean).join('\n\n');
 
-  const latestMessage = ctx.chat.messages[ctx.chat.messages.length - 1];
+  const latestMessage = ctx.chat.messages.at(-1);
   const historySource = ctx.userText
     && latestMessage?.role === 'player'
     && latestMessage.content.trim() === ctx.userText.trim()
@@ -250,34 +212,17 @@ function isPhoneSeedVisible(ctx: 手机回复上下文): boolean {
   if (!seed) return false;
   if (ctx.chat.type === 'group') {
     if (seed.targetType !== 'group') return false;
-    const archivedReference = [seed.targetId, ...seed.relatedNpcIds].some((id) =>
-      isArchivedNpcReference(ctx.npcRecords, id),
-    );
-    if (archivedReference) return false;
-    if (seed.targetId === ctx.chat.id) {
-      const hasActiveNpc = ctx.chat.participantIds.some((participantId) =>
-        Boolean(resolvePhoneGroupParticipant(ctx, participantId)?.npc),
-      );
-      const hasArchivedNpc = ctx.chat.participantIds.some((participantId) =>
-        isArchivedNpcReference(ctx.npcRecords, participantId)
-        || Boolean(ctx.contacts?.find((contact) => contact.id === participantId)?.npcId
-          && isArchivedNpcReference(ctx.npcRecords, ctx.contacts?.find((contact) => contact.id === participantId)?.npcId)),
-      );
-      return hasActiveNpc || !hasArchivedNpc;
-    }
+    if (seed.targetId === ctx.chat.id) return true;
     const participantIds = new Set(ctx.chat.participantIds.flatMap((id) => [id, id.replace(/^npc_/, '')]));
     const seedIds = [seed.targetId, ...seed.relatedNpcIds].flatMap((id) => [id, id.replace(/^npc_/, '')]);
     return seedIds.some((id) => participantIds.has(id));
   }
   if (seed.targetType !== 'private') return false;
   const privateNpc = resolvePhonePrivateNpc(ctx);
-  // 绑定已归档 NPC 的联系人不参与种子可见性匹配（恢复由变量事实链触发）。
-  const contactNpcArchived = Boolean(ctx.contact?.npcId && isArchivedNpcReference(ctx.npcRecords, ctx.contact.npcId));
-  if (contactNpcArchived) return false;
   const allowedIds = new Set([
     ctx.chat.id,
-    contactNpcArchived ? undefined : ctx.contact?.id,
-    contactNpcArchived ? undefined : ctx.contact?.npcId,
+    ctx.contact?.id,
+    ctx.contact?.npcId,
     privateNpc?.id,
     privateNpc ? `npc_${privateNpc.id}` : undefined,
   ].filter((id): id is string => Boolean(id)));
@@ -286,8 +231,8 @@ function isPhoneSeedVisible(ctx: 手机回复上下文): boolean {
 
 function resolvePhonePrivateNpc(ctx: 手机回复上下文): NPC记录 | undefined {
   if (ctx.chat.type === 'group') return undefined;
-  return 筛选活跃NPC(ctx.npcRecords).find((item) =>
-    matchesPhoneNpcId(item.id, ctx.contact?.npcId)
+  return ctx.npcRecords.find((item) =>
+    item.id === ctx.contact?.npcId
     || item.id === ctx.contact?.id
     || `npc_${item.id}` === ctx.contact?.id
     || item.姓名 === ctx.contact?.name,
@@ -372,7 +317,7 @@ function collectPhoneStoryParticipants(ctx: 手机回复上下文): PhoneStoryPa
 function collectPhoneStoryTerms(...values: Array<string | undefined>): string[] {
   const terms = new Set<string>();
   for (const value of values) {
-    for (const part of String(value ?? '').split(/[\/／|、,，]/)) {
+    for (const part of (value ?? '').split(/[/／|、,，]/)) {
       const term = part.trim();
       if (!term) continue;
       terms.add(term);
@@ -422,58 +367,76 @@ function storyTextIncludes(text: string, term: string): boolean {
 
 function resolvePhoneGroupParticipant(ctx: 手机回复上下文, participantId: string): { name: string; npc?: NPC记录; contact?: 手机联系人 } | undefined {
   const contact = ctx.contacts?.find((item) => item.id === participantId || item.npcId === participantId);
-  const npc = 筛选活跃NPC(ctx.npcRecords).find(
+  const npc = ctx.npcRecords.find(
     (item) =>
-      matchesPhoneNpcId(item.id, participantId) ||
-      matchesPhoneNpcId(item.id, contact?.npcId) ||
+      item.id === participantId ||
+      `npc_${item.id}` === participantId ||
+      (contact?.npcId && item.id === contact.npcId) ||
       item.姓名 === contact?.name,
   );
   if (npc) return { name: npc.姓名, npc, contact };
-  // 归档 NPC 绑定的旧联系人不回退名字注入（恢复由变量事实链触发）。
-  if (contact?.name) {
-    if (contact.npcId) {
-      const boundNpc = ctx.npcRecords?.find((item) => item.id === contact.npcId);
-      if (boundNpc?.归档) return undefined;
-    }
-    return { name: contact.name, contact };
-  }
+  if (contact?.name) return { name: contact.name, contact };
   return undefined;
 }
 
 function formatPhoneGroupParticipant(ctx: 手机回复上下文, participantId: string): string {
   const participant = resolvePhoneGroupParticipant(ctx, participantId);
-  if (!participant) return '';
+  if (!participant) return `- ${participantId}`;
   const item = participant.npc;
   if (!item) return `- ${participant.name}；通讯录联系人`;
   return `【${item.姓名}】\n${formatPhoneNpcKnowledge(item)}`;
 }
 
 function buildPhoneZhikuPersonaBrief(ctx: 手机回复上下文): string {
+  const entries = ctx.zhiku?.条目 ?? [];
+  if (!entries.length) return '';
   const names = collectPhoneParticipantNames(ctx);
   if (!names.length) return '';
-  return compileZhikuPhoneView(ctx.zhiku, names).phonePersonaView;
+
+  const selected: 智库条目[] = [];
+  for (const name of names) {
+    const matched = entries
+      .filter((entry) => entry.分类 === 'character' && entry.可用于联动)
+      .filter((entry) => namesLikelySame(获取智库人物名(entry), name))
+      .filter(isPhoneAllowedZhikuEntry)
+      .sort(比较智库人物节点)
+      .slice(0, 3);
+    for (const entry of matched) {
+      if (!selected.some((item) => item.id === entry.id)) selected.push(entry);
+      if (selected.length >= 8) break;
+    }
+    if (selected.length >= 8) break;
+  }
+  if (!selected.length) return '';
+  const lines = selected.map((entry) => {
+    const meta = 解析智库软结构标签(entry);
+    const metaLine = [
+      meta.资料类型 ? `资料类型:${meta.资料类型}` : '',
+      meta.节点 ? `节点:${meta.节点}` : '',
+      meta.解锁状态 ? `解锁:${meta.解锁状态}` : '',
+      meta.剧透等级 ? `剧透:${meta.剧透等级}` : '',
+      meta.使用范围.length ? `范围:${meta.使用范围.join('/')}` : '',
+    ].filter(Boolean).join('；');
+    const summary = entry.摘要 || entry.原文.slice(0, 180) || '无摘要';
+    return `- ${entry.标题}${metaLine ? `（${metaLine}）` : ''}：${summary}`;
+  });
+  lines.push('边界：这里只提供聊天对象的主体人格、OOC 风险或手机语气锚点；未解锁形态、重大剧透和只读资料不得在手机里提前表现。');
+  return lines.join('\n');
 }
 
 function collectPhoneParticipantNames(ctx: 手机回复上下文): string[] {
   const names = new Set<string>();
   const addName = (value?: string) => {
-    for (const part of String(value ?? '').split(/[\/／|、,，]/)) {
+    for (const part of (value ?? '').split(/[/／|、,，]/)) {
       const trimmed = part.trim();
       if (trimmed) names.add(trimmed);
     }
   };
+  addName(ctx.contact?.name);
   if (ctx.contact?.npcId) {
-    const boundNpc = ctx.npcRecords?.find((item) => matchesPhoneNpcId(item.id, ctx.contact?.npcId));
-    if (boundNpc?.归档) {
-      // 绑定已归档 NPC 的联系人不注入名字（避免归档 NPC 回到智库人物锚点检索）
-    } else {
-      addName(ctx.contact?.name);
-      const npc = 筛选活跃NPC(ctx.npcRecords).find((item) => matchesPhoneNpcId(item.id, ctx.contact?.npcId));
-      addName(npc?.姓名);
-      addName(npc?.别名);
-    }
-  } else {
-    addName(ctx.contact?.name);
+    const npc = ctx.npcRecords.find((item) => item.id === ctx.contact?.npcId);
+    addName(npc?.姓名);
+    addName(npc?.别名);
   }
   if (ctx.chat.type === 'group') {
     for (const participantId of ctx.chat.participantIds) {
@@ -485,18 +448,22 @@ function collectPhoneParticipantNames(ctx: 手机回复上下文): string[] {
   return Array.from(names).slice(0, 8);
 }
 
-function normalizePhoneNpcId(value: string | undefined): string | undefined {
-  return value?.replace(/^npc_/i, '');
+function isPhoneAllowedZhikuEntry(entry: 智库条目): boolean {
+  const meta = 解析智库软结构标签(entry);
+  const ranges = meta.使用范围.map((item) => item.trim()).filter(Boolean);
+  if (ranges.length > 0 && !ranges.some((item) => /手机|通用|全部|all/i.test(item))) return false;
+  const unlock = meta.解锁状态 ?? '';
+  if (/未解锁|锁定|只读/i.test(unlock)) return false;
+  const spoiler = meta.剧透等级 ?? '';
+  if (/重大/i.test(spoiler) && !/默认可用|已解锁|当前可用|手动启用/i.test(unlock)) return false;
+  const type = [meta.资料类型, meta.节点].filter(Boolean).join(' ');
+  return /主体|人格|OOC|风险|手机|语气|基础/i.test(type) || !type;
 }
 
-function matchesPhoneNpcId(recordId: string, reference: string | undefined): boolean {
-  const raw = reference?.trim();
-  if (!raw) return false;
-  return recordId === raw || recordId === normalizePhoneNpcId(raw) || `npc_${recordId}` === raw;
-}
-
-function isArchivedNpcReference(records: NPC记录[] | undefined, reference: string | undefined): boolean {
-  return Boolean(records?.some((item) => matchesPhoneNpcId(item.id, reference) && item.归档));
+function namesLikelySame(a: string, b: string): boolean {
+  const left = a.trim();
+  const right = b.trim();
+  return !!left && !!right && (left === right || left.includes(right) || right.includes(left));
 }
 
 function parsePhoneReply(raw: string, messageLimit = 8): 手机回复结果 {
@@ -512,9 +479,8 @@ function parsePhoneReply(raw: string, messageLimit = 8): 手机回复结果 {
         message: normalizedMessages.join('\n'),
       };
     }
-  } catch (error) {
-    // fall through
-    console.warn('[phone-service] AI 回复 JSON 解析失败，已忽略并返回空消息列表:', error);
+  } catch (err) {
+    devLogError('net', 'phone-reply-parse-failed', err, {});
   }
   return {
     messages: [],
@@ -610,7 +576,7 @@ function normalizePhoneMessageForComparison(text: string, group: boolean): strin
 function normalizeComparableText(text: string): string {
   return text
     .replace(/\s+/g, '')
-    .replace(/[，。！？!?；;、,.…~～“”"'\[\]（）()《》<>]/g, '')
+    .replace(/[，。！？!?；;、,.…~～“”"'[\]（）()《》<>]/g, '')
     .trim();
 }
 
@@ -626,7 +592,7 @@ function arePhoneMessagesTooSimilar(a: string, b: string): boolean {
 }
 
 function longestCommonSubstringLength(a: string, b: string): number {
-  const prev = new Array(b.length + 1).fill(0);
+  const prev: number[] = Array.from({ length: b.length + 1 }, () => 0);
   let best = 0;
   for (let i = 1; i <= a.length; i += 1) {
     let diagonal = 0;

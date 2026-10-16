@@ -1,11 +1,11 @@
 import type { 图片资源, 相册系统 } from '@/models/imageGeneration';
-import type { AlbumImportTarget } from './foundation';
 import {
   completeAlbumImport,
   loadAlbumAssetBytes,
   type AlbumExportResult,
   type AlbumImportMode,
   type AlbumImportResult,
+  type AlbumImportTarget,
   type ParsedAlbum,
 } from './albumArchive';
 import { bytesToDataUrl, normalizeContentHash } from './albumContent';
@@ -39,8 +39,6 @@ export async function exportAlbumInWorker(
     await requestWorker(worker, { type: 'export:init', entries: album.entries, tasks: album.tasks });
     for (let index = 0; index < album.assets.length; index += 1) {
       onProgress?.({ stage: 'hashing', completed: index, total: album.assets.length });
-      // Resolve binary on the main thread (Blob cache) so the worker can pack ZIP
-      // without needing multi-MB dataUrls in React album state.
       const exportAsset = await materializeAssetForWorkerExport(album.assets[index]);
       await requestWorker(worker, { type: 'export:asset', asset: exportAsset });
     }
@@ -90,7 +88,7 @@ export async function importAlbumInWorker(params: {
       }),
     };
     params.onProgress?.({ stage: 'committing' });
-    return completeAlbumImport({
+    return await completeAlbumImport({
       parsed: imported.parsed,
       currentAlbum,
       mode: params.mode,
@@ -158,7 +156,6 @@ function triggerAlbumDownload(blob: Blob): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/** Build a worker-safe asset copy that carries binary as dataUrl when only Blob cache has it. */
 async function materializeAssetForWorkerExport(asset: 图片资源): Promise<图片资源> {
   if (asset.dataUrl && isDataImageUrl(asset.dataUrl)) return asset;
   const loaded = await loadAlbumAssetBytes(asset);

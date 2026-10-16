@@ -10,8 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowImportingTsExtensions": true,
     "noEmit": true,
+    "noUnusedLocals": true,
     "paths": {
       "@/*": ["./*"]
     }

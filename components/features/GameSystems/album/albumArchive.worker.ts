@@ -4,13 +4,13 @@ import type { 图片资源, 图片生成任务, 相册条目 } from '@/models/im
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_VERSION,
-  createZipBlob,
   loadAlbumAssetBytes,
   parseAlbumBytes,
   type AlbumArchiveManifestV2,
   type ArchiveAsset,
   type ParsedAlbum,
 } from './albumArchive';
+import { buildStoredZip } from '@/utils/zip';
 import { hashDataUrl, normalizeContentHash, sha256Bytes } from './albumContent';
 
 type WorkerRequest = {
@@ -38,7 +38,7 @@ const currentHashPatches = new Map<string, string>();
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   void handleRequest(event.data).then(
     (result) => self.postMessage({ requestId: event.data.requestId, ok: true, result }),
-    (error) => self.postMessage({
+    (error: unknown) => self.postMessage({
       requestId: event.data.requestId,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -92,6 +92,7 @@ async function handleRequest(request: WorkerRequest): Promise<unknown> {
 async function addExportAsset(state: ExportState, asset: 图片资源): Promise<void> {
   const loaded = await loadAlbumAssetBytes(asset);
   const { dataUrl: _dataUrl, ...metadata } = asset;
+  void _dataUrl;
   if (!loaded) {
     state.assets.push(metadata);
     state.warnings.push(`资源 ${asset.id} 无法打包为本地图片文件。`);
@@ -123,7 +124,7 @@ function finishExport(state: ExportState): { blob: Blob; assetCount: number; ent
     data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
   });
   const result = {
-    blob: createZipBlob(state.files),
+    blob: new Blob([buildStoredZip(state.files)], { type: 'application/zip' }),
     assetCount: state.assets.length,
     entryCount: state.entries.length,
     warningCount: state.warnings.length,

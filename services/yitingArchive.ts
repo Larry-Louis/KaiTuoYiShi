@@ -1,12 +1,10 @@
-import type { API配置项, 忆庭API覆盖, 记忆系统设置 } from '@/models/settings';
+import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import type { 回忆条目 } from '@/models/yiting';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 import { YITING_ARCHIVE_FORMAT_PROMPT as YITING_LEGACY_ARCHIVE_FORMAT_PROMPT } from '@/prompts/cot/yitingCot';
 import type { 提示词模块 } from '@/models/prompts';
 import { buildIndependentPromptModulesSection } from '@/services/promptModuleScopes';
-// 阶段1修复：复用统一噪声过滤，避免两套模式分开维护导致模式漂移
-import { isMemorySystemNoise } from '@/hooks/useGame/memoryUtils';
 
 export interface YitingArchiveSource {
   turn: number;
@@ -25,26 +23,10 @@ export interface YitingArchiveResult {
   usedFallback: boolean;
 }
 
-export function resolveYitingArchiveConfig(
-  mainConfig: API配置项,
-  override: 忆庭API覆盖,
-): API配置项 {
-  return {
-    ...mainConfig,
-    provider: override.provider || mainConfig.provider,
-    baseUrl: override.baseUrl.trim() || mainConfig.baseUrl,
-    apiKey: override.apiKey.trim() || mainConfig.apiKey,
-    model: override.model.trim() || mainConfig.model,
-    maxTokens: override.maxTokens ?? mainConfig.maxTokens,
-    temperature: override.temperature ?? mainConfig.temperature,
-    retryCount: override.retryCount ?? mainConfig.retryCount ?? 2,
-  };
-}
-
 export async function buildYitingArchiveEntry(
   source: YitingArchiveSource,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
   promptModules?: 提示词模块[],
@@ -63,8 +45,7 @@ export async function buildYitingArchiveEntry(
     return { entry: fallback, usedFallback: true };
   }
 
-  const api = resolveYitingArchiveConfig(mainConfig, settings.忆庭精炼API);
-  if (!api.baseUrl || !api.apiKey || !api.model) {
+  if (!api) {
     return { entry: fallback, usedFallback: true };
   }
 
@@ -188,10 +169,8 @@ function formatArchiveSummary(time: string | undefined, location: string | undef
   ].join('\n');
 }
 
-// 阶段1修复：isArchiveNoiseLine 已废弃，统一复用 isMemorySystemNoise（见 memoryUtils.ts）
-// 旧硬编码模式已合并到 MEMORY_SYSTEM_NOISE_PATTERNS，避免两套分开维护导致模式漂移
 function isArchiveNoiseLine(line: string): boolean {
-  return isMemorySystemNoise(line);
+  return /动态世界|行动选项|后续选项|系统提示|变量草稿|剧情编织进度|最近判定理由/.test(line);
 }
 
 function formatSourceTime(source: YitingArchiveSource): string {
@@ -203,7 +182,7 @@ function prefixLineWithTime(line: string, time?: string): string {
   if (!time || time === '未知') return clean;
   const body = clean.replace(/^-\s*/, '').trim();
   if (!body) return clean;
-  if (body.includes(time) || /琥珀纪\s*\d|星历\s*\d|\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2}/.test(body)) return `- ${body}`;
+  if (body.includes(time) || /琥珀纪\s*\d|星历\s*\d|\d{4}[./-]\d{1,2}[./-]\d{1,2}/.test(body)) return `- ${body}`;
   return `- ${time}，${body}`;
 }
 

@@ -1,33 +1,10 @@
 import type { API配置项 } from '@/models/settings';
-import type { 角色数据结构 } from '@/models/character';
-import type { 命途ID } from '@/models/journey';
-import type { 命途阶段 } from '@/models/path';
+import type { 战技生成草稿, 战技生成上下文 } from '@/contracts/ai';
 import { PATH_STAGE_DEFS } from '@/models/path';
 import { 创建聊天消息 } from '@/models/chat';
 import { getPath } from '@/data/journeyPresets';
 import { sendChatMessage } from '@/services/ai/text';
 import { parseJsonWithRepair } from '@/utils/jsonRepair';
-
-export interface 战技生成上下文 {
-  traveler: 角色数据结构;
-  slotKind: 'normal' | 'path';
-  slotIndex: number;
-  pathId?: 命途ID;
-  pathStage?: 命途阶段;
-  existingSkillNames?: string[];
-  currentDraft?: Partial<战技生成草稿>;
-  userHint?: string;
-}
-
-export interface 战技生成草稿 {
-  名称: string;
-  描述: string;
-  来源: string;
-  关键词: string[];
-  消耗: string;
-  冷却: string;
-  备注: string;
-}
 
 const PATH_STYLE_GUIDE: Record<string, string> = {
   destruction: '毁灭：强调代价、压迫、破局、以伤换势；可以写承受反噬、撕开阵线、短时爆发后的迟滞。',
@@ -90,7 +67,7 @@ function buildSkillGeneratorUserPrompt(context: 战技生成上下文): string {
     `旅人姓名：${traveler.姓名 || traveler.别名 || '未命名旅人'}`,
     `旅人身份：${traveler.身份 || traveler.背景 || '未填写'}`,
     `旅人性格：${traveler.性格 || '未填写'}`,
-    `旅人能力：${(traveler.能力 ?? []).join('、') || '未登记'}`,
+    `旅人能力：${traveler.能力.join('、') || '未登记'}`,
     `已有战技名：${context.existingSkillNames?.length ? context.existingSkillNames.join('、') : '暂无'}`,
     '',
     currentDraft?.名称 || currentDraft?.描述 || currentDraft?.关键词?.length
@@ -109,7 +86,7 @@ function buildSkillGeneratorUserPrompt(context: 战技生成上下文): string {
 function normalizeKeywords(input: unknown): string[] {
   const raw = Array.isArray(input)
     ? input
-    : String(input ?? '').split(/[,，、\s/|]+/g);
+    : (typeof input === 'string' ? input : input === null || input === undefined ? '' : JSON.stringify(input)).split(/[,，、\s/|]+/g);
   return raw
     .map((item) => String(item ?? '').trim())
     .filter(Boolean)
@@ -118,7 +95,8 @@ function normalizeKeywords(input: unknown): string[] {
 }
 
 function cleanText(value: unknown, fallback = ''): string {
-  return String(value ?? fallback).trim();
+  const text = typeof value === 'string' ? value : value === null || value === undefined ? fallback : JSON.stringify(value);
+  return text.trim();
 }
 
 function normalizeGeneratedSkill(value: unknown): 战技生成草稿 {

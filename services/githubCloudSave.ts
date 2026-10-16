@@ -1,6 +1,6 @@
 import type { 存档数据 } from '@/models/settings';
 import type { CloudBackupPointerV2 } from '@/services/cloudBackupPackage';
-import { sha256Hex } from '@/services/cloudBackupPackage';
+import { sha256Hex } from '@/utils/stableHash';
 import {
   createCloudBackupTransfer,
   deleteCloudBackupTransfer,
@@ -215,16 +215,15 @@ export async function inspectGitHubCloudBackup(
 export async function uploadCompleteBackupToGitHub(
   config: GitHubCloudSaveConfig,
   transferId: string,
-  pointer: CloudBackupPointerV2,
+  rawPointer: CloudBackupPointerV2,
   options: GitHubCloudTransferOptions = {},
 ): Promise<CloudBackupPointerV2> {
   validateGitHubCloudConfig(config);
-  pointer = rootCloudBackupPartPaths(config, pointer);
+  const pointer = rootCloudBackupPartPaths(config, rawPointer);
   validateCloudBackupPointer(pointer);
   assertNotAborted(options.signal);
   await updateCloudBackupTransfer(transferId, { phase: 'uploading', pointer });
 
-  // 旧指针或旧 manifest 即使损坏，也不能阻止玩家用一次新的完整备份修复云端。
   const oldPointer = await readCloudBackupPointer(config, options.signal).catch(() => null);
   const oldManifest = await readManifest(config, options.signal).catch(() => null);
   const uploadedParts: Array<{ path: string; sha: string }> = [];
@@ -372,30 +371,6 @@ export async function downloadLegacySaveFromGitHub(
   return parseSavePackage(bytes.slice().buffer);
 }
 
-// 旧调用方的只读兼容入口；版本 2 界面使用 inspectGitHubCloudBackup。
-export async function listGitHubCloudSaves(config: GitHubCloudSaveConfig): Promise<GitHubCloudSaveManifest> {
-  validateGitHubCloudConfig(config);
-  return await readManifest(config) ?? createEmptyManifest();
-}
-
-function createEmptyManifest(): GitHubCloudSaveManifest {
-  return {
-    app: 'KaiTuoYiShi',
-    kind: 'github-cloud-save',
-    version: 1,
-    updatedAt: '',
-    saves: [],
-  };
-}
-
-// 旧调用方的只读兼容入口；不会覆盖本地存档。
-export async function downloadSaveFromGitHubCloud(
-  config: GitHubCloudSaveConfig,
-  item: GitHubCloudSaveItem,
-): Promise<存档数据> {
-  return downloadLegacySaveFromGitHub(config, item);
-}
-
 async function ensureCloudRepository(config: GitHubCloudSaveConfig, signal?: AbortSignal): Promise<string | null> {
   const existing = await getRepository(config, signal);
   if (existing) return existing.default_branch ?? null;
@@ -420,7 +395,7 @@ async function ensureCloudRepository(config: GitHubCloudSaveConfig, signal?: Abo
 }
 
 async function getRepository(config: GitHubCloudSaveConfig, signal?: AbortSignal): Promise<GitHubRepoResponse | null> {
-  const response = await githubRequest(`${repoApi(config)}`, {
+  const response = await githubRequest(repoApi(config), {
     headers: githubHeaders(config),
     phase: '读取 GitHub 仓库',
     signal,
@@ -466,8 +441,8 @@ async function readManifest(
     app: 'KaiTuoYiShi',
     kind: 'github-cloud-save',
     version: 1,
-    updatedAt: String(manifest.updatedAt || ''),
-    saves: Array.isArray(manifest.saves) ? manifest.saves as GitHubCloudSaveItem[] : [],
+    updatedAt: manifest.updatedAt || '',
+    saves: Array.isArray(manifest.saves) ? manifest.saves : [],
   };
 }
 
@@ -663,7 +638,7 @@ async function getContent(
   });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(await readGitHubError(response, '读取 GitHub 文件失败'));
-  const data = await response.json();
+  const data: unknown = await response.json();
   if (Array.isArray(data)) throw new Error('云存档路径指向了目录，不是文件。');
   return data as GitHubContentResponse;
 }
@@ -735,18 +710,22 @@ function createRetryReporter(
   });
 }
 
-function validateCloudBackupPointer(pointer: CloudBackupPointerV2): void {
-  if (!pointer || pointer.app !== 'KaiTuoYiShi' || pointer.kind !== 'github-cloud-backup' || pointer.version !== 2) {
+function validateCloudBackupPointer(pointer: unknown): void {
+  if (!pointer || typeof pointer !== 'object') {
     throw new Error('云端文件不是有效的开拓轶事完整备份。');
   }
-  if (!pointer.snapshotId || !Array.isArray(pointer.parts) || !Array.isArray(pointer.nodes) || !Array.isArray(pointer.assets)) {
+  const candidate = pointer as Partial<CloudBackupPointerV2>;
+  if (candidate.app !== 'KaiTuoYiShi' || candidate.kind !== 'github-cloud-backup' || candidate.version !== 2) {
+    throw new Error('云端文件不是有效的开拓轶事完整备份。');
+  }
+  if (!candidate.snapshotId || !Array.isArray(candidate.parts) || !Array.isArray(candidate.nodes) || !Array.isArray(candidate.assets)) {
     throw new Error('完整云备份清单缺少必要字段。');
   }
-  if (pointer.parts.length > 4096 || pointer.nodes.length > 100_000 || pointer.assets.length > 100_000) {
+  if (candidate.parts.length > 4096 || candidate.nodes.length > 100_000 || candidate.assets.length > 100_000) {
     throw new Error('完整云备份清单数量超过安全上限。');
   }
   const indexes = new Set<number>();
-  for (const part of pointer.parts) {
+  for (const part of candidate.parts) {
     if (!Number.isSafeInteger(part.index) || part.index < 0 || indexes.has(part.index)) {
       throw new Error('完整云备份清单包含无效或重复的分卷编号。');
     }
@@ -755,19 +734,19 @@ function validateCloudBackupPointer(pointer: CloudBackupPointerV2): void {
       throw new Error(`完整云备份分卷元数据无效：${part.path || '(空路径)'}`);
     }
   }
-  if (pointer.nodeCount !== pointer.nodes.length) throw new Error('完整云备份节点计数不一致。');
-  if (pointer.assetCount !== new Set(pointer.assets.map((asset) => asset.contentHash)).size) {
+  if (candidate.nodeCount !== candidate.nodes.length) throw new Error('完整云备份节点计数不一致。');
+  if (candidate.assetCount !== new Set(candidate.assets.map((asset) => asset.contentHash)).size) {
     throw new Error('完整云备份资源计数不一致。');
   }
-  if (pointer.totalBytes !== pointer.parts.reduce((sum, part) => sum + part.sizeBytes, 0)) {
+  if (candidate.totalBytes !== candidate.parts.reduce((sum, part) => sum + part.sizeBytes, 0)) {
     throw new Error('完整云备份分卷总大小不一致。');
   }
-  for (const node of pointer.nodes) {
+  for (const node of candidate.nodes) {
     if (!indexes.has(node.partIndex) || !isSafeCloudEntryPath(node.entryPath) || !/^[a-f0-9]{64}$/i.test(node.fingerprint)) {
       throw new Error('完整云备份节点索引无效。');
     }
   }
-  for (const asset of pointer.assets) {
+  for (const asset of candidate.assets) {
     if (!indexes.has(asset.partIndex) || !isSafeCloudEntryPath(asset.entryPath) || !/^[a-f0-9]{64}$/i.test(asset.contentHash)) {
       throw new Error('完整云备份资源索引无效。');
     }
@@ -775,7 +754,7 @@ function validateCloudBackupPointer(pointer: CloudBackupPointerV2): void {
 }
 
 function isSafeCloudPath(path: string): boolean {
-  const normalized = String(path || '').replace(/\\/g, '/');
+  const normalized = (path || '').replace(/\\/g, '/');
   return Boolean(normalized)
     && !normalized.startsWith('/')
     && normalized.split('/').every((segment) => Boolean(segment) && segment !== '.' && segment !== '..');
@@ -785,7 +764,7 @@ function isSafeCloudEntryPath(path: string): boolean {
   return isSafeCloudPath(path) && !path.includes('\0');
 }
 
-function githubHeaders(config: GitHubCloudSaveConfig): HeadersInit {
+function githubHeaders(config: GitHubCloudSaveConfig): Record<string, string> {
   return {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${config.token.trim()}`,
@@ -864,7 +843,8 @@ function delayWithSignal(milliseconds: number, signal?: AbortSignal): Promise<vo
     }, Math.max(0, milliseconds));
     const abort = () => {
       globalThis.clearTimeout(timeoutId);
-      reject(signal?.reason ?? new DOMException('云备份操作已取消。', 'AbortError'));
+      const reason: unknown = signal?.reason;
+      reject(reason instanceof Error ? reason : new DOMException('云备份操作已取消。', 'AbortError'));
     };
     signal?.addEventListener('abort', abort, { once: true });
   });

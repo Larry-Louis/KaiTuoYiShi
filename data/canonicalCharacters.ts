@@ -1,6 +1,3 @@
-// 原著角色库。NPC 首次进入档案时会用 matchCanonical 自动识别为原著角色 → tier='companion'。
-// 这里只保留高频基础识别信息；精修人设与地区扩展由智库档案负责召回。
-
 import { ZHIKU_CANONICAL_CHARACTER_ALIASES } from './zhikuCanonicalCharacters';
 
 export interface CanonicalCharacterDef {
@@ -160,7 +157,6 @@ const ZHIKU_CANONICAL_ALIASES = new Map(
   ),
 );
 
-// 名称 + alias 模糊匹配。高频角色保留完整 metadata，其余角色复用智库人物档案名称作为身份兜底。
 export function matchCanonical(name: string): CanonicalCharacterDef | null {
   const target = normalizeCanonicalName(name);
   if (!target) return null;

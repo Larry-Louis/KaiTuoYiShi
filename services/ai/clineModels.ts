@@ -1,8 +1,3 @@
-/**
- * Cline API documents model IDs but does not expose an OpenAI-compatible
- * `/models` endpoint. Keep the documented examples here as a convenience
- * catalog; users can still enter any model ID their Cline account supports.
- */
 export const CLINE_RECOMMENDED_MODELS = [
   'cline-pass/glm-5.2',
   'cline-pass/kimi-k3',

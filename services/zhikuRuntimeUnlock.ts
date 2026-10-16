@@ -9,30 +9,6 @@ export interface 智库运行时解锁结果 {
   unlocked: Array<{ id: string; title: string; status: string; reason: string }>;
 }
 
-export function mergeZhikuRuntimeUnlockPatch(
-  current: 智库系统 | undefined,
-  unlocked: 智库运行时解锁结果['unlocked'],
-): 智库系统 {
-  const normalized = 归一化智库系统(current);
-  if (!unlocked.length) return normalized;
-  const patchById = new Map(unlocked.map((item) => [item.id, item]));
-  let changed = false;
-  const entries = normalized.条目.map((entry) => {
-    const patch = patchById.get(entry.id);
-    if (!patch) return entry;
-    changed = true;
-    return {
-      ...entry,
-      运行时解锁状态: patch.status,
-      运行时解锁备注: patch.reason,
-      updatedAt: Date.now(),
-    };
-  });
-  return changed
-    ? 归一化智库系统({ ...normalized, 目录修订: (normalized.目录修订 ?? 0) + 1, 条目: entries })
-    : normalized;
-}
-
 export function applyStoryArchiveZhikuRuntimeUnlock(params: {
   zhiku: 智库系统 | undefined;
   storyWeaving: 剧情编织系统 | undefined;
@@ -64,11 +40,7 @@ export function applyStoryArchiveZhikuRuntimeUnlock(params: {
 
   if (!unlocked.length) return { system: zhiku, changed: false, unlocked };
   return {
-    system: 归一化智库系统({
-      ...zhiku,
-      目录修订: (zhiku.目录修订 ?? 0) + 1,
-      条目: nextEntries,
-    }),
+    system: 归一化智库系统({ 条目: nextEntries }),
     changed: true,
     unlocked,
   };
@@ -79,7 +51,7 @@ function decideRuntimeUnlock(
   archives: 剧情编织历史归档[],
 ): { status: string; reason: string } | null {
   if (entry.分类 === 'story') return null;
-  if (entry.可用于联动 === false) return null;
+  if (!entry.可用于联动) return null;
   const meta = 解析智库软结构标签(entry);
   if (!isRuntimeUnlockableZhikuEntry(entry, meta)) return null;
   const currentUnlock = normalizeText(entry.运行时解锁状态 ?? entry.解锁状态 ?? meta.解锁状态);
@@ -113,7 +85,7 @@ function isRuntimeUnlockableZhikuEntry(entry: 智库条目, meta: ReturnType<typ
     entry.解锁条件,
     entry.首次可用剧情段,
     entry.关联剧情分段ID,
-    ...(entry.关键词 ?? []),
+    ...(entry.关键词),
   ].filter(Boolean).join(' ');
   return /迁移设定资料|剧情编织|归档|解锁|首次可用|关联剧情/.test(text);
 }
@@ -138,7 +110,7 @@ function archiveMatchesUnlockCondition(entry: 智库条目, archive: 剧情编�
     archive.摘要,
     archive.切换说明,
     ...(archive.角色推进摘要 ?? []),
-    ...(archive.判定理由 ?? []),
+    ...(archive.判定理由),
   ].join('\n');
   return extractConditionTokens(condition).some((token) => textIncludesToken(archiveText, token));
 }
@@ -209,5 +181,5 @@ function textIncludesToken(text: string | undefined, token: string): boolean {
 function normalizeComparable(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[\s"'“”‘’《》「」『』【】\[\]（）()·\-_:：,，。；;、/\\|]+/gu, '');
+    .replace(/[\s"'“”‘’《》「」『』【】[\]（）()·\-_:：,，。；;、/\\|]+/gu, '');
 }

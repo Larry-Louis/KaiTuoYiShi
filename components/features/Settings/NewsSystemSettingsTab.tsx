@@ -1,37 +1,24 @@
 ﻿import type { ReactNode } from 'react';
 import { useState } from 'react';
-import type { AI提供商, API设置, 游戏设置, 新闻API覆盖 } from '@/models/settings';
-import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
+import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { providerOptions } from './settingsShared';
+import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
 
-export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props) {
+export function NewsSystemSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels }: Props) {
   const news = settings.新闻系统;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fetchMessage, setFetchMessage] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
@@ -57,11 +44,11 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
   };
 
   const effectiveApi = {
-    provider: news.api.provider || mainConfig?.provider || 'openai_compatible',
+    provider: news.api.provider,
     baseUrl: news.api.baseUrl.trim() || mainConfig?.baseUrl || '',
     apiKey: news.api.apiKey.trim() || mainConfig?.apiKey || '',
     model: news.api.model.trim() || mainConfig?.model || '',
-    enableClaudeMode: settings.enableClaudeMode === true,
+    enableClaudeMode: settings.enableClaudeMode,
   };
 
   const handleFetchModels = async () => {
@@ -91,7 +78,7 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
       };
       const list = await fetchModels(tempConfig);
       setModelOptions(list);
-      setFetchMessage({ kind: 'info', text: '获取到 ' + list.length + ' 个模型' });
+      setFetchMessage({ kind: 'info', text: `获取到 ${list.length} 个模型` });
     } catch (err) {
       const text = (err as Error).message;
       setFetchMessage({ kind: 'error', text });
@@ -104,7 +91,7 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
   const handleSave = async () => {
     setSaveMessage(null);
     try {
-      await saveSetting('gameSettings', settings);
+      await onPersistSettings(settings);
       setSavedFlash(true);
       setSaveMessage({ kind: 'info', text: '星际和平周报设置已保存。' });
       window.setTimeout(() => setSavedFlash(false), 1800);
@@ -121,7 +108,7 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -183,7 +170,7 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
         className="px-4 py-4 space-y-3"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}
       >
@@ -240,12 +227,12 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
               style={{ clipPath: smallClip }}
             />
             <button
-              onClick={handleFetchModels}
+              onClick={() => void handleFetchModels()}
               disabled={loadingModels}
               className="px-3 py-2 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.85)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 background: 'rgba(var(--tj-accent-primary), 0.05)',
                 clipPath: smallClip,
               }}
@@ -301,16 +288,16 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
 
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: savedFlash
-              ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
-              : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
+            border: savedFlash
+              ? '1px solid rgba(220, 255, 230, var(--tj-edge-tint-strong))'
+              : '1px solid rgba(var(--tj-text-primary), var(--tj-edge))',
             clipPath: cardClip,
           }}
         >
@@ -322,9 +309,9 @@ export function NewsSystemSettingsTab({ settings, onChange, apiSettings }: Props
             style={{
               color: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.9)' : 'rgba(160, 200, 160, 0.85)',
               background: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.06)' : 'rgba(120, 200, 140, 0.06)',
-              boxShadow: saveMessage.kind === 'error'
-                ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
-                : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
+              border: saveMessage.kind === 'error'
+                ? '1px solid rgba(220, 120, 120, var(--tj-edge-tint))'
+                : '1px solid rgba(120, 200, 140, var(--tj-edge-tint))',
               clipPath: smallClip,
             }}
           >
@@ -363,8 +350,8 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -382,10 +369,10 @@ function ToggleRow({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+          clipPath: smallClip,
         }}
       >
         <div
@@ -393,7 +380,7 @@ function ToggleRow({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>

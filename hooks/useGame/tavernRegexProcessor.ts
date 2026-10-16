@@ -1,24 +1,5 @@
 import type { STRegexScript } from '@/models/stTypes';
-
-export type TavernRegexScriptKind = 'prompt_preprocess' | 'output_postprocess' | 'display_replace' | 'blocked';
-
-export interface TavernRegexScriptSafety {
-  kind: TavernRegexScriptKind;
-  disabled: boolean;
-  risky: boolean;
-  blocksProtocolTags: boolean;
-  reason: string;
-}
-
-export interface TavernRegexDryRunResult {
-  ok: boolean;
-  safety: TavernRegexScriptSafety;
-  matches: number;
-  before: string;
-  after: string;
-  warnings: string[];
-  error?: string;
-}
+import type { TavernRegexDryRunResult, TavernRegexScriptSafety } from '@/contracts/ai';
 
 export interface TavernRegexApplyResult {
   text: string;
@@ -82,15 +63,17 @@ const SAFE_OUTPUT_CLEANUP_FIND_RE = /<!--|<\s*\/?\s*math\b|<\s*Q\b|<\s*\/\s*WF\b
 const UNSAFE_REPLACEMENT_RE = /<\s*(?:style|script|details|summary|div|span|textarea|iframe|object|embed)\b|<\/\s*(?:style|script|details|summary|div|span|textarea|iframe|object|embed)\s*>/i;
 
 function readScriptName(script: STRegexScript): string {
-  return String(script.script_name ?? script.scriptName ?? script.name ?? script.id ?? '');
+  return script.script_name ?? script.scriptName ?? script.name ?? script.id ?? '';
 }
 
 function readFindRegex(script: STRegexScript): string {
-  return String(script.find_regex ?? script.findRegex ?? script.find ?? '');
+  const raw = script.find_regex ?? script.findRegex ?? script.find ?? '';
+  return typeof raw === 'string' ? raw : '';
 }
 
 function readReplaceString(script: STRegexScript): string {
-  return String(script.replace_string ?? script.replaceString ?? script.replace ?? '');
+  const raw = script.replace_string ?? script.replaceString ?? script.replace ?? '';
+  return typeof raw === 'string' ? raw : '';
 }
 
 export function normalizeTavernRegexScripts(raw: unknown): STRegexScript[] {
@@ -180,7 +163,7 @@ export function analyzeTavernRegexScript(script: STRegexScript): TavernRegexScri
     readFindRegex(script),
     readReplaceString(script),
     JSON.stringify(script.placement ?? ''),
-  ].map((item) => String(item ?? '')).join('\n');
+  ].join('\n');
   const blocksProtocolTags = PROTOCOL_TAG_RE.test(combined);
   const displayLike = /display|html|css|dom|style|界面|显示|渲染|全局/i.test(combined);
   const outputLike = /output|response|reply|assistant|post/i.test(combined);
@@ -247,13 +230,13 @@ export function analyzeTavernRegexScript(script: STRegexScript): TavernRegexScri
 }
 
 export function applyTavernOutputRegexScripts(rawText: string, rawPreset: unknown): TavernRegexApplyResult {
-  let text = String(rawText ?? '');
+  let text = rawText;
   const scripts = extractTavernRegexScripts(rawPreset);
   const applied: string[] = [];
   const skipped: string[] = [];
 
   for (const script of scripts) {
-    const name = readScriptName(script) || String(script.id ?? 'regex_script');
+    const name = readScriptName(script) || script.id || 'regex_script';
     const safety = analyzeTavernRegexScript(script);
     if (safety.disabled) {
       skipped.push(`${name}: disabled`);
@@ -307,7 +290,7 @@ function isSafeOutputCleanupCandidate(script: STRegexScript): boolean {
 export function dryRunTavernRegexScript(script: STRegexScript, sampleText: string): TavernRegexDryRunResult {
   const safety = analyzeTavernRegexScript(script);
   const warnings: string[] = [];
-  const before = String(sampleText ?? '');
+  const before = sampleText;
   if (safety.kind === 'blocked' || safety.kind === 'display_replace') {
     warnings.push(safety.reason);
   }
@@ -355,9 +338,10 @@ function isScriptDisabled(script: STRegexScript): boolean {
 }
 
 function readRegexFlags(script: STRegexScript): string {
-  const raw = String((script as { flags?: unknown }).flags ?? '');
+  const raw = (script as { flags?: unknown }).flags;
+  const text = typeof raw === 'string' ? raw : '';
   const flags = new Set(['g']);
-  for (const flag of raw) {
+  for (const flag of text) {
     if ('gimsuy'.includes(flag)) flags.add(flag);
   }
   return [...flags].join('');

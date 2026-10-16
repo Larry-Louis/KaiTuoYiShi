@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
+import { cardClip as itemClip, panelClip } from '@/components/ui/clipPaths';
 
 interface MobileQuickMenuProps {
   onCharacter: () => void;
@@ -9,8 +10,6 @@ interface MobileQuickMenuProps {
   onHome: () => void;
   onSystemSelect: (id: GameSystemId) => void;
   phoneUnread?: number;
-  /** 未处理的记忆失败草稿数量；打开菜单不会自动清除。 */
-  memoryUnread?: number;
 }
 
 type MenuItem = {
@@ -21,8 +20,6 @@ type MenuItem = {
   badge?: number;
 };
 
-const itemClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
 export function MobileQuickMenu({
   onCharacter,
@@ -32,7 +29,6 @@ export function MobileQuickMenu({
   onHome,
   onSystemSelect,
   phoneUnread = 0,
-  memoryUnread = 0,
 }: MobileQuickMenuProps) {
   const [showMore, setShowMore] = useState(false);
 
@@ -53,12 +49,11 @@ export function MobileQuickMenu({
         label: item.label,
         glyph: item.glyph,
         onClick: () => onSystemSelect(item.id),
-        badge: item.id === 'memory' ? memoryUnread : 0,
       })),
       { id: 'settings', label: '设置', glyph: '设', onClick: onSettings },
       { id: 'home', label: '首页', glyph: '归', onClick: onHome },
     ],
-    [memoryUnread, onHome, onSettings, onSystemSelect],
+    [onHome, onSettings, onSystemSelect],
   );
 
   const handleItemClick = (item: MenuItem) => {
@@ -67,15 +62,15 @@ export function MobileQuickMenu({
   };
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--app-safe-bottom,0px)+8px)] z-40 px-3 md:hidden">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--app-safe-bottom)+8px)] z-40 px-3 md:hidden">
       {showMore && (
         <div
           className="pointer-events-auto mx-auto mb-2 max-h-[min(42dvh,320px)] w-full max-w-[390px] overflow-hidden"
           style={{
             background: 'linear-gradient(180deg, rgba(var(--tj-surface), 0.94), rgba(var(--tj-bg-primary), 0.96))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24), 0 16px 36px rgba(var(--tj-shadow), 0.3)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
             backdropFilter: 'blur(5px)',
-            clipPath: 'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+            clipPath: panelClip,
           }}
         >
           <div className="flex items-center justify-between border-b border-[rgba(var(--tj-accent-primary),0.16)] px-3 py-2">
@@ -97,10 +92,10 @@ export function MobileQuickMenu({
       <div
         className="pointer-events-auto mx-auto grid w-full max-w-[390px] grid-cols-5 gap-1.5 px-2 py-1.5"
         style={{
-          background: 'linear-gradient(180deg, rgba(var(--tj-surface), 0.92), rgba(var(--tj-bg-primary), 0.95))',
-          boxShadow: 'inset 0 1px 0 rgba(var(--tj-accent-primary), 0.28), inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24), 0 -10px 28px rgba(var(--tj-shadow), 0.32)',
+          background: `linear-gradient(180deg, rgba(var(--tj-accent-primary), var(--tj-edge-tint)) 0 1px, transparent 1px), linear-gradient(180deg, rgba(var(--tj-surface), 0.92), rgba(var(--tj-bg-primary), 0.95))`,
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           backdropFilter: 'blur(4px)',
-          clipPath: 'polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px)',
+          clipPath: panelClip,
         }}
       >
         {primaryItems.map((item) => (
@@ -127,9 +122,9 @@ function DockButton({ item, active = false, onClick }: { item: MenuItem; active?
         background: active
           ? 'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.06))'
           : 'linear-gradient(180deg, rgba(var(--tj-bg-secondary), 0.58), rgba(var(--tj-bg-primary), 0.36))',
-        boxShadow: active
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.62), 0 0 16px rgba(var(--tj-accent-primary), 0.16)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
+        border: active
+          ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: itemClip,
       }}
       aria-label={item.label}
@@ -156,7 +151,7 @@ function MenuTile({ item, onClick }: { item: MenuItem; onClick: () => void }) {
         style={{
           color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
           background: 'rgba(var(--tj-bg-secondary), 0.5)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: itemClip,
         }}
       >

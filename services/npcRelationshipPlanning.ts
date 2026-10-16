@@ -1,5 +1,5 @@
 import type { NPC记录 } from '@/models/npc';
-import { 格式化NPC关系, 提取NPC同行记忆文本列表, 筛选活跃NPC } from '@/models/npc';
+import { 格式化NPC关系, 提取NPC同行记忆文本列表, NPC敌对阈值, NPC熟识阈值 } from '@/models/npc';
 
 export interface NPC关系规划条目 {
   npcId: string;
@@ -19,7 +19,7 @@ export interface NPC关系规划快照 {
 }
 
 export function buildNpcRelationshipPlanning(npcs: NPC记录[], turnCount: number): NPC关系规划快照 {
-  const entries = 筛选活跃NPC(npcs)
+  const entries = npcs
     .filter((npc) => npc.阶位 === 'companion' || npc.同行 || 提取NPC同行记忆文本列表(npc).length > 0 || npc.好感度 !== 0 || npc.亲密关系)
     .map((npc) => buildNpcRelationshipEntry(npc, turnCount))
     .sort((a, b) => priorityRank(b.优先级) - priorityRank(a.优先级) || Math.abs(b.好感度) - Math.abs(a.好感度))
@@ -34,7 +34,7 @@ export function buildNpcRelationshipPlanning(npcs: NPC记录[], turnCount: numbe
 
 function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number): NPC关系规划条目 {
   const memories = 提取NPC同行记忆文本列表(npc);
-  const recent = Number(npc.最近回合 || 0) >= Math.max(1, turnCount - 10);
+  const recent = (npc.最近回合 || 0) >= Math.max(1, turnCount - 10);
   const hasPromise = memories.some((item) => /约|承诺|答应|欠|等待|再见|联系|冲突|警惕|怀疑|信任/.test(item));
   const needsMemory = recent && memories.length === 0 && (npc.同行 || npc.好感度 !== 0 || npc.亲密关系 || Math.abs(npc.好感度) >= 10);
   const action: NPC关系规划条目['建议动作'] = needsMemory
@@ -43,13 +43,13 @@ function buildNpcRelationshipEntry(npc: NPC记录, turnCount: number): NPC关系
       ? '兑现承诺或冲突'
       : npc.同行
         ? '继续同行互动'
-        : recent && npc.好感度 >= 20
+        : recent && npc.好感度 >= NPC熟识阈值
           ? '适合手机联系'
           : '暂作背景';
   const priority: NPC关系规划条目['优先级'] =
-    needsMemory || hasPromise || npc.同行 || npc.好感度 <= -31 || npc.亲密关系
+    needsMemory || hasPromise || npc.同行 || npc.好感度 <= NPC敌对阈值 || npc.亲密关系
       ? '高'
-      : recent || Math.abs(npc.好感度) >= 20
+      : recent || Math.abs(npc.好感度) >= NPC熟识阈值
         ? '中'
         : '低';
   return {

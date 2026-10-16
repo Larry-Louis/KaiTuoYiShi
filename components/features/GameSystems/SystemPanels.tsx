@@ -1,12 +1,9 @@
-// 各游戏系统的占位面板。每个系统未来会替换为完整实现。
-
+import { cardClip } from '@/components/ui/clipPaths';
 interface PlaceholderProps {
   label: string;
   description: string;
 }
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
 function SystemPlaceholder({ label, description }: PlaceholderProps) {
   return (
@@ -16,7 +13,7 @@ function SystemPlaceholder({ label, description }: PlaceholderProps) {
         style={{
           background:
             'linear-gradient(180deg, rgba(var(--tj-accent-primary), 0.07), rgba(var(--tj-accent-primary), 0.015))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}
       >
@@ -38,7 +35,7 @@ function SystemPlaceholder({ label, description }: PlaceholderProps) {
         className="px-4 py-8 text-center font-serif text-xs italic tracking-[0.22em]"
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.65)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -52,9 +49,6 @@ function SystemPlaceholder({ label, description }: PlaceholderProps) {
 }
 
 export function PathPanel() {
-  // 这个占位仅用于直接渲染时的兜底；实际命途面板由
-  // [components/features/GameSystems/PathPanel.tsx] 提供（需要 traveler / onTravelerChange）。
-  // App.tsx 通过 renderSystemPanel 已经直接导入了真实的 PathPanel，这里保留兜底以防误用。
   return (
     <SystemPlaceholder
       label="命途"
@@ -73,8 +67,6 @@ export function InventoryPanel() {
 }
 
 export function CompanionPanel() {
-  // CompanionPanel 已搬到独立文件：components/features/GameSystems/CompanionPanel.tsx
-  // 这里保留兜底，防止其他位置误引用导致编译错误。
   return (
     <SystemPlaceholder
       label="伙伴"
@@ -111,8 +103,6 @@ export function PlotPanel() {
 }
 
 export function MemoryPanel() {
-  // MemoryPanel 已搬到独立文件：components/features/GameSystems/MemoryPanel.tsx
-  // 这里保留兜底，防止其他位置误引用导致编译错误。
   return (
     <SystemPlaceholder
       label="记忆"

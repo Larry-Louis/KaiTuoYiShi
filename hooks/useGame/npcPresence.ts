@@ -1,19 +1,11 @@
 import type { 聊天消息 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
-import { 筛选活跃NPC } from '@/models/npc';
 import type { 世界状态 } from '@/models/world';
 
 function namesLikelySame(a: string, b: string): boolean {
-  const left = normalizeCharacterName(a);
-  const right = normalizeCharacterName(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  if (Math.min(left.length, right.length) < 2) return false;
-  return left.includes(right) || right.includes(left);
-}
-
-function normalizeCharacterName(value: string): string {
-  return value.toLowerCase().replace(/[\s·•・._-]+/gu, '');
+  const left = a.trim();
+  const right = b.trim();
+  return !!left && !!right && (left === right || left.includes(right) || right.includes(left));
 }
 
 function nameAppearsInText(name: string, text: string): boolean {
@@ -40,74 +32,6 @@ function recentNarrativeText(history: 聊天消息[], limit = 4): string {
     .join('\n');
 }
 
-export type ZhikuCharacterParticipationLevel = 'present' | 'anticipated' | 'mentioned' | 'background';
-
-export interface ZhikuCharacterParticipation {
-  present: string[];
-  anticipated: string[];
-  mentioned: string[];
-  background: string[];
-}
-
-export function getZhikuCharacterParticipationForTurn(input: {
-  world: 世界状态;
-  npcs?: NPC记录[];
-  history?: 聊天消息[];
-  userInput?: string;
-  turnCount: number;
-  /** 记忆系统设置（取 即时转短期阈值 推导回顾窗口，缺省 10-1=9 回合）。 */
-  settings?: { 即时转短期阈值?: number };
-}): ZhikuCharacterParticipation {
-  const npcs = 筛选活跃NPC(input.npcs);
-  const sceneNames = new Set((input.world.当前时段?.人物 ?? []).map((npc) => npc.姓名.trim()).filter(Boolean));
-  const currentText = input.userInput ?? '';
-  // 对标回顾窗口：近期文本从「最近 4 条消息」扩展到回顾窗口（即时转短期阈值-1 回合 ≈ 2N 条消息），
-  // 避免「只出现在回顾里的角色」在智库召回的所有通道里不可见。
-  const reviewTurns = Math.max(2, Math.trunc((input.settings?.即时转短期阈值 ?? 10) - 1) || 9);
-  const recentText = recentNarrativeText(input.history ?? [], reviewTurns * 2);
-  const recentCutoff = Math.max(1, input.turnCount - 3);
-  const present: string[] = [];
-  const mentioned: string[] = [];
-  const background: string[] = [];
-
-  for (const npc of npcs) {
-    const inScene = sceneNames.has(npc.姓名)
-      || Boolean(npc.别名 && sceneNames.has(npc.别名));
-    const textAppears = nameAppearsInText(npc.姓名, currentText)
-      || Boolean(npc.别名 && nameAppearsInText(npc.别名, currentText))
-      || nameAppearsInText(npc.姓名, recentText)
-      || Boolean(npc.别名 && nameAppearsInText(npc.别名, recentText));
-    // 正文点名 + 最近 1 回合内有系统互动记录 → 判为在场。
-    // 模型每回合变量有限，「同行」常写不全；正文写了角色在说话行动就是最实在的在场证据。
-    // 已知代价：回忆点名会刷新「最近回合」，离场 ≤4 回合被回忆点名的角色可能被算在场（影响小）。
-    const bodyEvidence = textAppears && Number(npc.最近回合 || 0) >= input.turnCount - 1;
-    const isPresent = npc.同行 || inScene || bodyEvidence;
-    if (isPresent) {
-      addUnique(present, npc.姓名);
-      continue;
-    }
-    if (textAppears) {
-      addUnique(mentioned, npc.姓名);
-      continue;
-    }
-    if (Number(npc.最近回合 || 0) >= recentCutoff) addUnique(background, npc.姓名);
-  }
-
-  for (const name of sceneNames) {
-    if (!present.some((item) => namesLikelySame(item, name))) addUnique(present, name);
-  }
-  const anticipated = getAnticipatedNpcNamesForTurn(input)
-    .filter((name) => !present.some((item) => namesLikelySame(item, name)))
-    .filter((name) => !mentioned.some((item) => namesLikelySame(item, name)));
-
-  return {
-    present: filterOriginalProtagonistNames(present, input.world.原著主角).slice(0, 12),
-    anticipated: filterOriginalProtagonistNames(anticipated, input.world.原著主角).slice(0, 8),
-    mentioned: filterOriginalProtagonistNames(mentioned, input.world.原著主角).slice(0, 12),
-    background: filterOriginalProtagonistNames(background, input.world.原著主角).slice(0, 12),
-  };
-}
-
 export function getExplicitNpcNamesForTurn(input: {
   world: 世界状态;
   npcs?: NPC记录[];
@@ -115,9 +39,9 @@ export function getExplicitNpcNamesForTurn(input: {
   userInput?: string;
   turnCount: number;
 }): string[] {
-  const npcs = 筛选活跃NPC(input.npcs);
+  const npcs = input.npcs ?? [];
   const text = [input.userInput ?? '', recentNarrativeText(input.history ?? [])].join('\n');
-  const sceneNames = new Set((input.world.当前时段?.人物 ?? []).map((npc) => npc.姓名.trim()).filter(Boolean));
+  const sceneNames = new Set(input.world.当前时段.人物.map((npc) => npc.姓名.trim()).filter(Boolean));
   const recentCutoff = Math.max(1, input.turnCount - 3);
   const picked: string[] = [];
   const push = (name?: string) => {
@@ -130,7 +54,7 @@ export function getExplicitNpcNamesForTurn(input: {
       npc.同行 ||
       sceneNames.has(npc.姓名) ||
       Boolean(npc.别名 && sceneNames.has(npc.别名)) ||
-      Number(npc.最近回合 || 0) >= recentCutoff ||
+      npc.最近回合 >= recentCutoff ||
       nameAppearsInText(npc.姓名, text) ||
       Boolean(npc.别名 && nameAppearsInText(npc.别名, text));
     if (isExplicit) push(npc.姓名);
@@ -159,8 +83,8 @@ export function getAnticipatedNpcNamesForTurn(input: {
   const text = [
     input.userInput ?? '',
     recentNarrativeText(input.history ?? [], 6),
-    input.world.当前地点 ?? '',
-    input.world.当前时段?.名称 ?? '',
+    input.world.当前地点,
+    input.world.当前时段.名称,
   ].join('\n');
   const names: string[] = [];
 
@@ -183,5 +107,8 @@ export function getZhikuNpcNamesForTurn(input: {
   userInput?: string;
   turnCount: number;
 }): string[] {
-  return getZhikuCharacterParticipationForTurn(input).present;
+  const names: string[] = [];
+  for (const name of getExplicitNpcNamesForTurn(input)) addUnique(names, name);
+  for (const name of getAnticipatedNpcNamesForTurn(input)) addUnique(names, name);
+  return filterOriginalProtagonistNames(names, input.world.原著主角).slice(0, 12);
 }

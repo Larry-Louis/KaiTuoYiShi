@@ -6,8 +6,6 @@ import { isDataImageUrl, rememberAlbumAssetFromDataUrl } from '@/utils/albumObje
 import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
 import { compactVariableBatchHistory } from '@/utils/longSessionRetention';
-import { buildPersistedZhikuSystem } from '@/data/zhikuPreset';
-import { 归一化智库系统 } from '@/models/zhiku';
 
 const LARGE_TEXT_LIMIT = 8000;
 const MAX_SNAPSHOT_QUEUE_TASKS = 12;
@@ -32,7 +30,7 @@ function stripAlbumAssetPayload(album?: 相册系统): 相册系统 | undefined 
   if (!album) return album;
   return {
     ...album,
-    assets: (album.assets ?? []).map((asset) => ({
+    assets: album.assets.map((asset) => ({
       ...asset,
       dataUrl: asset.id ? 创建相册资源引用(asset.id) : asset.dataUrl,
       originalUrl: isDataImage(asset.originalUrl) ? undefined : asset.originalUrl,
@@ -63,7 +61,7 @@ function compactDataImages(value: unknown, refs: Map<string, string>, seen = new
 }
 
 function compactQueueTasks(tasks?: unknown[]): 队列任务记录[] | undefined {
-  if (!Array.isArray(tasks)) return tasks as 队列任务记录[] | undefined;
+  if (!Array.isArray(tasks)) return tasks;
   return tasks.slice(-MAX_SNAPSHOT_QUEUE_TASKS).map((task) => {
     const item = task as 队列任务记录;
     return {
@@ -83,9 +81,6 @@ export function compactPreTurnSnapshot(snapshot: 回合快照): 回合快照 {
     剧情编织: snapshot.剧情编织
       ? buildPersistedStoryWeavingSystem(归一化剧情编织系统(snapshot.剧情编织))
       : snapshot.剧情编织,
-    智库: snapshot.智库
-      ? buildPersistedZhikuSystem(归一化智库系统(snapshot.智库 as import('@/models/zhiku').智库系统))
-      : snapshot.智库,
     variableBatches: compactVariableBatchHistory(snapshot.variableBatches as import('@/models/variableCommand').变量命令批次[]),
     queueTasks: compactQueueTasks(snapshot.queueTasks),
   }, refs) as 回合快照;

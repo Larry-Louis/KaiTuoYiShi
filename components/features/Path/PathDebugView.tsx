@@ -1,13 +1,8 @@
-﻿// 变量管理器·命途分区
-//
-// 把分散在 旅人.命途列表 / 世界.待触发狭间 / 世界.进行中狭间 的命途数据
-// 集中在一个面板里,方便手动调试整套命途+狭间流程,不必钻进通用 JSON 树。
-
-import type { 角色数据结构 } from '@/models/character';
+﻿import type { 角色数据结构 } from '@/models/character';
 import type { 世界状态 } from '@/models/world';
 import type { 命途ID } from '@/models/journey';
 import type { 命途阶段, 命途进度 } from '@/models/path';
-import { PATH_STAGE_DEFS, 创建命途进度, STAGE_PROGRESS_MAX } from '@/models/path';
+import { PATH_STAGE_DEFS, STAGE_PROGRESS_MAX } from '@/models/path';
 import { paths as PATH_DEFS, getPath } from '@/data/journeyPresets';
 import {
   awakenPath,
@@ -16,6 +11,7 @@ import {
   踏入命途狭间,
   拒绝命途狭间,
 } from '@/services/pathService';
+import { cardClip, smallClip } from '@/components/ui/clipPaths';
 
 interface Props {
   旅人: 角色数据结构;
@@ -24,12 +20,7 @@ interface Props {
   set世界: React.Dispatch<React.SetStateAction<世界状态>>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-// 不让玩家在调试里新增「无命途」
 const SELECTABLE_PATHS = PATH_DEFS.filter((p) => p.id !== 'none');
 
 function 中文名(id: 命途ID): string {
@@ -41,14 +32,13 @@ function 阶段名(stage: 命途阶段): string {
 }
 
 export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
-  const 命途列表 = 旅人.命途列表 ?? [];
+  const 命途列表 = 旅人.命途列表;
   const 已踏ID集合 = new Set(命途列表.map((p) => p.id));
   const 未踏命途 = SELECTABLE_PATHS.filter((p) => !已踏ID集合.has(p.id));
 
-  // 更新指定 id 的命途条目;merge 字段
   const 更新命途 = (id: 命途ID, patch: Partial<命途进度>) => {
     set旅人((prev) => {
-      const list = (prev.命途列表 ?? []).map((p) =>
+      const list = prev.命途列表.map((p) =>
         p.id === id ? { ...p, ...patch } : p,
       );
       return { ...prev, 命途列表: list };
@@ -58,8 +48,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
   const 删除命途 = (id: 命途ID) => {
     if (!confirm(`确认删除命途「${中文名(id)}」?这会清空它的全部进度与阶段。`)) return;
     set旅人((prev) => {
-      const list = (prev.命途列表 ?? []).filter((p) => p.id !== id);
-      // 若删的是主命途,把 主命途 字段也清掉
+      const list = prev.命途列表.filter((p) => p.id !== id);
       const nextPrimary = prev.主命途 === id ? '' : prev.主命途;
       return { ...prev, 命途列表: list, 主命途: nextPrimary };
     });
@@ -73,7 +62,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
     set旅人((prev) => setPrimaryPath(prev, id));
   };
 
-  // 狭间状态操作
   const 设置待触发 = (id: 命途ID | '') => {
     set世界((prev) => ({ ...prev, 待触发狭间: id || undefined }));
   };
@@ -92,19 +80,17 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
     set世界((prev) => ({ ...prev, 进行中狭间: undefined }));
   };
 
-  // 一键调试:把目标命途调到 99 + 待升阶 = true(模拟自然达标,准备触发邀请)
   const 调到待升阶 = (id: 命途ID) => {
     更新命途(id, { 进度: STAGE_PROGRESS_MAX - 1, 待升阶: true });
   };
 
   return (
     <div className="space-y-3">
-      {/* 狭间状态 */}
       <div
         className="p-3 space-y-3"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.4)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -115,7 +101,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           ◆ 狭间状态
         </div>
 
-        {/* 待触发狭间 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', minWidth: 80 }}>
             待触发狭间
@@ -152,7 +137,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                 className="px-2.5 py-1 text-xs font-serif tracking-wider transition-all hover:opacity-90"
                 style={{
                   color: 'rgba(var(--tj-text-secondary), 0.85)',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
+                  border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -162,7 +147,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           )}
         </div>
 
-        {/* 进行中狭间 */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)', minWidth: 80 }}>
             进行中狭间
@@ -188,7 +172,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                 style={{
                   background: 'rgba(160, 220, 160, 0.2)',
                   color: 'rgba(180, 230, 180, 0.95)',
-                  boxShadow: 'inset 0 0 0 1px rgba(160, 220, 160, 0.45)',
+                  border: '1px solid rgba(160, 220, 160, var(--tj-edge-tint-strong))',
                   clipPath: smallClip,
                 }}
               >
@@ -204,12 +188,11 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
         </div>
       </div>
 
-      {/* 命途列表 */}
       <div
         className="p-3 space-y-2"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.4)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -233,11 +216,10 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                   className="p-2.5 space-y-2"
                   style={{
                     background: 'rgba(28, 24, 20, 0.5)',
-                    boxShadow: `inset 0 0 0 1px ${p.待升阶 ? 'rgba(var(--tj-accent-primary), 0.55)' : 'rgba(var(--tj-accent-primary), 0.18)'}`,
+                    border: `1px solid ${p.待升阶 ? 'rgba(var(--tj-accent-primary), var(--tj-edge))' : 'rgba(var(--tj-accent-primary), var(--tj-edge-tint))'}`,
                     clipPath: smallClip,
                   }}
                 >
-                  {/* 标题行:命途名 + 主命途 + 删除 */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
                       className="font-serif text-sm font-bold"
@@ -265,7 +247,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                         className="text-[11px] px-1.5 py-0.5"
                         style={{
                           color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)',
+                          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge))',
                           clipPath: smallClip,
                         }}
                       >
@@ -279,7 +261,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                         className="px-2 py-0.5 text-[11px] transition-all hover:opacity-90"
                         style={{
                           color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
-                          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                           clipPath: smallClip,
                         }}
                       >
@@ -290,7 +272,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                         className="px-2 py-0.5 text-[11px] transition-all hover:opacity-90"
                         style={{
                           color: 'rgba(255, 130, 130, 0.9)',
-                          boxShadow: 'inset 0 0 0 1px rgba(255, 130, 130, 0.3)',
+                          border: '1px solid rgba(255, 130, 130, var(--tj-edge-tint))',
                           clipPath: smallClip,
                         }}
                       >
@@ -299,7 +281,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                     </div>
                   </div>
 
-                  {/* 字段行:阶段 / 进度 / 待升阶开关 / 今日累计 / 觉醒于 */}
                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
                     <label className="flex flex-col gap-0.5">
                       <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)' }}>阶段</span>
@@ -338,7 +319,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                         style={{
                           background: p.待升阶 ? 'rgba(var(--tj-accent-primary), 0.18)' : 'rgba(60, 55, 50, 0.4)',
                           color: p.待升阶 ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))' : 'rgba(var(--tj-text-secondary), 0.7)',
-                          boxShadow: `inset 0 0 0 1px ${p.待升阶 ? 'rgba(var(--tj-accent-primary), 0.5)' : 'rgba(var(--tj-text-secondary), 0.3)'}`,
+                          border: `1px solid ${p.待升阶 ? 'rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))' : 'rgba(var(--tj-text-secondary), var(--tj-edge-tint))'}`,
                           clipPath: smallClip,
                         }}
                       >
@@ -364,7 +345,7 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                           className="px-2 text-[11px]"
                           style={{
                             color: 'rgba(var(--tj-text-secondary), 0.85)',
-                            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
+                            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                             clipPath: smallClip,
                           }}
                         >
@@ -392,7 +373,6 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
                     </label>
                   </div>
 
-                  {/* 阶段说明 */}
                   <div className="text-[11px] leading-relaxed" style={{ color: 'rgba(190, 178, 145, 0.75)' }}>
                     {阶段名(p.阶段)} · {PATH_STAGE_DEFS[p.阶段]?.title ?? ''} —
                     {PATH_STAGE_DEFS[p.阶段]?.blurb ?? ''}
@@ -403,17 +383,17 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
           </div>
         )}
 
-        {/* 添加新命途 */}
         {未踏命途.length > 0 && (
           <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'rgba(var(--tj-accent-primary), 0.12)' }}>
             <span className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary), 0.85)' }}>踏上新命途</span>
             <select
               defaultValue=""
               onChange={(e) => {
-                const v = e.target.value as 命途ID;
+                const v = e.target.value as 命途ID | '';
                 if (v) {
                   添加命途(v);
-                  e.target.value = '';
+                  const select = e.target;
+                  select.value = '';
                 }
               }}
               className="kaituo-input px-2 py-1 text-xs font-mono"
@@ -430,12 +410,11 @@ export function PathDebugView({ 旅人, 世界, set旅人, set世界 }: Props) {
         )}
       </div>
 
-      {/* 字段速查 */}
       <div
         className="p-3 text-[11px] space-y-1"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.4)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
           color: 'rgba(190, 178, 145, 0.85)',
           lineHeight: 1.6,

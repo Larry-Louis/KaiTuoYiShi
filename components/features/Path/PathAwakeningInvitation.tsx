@@ -1,30 +1,20 @@
-﻿// 「命途狭间之引」邀请卡片。
-//
-// AI 发出 <触发狭间>命途ID</触发狭间> → sendWorkflow 写入 世界.待触发狭间 → 本组件渲染。
-// 玩家点「踏入」→ App 调用 actions.handleSend('[系统] 踏入命途狭间')。
-//   sendWorkflow 内部统一处理:① 把 待触发狭间 转成 进行中狭间 ② 发请求让 AI 出第一道诘问。
-//   不让组件内部直接 setWorld + 外部再 handleSend——React 异步 setState 会让 handleSend
-//   闭包里读到的还是旧的 state.世界,scope 切不到 pathAwakening,prompt 走错。
-// 玩家点「暂缓」→ 纯前端 setWorld 清空 待触发狭间(命途进度仍满,等待下次邀请),不发请求。
+﻿// 踏入必须经 App 的 actions.handleSend('[系统] 踏入命途狭间') 发出，不能在组件内 setWorld 后再由外部 handleSend：
+// React 异步 setState 会让 handleSend 闭包里读到的还是旧的 state.世界，scope 切不到 pathAwakening，prompt 走错。
 
 import type { 世界状态 } from '@/models/world';
 import { 拒绝命途狭间 } from '@/services/pathService';
 import { getPath } from '@/data/journeyPresets';
 import { PATH_CORE_BELIEFS } from '@/models/path';
+import { cardClip as btnClip, panelClip as cardClip } from '@/components/ui/clipPaths';
 
 interface Props {
   world: 世界状态;
   setWorld: React.Dispatch<React.SetStateAction<世界状态>>;
-  /** 玩家点「踏入」时调用。App 那一层接 actions.handleSend('[系统] 踏入命途狭间')。 */
   onTrigger: () => void;
   disabled?: boolean;
 }
 
-const cardClip =
-  'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)';
 
-const btnClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
 export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }: Props) {
   if (!world.待触发狭间) return null;
@@ -47,7 +37,7 @@ export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }
       style={{
         background:
           'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.08) 0%, rgba(140, 100, 60, 0.10) 100%)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
         clipPath: cardClip,
       }}
     >
@@ -67,7 +57,7 @@ export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }
         className="mb-3 text-sm leading-relaxed"
         style={{ color: 'rgba(var(--tj-text-primary),0.85)' }}
       >
-        {belief?.核心 ?? '命途的拷问即将开始。'}
+        {belief.核心}
       </div>
       <div
         className="mb-3 text-xs leading-relaxed"
@@ -87,7 +77,7 @@ export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }
               'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.85), rgba(200, 160, 80, 0.85))',
             color: 'rgb(var(--tj-ui-active-text))',
             clipPath: btnClip,
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.5)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
           }}
         >
           踏 入
@@ -101,7 +91,7 @@ export function PathAwakeningInvitation({ world, setWorld, onTrigger, disabled }
             background: 'rgba(var(--tj-panel-bg-end),0.6)',
             color: 'rgba(var(--tj-text-secondary),0.85)',
             clipPath: btnClip,
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.35)',
+            border: '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint-strong))',
           }}
         >
           暂 缓

@@ -1,4 +1,5 @@
 import type { 存档数据 } from '@/models/settings';
+import { createUnifiedId } from '@/utils/id';
 
 export interface 存档树元信息 {
   rootId: string;
@@ -12,16 +13,16 @@ type SaveWithTree = 存档数据 & {
   saveTree?: 存档树元信息;
 };
 
-function createId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+function createId(): string {
+  return createUnifiedId();
 }
 
 export function ensureSaveTreeRoot(save: 存档数据): 存档树元信息 {
   const existing = (save as SaveWithTree).saveTree;
   if (existing?.rootId && existing.nodeId) return existing;
-  const nodeId = createId('save_node');
+  const nodeId = createId();
   return {
-    rootId: createId('save_root'),
+    rootId: createId(),
     nodeId,
     createdAt: save.timestamp || Date.now(),
   };
@@ -31,18 +32,19 @@ export function buildNextSaveTreeMeta(params: {
   previous?: 存档数据 | null;
   type: 存档数据['type'];
   timestamp: number;
+  nodeId?: string;
 }): 存档树元信息 {
   const previousTree = params.previous ? ensureSaveTreeRoot(params.previous) : undefined;
   if (!previousTree) {
     return {
-      rootId: createId('save_root'),
-      nodeId: createId('save_node'),
+      rootId: createId(),
+      nodeId: params.nodeId ?? createId(),
       createdAt: params.timestamp,
     };
   }
   return {
     rootId: previousTree.rootId,
-    nodeId: createId('save_node'),
+    nodeId: params.nodeId ?? createId(),
     parentNodeId: previousTree.nodeId,
     branchName: params.type === 'auto' ? '自动节点' : params.type === 'backup' ? '保护节点' : undefined,
     createdAt: params.timestamp,
@@ -53,7 +55,7 @@ export function attachSaveTreeMeta<T extends 存档数据>(save: T, meta: 存档
   return {
     ...save,
     saveTree: meta,
-  } as T;
+  };
 }
 
 export function getSaveTreeMeta(save: 存档数据): 存档树元信息 {

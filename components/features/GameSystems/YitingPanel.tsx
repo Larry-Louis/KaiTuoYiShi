@@ -1,39 +1,32 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+﻿import { useMemo, useState, type CSSProperties } from 'react';
 import type { 忆庭系统, 回忆条目 } from '@/models/yiting';
+import { badgeClip as cardClip, mediumClip as smallClip } from '@/components/ui/clipPaths';
 
 interface YitingPanelProps {
   yitingSystem: 忆庭系统;
 }
 
-type ArchiveFilter = 'all' | 'turn' | 'compressed' | 'communication';
+type ArchiveFilter = 'all' | 'turn' | 'compressed';
 
-const cardClip = 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip = 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
 const filterItems: { id: ArchiveFilter; label: string }[] = [
   { id: 'all', label: '全部' },
   { id: 'turn', label: '回合纪要' },
   { id: 'compressed', label: '压缩档案' },
-  { id: 'communication', label: '通讯回忆' },
 ];
 
 export function YitingPanel({ yitingSystem }: YitingPanelProps) {
   const [filter, setFilter] = useState<ArchiveFilter>('all');
   const [query, setQuery] = useState('');
-  const archives = yitingSystem.回忆档案 ?? [];
+  const archives = yitingSystem.回忆档案;
   const [selectedId, setSelectedId] = useState(archives[0]?.id ?? '');
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return archives
       .filter((entry) => {
-        // 阶段1·通讯标签页：按 分类='通讯' 筛选
-        if (filter === 'communication') {
-          if ((entry.分类 ?? '正文') !== '通讯') return false;
-        } else {
-          const kind = getArchiveKind(entry);
-          if (filter !== 'all' && kind !== filter) return false;
-        }
+        const kind = getArchiveKind(entry);
+        if (filter !== 'all' && kind !== filter) return false;
         if (!keyword) return true;
         return [
           entry.名称,
@@ -51,12 +44,11 @@ export function YitingPanel({ yitingSystem }: YitingPanelProps) {
       .sort((a, b) => b.回合 - a.回合 || (b.时间戳 || '').localeCompare(a.时间戳 || ''));
   }, [archives, filter, query]);
 
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const selected = filtered.find((item) => item.id === selectedId) ?? filtered.at(0);
   const stats = useMemo(() => {
     const turn = archives.filter((entry) => getArchiveKind(entry) === 'turn').length;
     const compressed = archives.filter((entry) => getArchiveKind(entry) === 'compressed').length;
-    const communication = archives.filter((entry) => (entry.分类 ?? '正文') === '通讯').length;
-    return { turn, compressed, communication, total: archives.length };
+    return { turn, compressed, total: archives.length };
   }, [archives]);
 
   return (
@@ -83,7 +75,7 @@ export function YitingPanel({ yitingSystem }: YitingPanelProps) {
             <Metric label="总档案" value={`${stats.total}`} />
             <Metric label="回合纪要" value={`${stats.turn}`} />
             <Metric label="压缩档案" value={`${stats.compressed}`} />
-            <Metric label="通讯回忆" value={`${stats.communication}`} />
+            <Metric label="召回材料" value="摘要" />
           </div>
         </section>
 
@@ -148,19 +140,8 @@ export function YitingPanel({ yitingSystem }: YitingPanelProps) {
                     style={buttonStyle(active)}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-1.5 truncate font-serif text-sm tracking-[0.14em]" style={{ color: 'rgb(var(--tj-text-primary))' }}>
-                        {(entry.分类 ?? '正文') === '通讯' && (
-                          <span
-                            className="shrink-0 rounded-sm px-1 py-0.5 text-[10px]"
-                            style={{
-                              background: 'rgba(var(--tj-accent-secondary), 0.18)',
-                              color: 'rgb(var(--tj-accent-secondary))',
-                            }}
-                          >
-                            通讯
-                          </span>
-                        )}
-                        <span className="truncate">{entry.名称 || `回合 ${entry.回合}`}</span>
+                      <div className="min-w-0 truncate font-serif text-sm tracking-[0.14em]" style={{ color: 'rgb(var(--tj-text-primary))' }}>
+                        {entry.名称 || `回合 ${entry.回合}`}
                       </div>
                       <KindBadge kind={kind} />
                     </div>
@@ -219,7 +200,7 @@ export function YitingPanel({ yitingSystem }: YitingPanelProps) {
                           style={{
                             color: 'rgba(var(--tj-accent-primary), 0.9)',
                             background: 'rgba(var(--tj-accent-primary), 0.06)',
-                            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
+                            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
                             clipPath: smallClip,
                           }}
                         >
@@ -280,7 +261,7 @@ function panelStyle(variant?: 'hero' | 'detail') {
         : variant === 'detail'
           ? 'linear-gradient(180deg, rgba(var(--tj-surface), 0.92), rgba(var(--tj-surface-strong), 0.9))'
           : 'rgba(var(--tj-bg-secondary), 0.42)',
-    boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.16)',
+    border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
     clipPath: cardClip,
   } as CSSProperties;
 }
@@ -290,9 +271,9 @@ function buttonStyle(active: boolean) {
     background: active
       ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.14), rgba(var(--tj-accent-primary), 0.03))'
       : 'rgba(var(--tj-bg-secondary), 0.45)',
-    boxShadow: active
-      ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.5)'
-      : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
+    border: active
+      ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+      : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
     clipPath: smallClip,
   };
 }
@@ -334,7 +315,7 @@ function InfoBlock({ title, children, important = false }: { title: string; chil
       className="mt-3 px-4 py-4 first:mt-0"
       style={{
         background: important ? 'rgba(var(--tj-accent-primary), 0.055)' : 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -352,7 +333,7 @@ function Metric({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.05)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >
@@ -373,7 +354,7 @@ function EmptyNotice({ text }: { text: string }) {
       style={{
         color: 'rgba(var(--tj-text-secondary), 0.72)',
         background: 'rgba(var(--tj-accent-primary), 0.03)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
         clipPath: smallClip,
       }}
     >

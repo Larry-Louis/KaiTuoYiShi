@@ -1,13 +1,6 @@
-/**
- * ST 预设保留式规范化函数（Phase 8 新增）。
- *
- * 参照 MoRanJiangHu utils/tavernPreset.ts 的"字段级软读取"策略，
- * 对 ST 预设 JSON 做宽松解析，容错处理类型不一致、字段缺失等常见问题。
- */
 
 import type { STPreset, STPresetPrompt, STPresetOrder, STPresetOrderSlot, STPresetEntryV2 } from '@/models/stTypes';
 
-// ── 字段级软读取工具 ──────────────────────────────────────────────
 
 const readText = (v: unknown): string =>
   typeof v === 'string' ? v.trim() : '';
@@ -24,7 +17,6 @@ const readNum = (v: unknown): number | null => {
   return null;
 };
 
-// ── 规范化单个 prompt ────────────────────────────────────────────
 
 export function normalizeSTPrompt(raw: unknown): STPresetPrompt | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -51,11 +43,10 @@ export function normalizeSTPrompt(raw: unknown): STPresetPrompt | null {
     injection_position: readNum(obj.injection_position) ?? undefined,
     injection_depth: readNum(obj.injection_depth) ?? undefined,
     injection_order: readNum(obj.injection_order) ?? undefined,
-    forbid_overrides: readBool(obj.forbid_overrides) ?? undefined,
+    forbid_overrides: readBool(obj.forbid_overrides),
   };
 }
 
-// ── 规范化单个 order 组 ──────────────────────────────────────────
 
 export function normalizeSTOrder(raw: unknown): STPresetOrder | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -81,7 +72,6 @@ export function normalizeSTOrder(raw: unknown): STPresetOrder | null {
   return { character_id: characterId, order };
 }
 
-// ── 顶层采样参数提取 ─────────────────────────────────────────────
 
 interface SamplingParams {
   temperature?: number;
@@ -105,7 +95,6 @@ function extractSamplingParams(obj: Record<string, unknown>): SamplingParams {
   };
 }
 
-// ── 规范化单个 ST 预设 ───────────────────────────────────────────
 
 export function normalizeSTPreset(raw: unknown): STPreset | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -128,7 +117,6 @@ export function normalizeSTPreset(raw: unknown): STPreset | null {
   };
 }
 
-// ── 规范化 ST 预设列表 ───────────────────────────────────────────
 
 export function normalizeSTPresetList(raw: unknown): STPresetEntryV2[] {
   const listRaw = Array.isArray(raw) ? raw : [];
@@ -160,30 +148,6 @@ export function normalizeSTPresetList(raw: unknown): STPresetEntryV2[] {
   }, []);
 }
 
-// ── 规范化游戏设置中的 ST 字段 ───────────────────────────────────
-
-export function normalizeSTSettings(settings: Record<string, unknown>): {
-  stPresetsV2: STPresetEntryV2[];
-  currentStPresetIdV2: string | null;
-  currentStCharacterId: number | null;
-} {
-  const presetList = normalizeSTPresetList(settings.stPresetsV2);
-
-  const selectedIdRaw = readText(settings.currentStPresetIdV2 ?? settings.currentStPresetId).trim();
-  const selectedEntry = selectedIdRaw
-    ? presetList.find((p) => p.id === selectedIdRaw) || null
-    : null;
-
-  const characterId = readNum(
-    settings.currentStCharacterId ?? selectedEntry?.characterId
-  ) ?? null;
-
-  return {
-    stPresetsV2: presetList,
-    currentStPresetIdV2: selectedEntry?.id || null,
-    currentStCharacterId: characterId,
-  };
-}
 
 export function getCurrentSTPresetV2(settings: {
   stPresetsV2?: STPresetEntryV2[];

@@ -4,7 +4,8 @@ import { Modal } from '@/components/ui/Modal';
 import { getPath } from '@/data/journeyPresets';
 import { PATH_STAGE_DEFS, 获取命途特质 } from '@/models/path';
 import { 解析相册资源引用 } from '@/utils/albumActions';
-import { ResilientImage } from '@/components/ui/ResilientImage';
+import { AvatarImage } from '@/components/ui/ResilientImage';
+import { mediumClip as cardClip, panelClip } from '@/components/ui/clipPaths';
 
 interface Props {
   traveler: 角色数据结构;
@@ -12,17 +13,15 @@ interface Props {
   onClose: () => void;
 }
 
-const cardClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
 export function TravelerProfileModal({ traveler, album, onClose }: Props) {
-  const primaryPath = traveler.命途列表?.find((p) => p.是否主命途) ?? traveler.命途列表?.[0];
+  const primaryPath = traveler.命途列表.find((p) => p.是否主命途) ?? traveler.命途列表.at(0);
   const primaryPathDef = primaryPath ? getPath(primaryPath.id) : undefined;
   const primaryStageDef = primaryPath
     ? PATH_STAGE_DEFS.find((s) => s.stage === primaryPath.阶段)
     : undefined;
   const primaryTraits = primaryPath ? 获取命途特质(primaryPath.id) : [];
-  const avatarUrl = 解析相册资源引用(album, traveler.头像?.trim() || traveler.图像档案?.头像?.trim());
+  const avatarUrl = 解析相册资源引用(album, traveler.头像.trim() || traveler.图像档案?.头像?.trim());
 
   return (
     <Modal onClose={onClose} title="旅人档案">
@@ -36,15 +35,14 @@ export function TravelerProfileModal({ traveler, album, onClose }: Props) {
                 avatarUrl
                   ? 'rgb(var(--tj-surface-strong))'
                   : 'radial-gradient(circle, rgba(var(--tj-bubble), 1) 0%, rgba(var(--tj-surface-strong), 1) 100%)',
-              boxShadow:
-                'inset 0 0 0 1.5px rgba(var(--tj-accent-primary), 0.75), 0 0 22px rgba(var(--tj-accent-primary), 0.18)',
+              border: '2px solid rgba(var(--tj-accent-primary), var(--tj-edge-strong))',
               color: 'rgb(var(--tj-accent-primary))',
               clipPath:
-                'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+                panelClip,
             }}
           >
             {avatarUrl ? (
-              <ResilientImage src={avatarUrl} alt={`${traveler.姓名 || '旅人'} 头像`} className="h-full w-full object-cover" />
+              <AvatarImage src={avatarUrl} alt={`${traveler.姓名 || '旅人'} 头像`} className="h-full w-full object-cover" />
             ) : (
               traveler.姓名 ? traveler.姓名[0] : '?'
             )}
@@ -112,12 +110,12 @@ export function TravelerProfileModal({ traveler, album, onClose }: Props) {
         )}
 
         {/* 能力与特长 */}
-        {(traveler.能力?.length > 0 || traveler.专长知识?.length > 0) && (
+        {(traveler.能力.length > 0 || traveler.专长知识.length > 0) && (
           <Section title="能力 / 特长">
-            {traveler.能力?.length > 0 && (
+            {traveler.能力.length > 0 && (
               <InfoCell label="能力" value={traveler.能力.join('、')} />
             )}
-            {traveler.专长知识?.length > 0 && (
+            {traveler.专长知识.length > 0 && (
               <InfoCell label="知识" value={traveler.专长知识.join('、')} />
             )}
           </Section>
@@ -129,7 +127,7 @@ export function TravelerProfileModal({ traveler, album, onClose }: Props) {
           style={{
             color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))',
             background: 'linear-gradient(135deg, rgba(var(--tj-amber-soft),0.16), rgba(var(--tj-bubble),1))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             clipPath: cardClip,
           }}
         >
@@ -160,9 +158,8 @@ function InfoCell({ label, value }: { label: string; value: string }) {
     <div
       className="px-3 py-2"
       style={{
-        background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))',
-        boxShadow:
-          'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22), inset 2px 0 0 rgba(var(--tj-accent-primary), 0.55)',
+        background: `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge)) 0 2px, transparent 2px), linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))`,
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >
@@ -188,9 +185,8 @@ function BlockCell({ label, value }: { label: string; value: string }) {
     <div
       className="px-3 py-2.5"
       style={{
-        background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))',
-        boxShadow:
-          'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22), inset 2px 0 0 rgba(var(--tj-accent-primary), 0.55)',
+        background: `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge)) 0 2px, transparent 2px), linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-paper-deep),0.72))`,
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >
@@ -215,8 +211,8 @@ function TraitChip({ trait }: { trait: { 名称: string; 说明: string } }) {
     <div
       className="px-3 py-2"
       style={{
-        background: 'linear-gradient(135deg, rgba(var(--tj-tech-cyan),0.12), rgb(var(--tj-bubble)))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.28), inset 2px 0 0 rgba(var(--tj-accent-primary),0.42)',
+        background: `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong)) 0 2px, transparent 2px), linear-gradient(135deg, rgba(var(--tj-tech-cyan),0.12), rgb(var(--tj-bubble)))`,
+        border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
       title={trait.说明}

@@ -1,37 +1,30 @@
 ﻿import { useState, useRef, useCallback, useMemo, memo, useEffect } from 'react';
-import { parseActionOptionsBlock } from '@/services/ai/responseParser';
+import { Dices, ListRestart, Radio, RadioOff } from 'lucide-react';
+import { isTurnStatusActive, isTurnStatusCancellable, TURN_STATUS_IDLE, type TurnStatus } from '@/hooks/useGame/turnStatus';
+import { IconButton } from '@/components/ui/IconButton';
+import { cardClip as btnClip, mediumClip as iconClip } from '@/components/ui/clipPaths';
 
 interface InputAreaProps {
   onSend: (text: string) => void;
   onAbort: () => void;
   loading: boolean;
   disabled?: boolean;
-  /** 受控输入文本：忆庭确认弹窗期间消息保留在输入框（待发送），确认后才真正发送。 */
-  inputText: string;
-  onInputTextChange: (value: string) => void;
-  // 平铺的快捷动作
   canRestartOpening?: boolean;
   canReroll?: boolean;
+  rerollDisabledReason?: string;
   onRestartOpening?: () => void;
-  onReroll?: () => string | void | Promise<string | void>;
+  onReroll?: () => string | undefined | Promise<string | undefined>;
   streamingEnabled?: boolean;
   onToggleStreaming?: () => void;
-  workflowHint?: string;
-  workflowStatus?: 'searching' | 'done' | '';
-  workflowFailed?: boolean;
-  workflowFailCount?: number;
-  workflowRetrying?: boolean;
+  turnStatus?: TurnStatus;
   onCancelWorkflow?: () => void;
-  /** 上一条 AI 回复给出的可点选行动列表。点击后填入输入框待玩家微调。 */
   actionOptions?: string[];
-  recoveryDraft?: { workflowId: string; input: string } | null;
+  /** id 变化才应用一次。 */
+  draft?: { id: string; text: string } | null;
+  onParseActionOptions?: (text: string) => string[];
 }
 
-const btnClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const iconClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
 function isMobileTextInput() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -41,7 +34,7 @@ function isMobileTextInput() {
   };
   if (mobileNavigator.userAgentData?.mobile === true) return true;
 
-  return window.matchMedia?.('(hover: none) and (pointer: coarse)').matches ?? false;
+  return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 }
 
 export const InputArea = memo(function InputArea({
@@ -49,60 +42,59 @@ export const InputArea = memo(function InputArea({
   onAbort,
   loading,
   disabled,
-  inputText,
-  onInputTextChange,
   canRestartOpening = false,
   canReroll = false,
+  rerollDisabledReason,
   onRestartOpening,
   onReroll,
   streamingEnabled = true,
   onToggleStreaming,
-  workflowHint = '',
-  workflowStatus = '',
-  workflowFailed = false,
-  workflowFailCount = 0,
-  workflowRetrying = false,
+  turnStatus = TURN_STATUS_IDLE,
   onCancelWorkflow,
   actionOptions = [],
-  recoveryDraft,
+  draft,
+  onParseActionOptions,
 }: InputAreaProps) {
+  const [input, setInput] = useState('');
   const [rerollActionOptions, setRerollActionOptions] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
   const lastSubmittedRef = useRef('');
-  const appliedRecoveryRef = useRef('');
+  const appliedDraftRef = useRef('');
   const visibleActionOptions = useMemo(() => {
     const source = actionOptions.length > 0 ? actionOptions : rerollActionOptions;
-    return parseActionOptionsBlock(source.join('\n'));
-  }, [actionOptions, rerollActionOptions]);
+    return onParseActionOptions?.(source.join('\n')) ?? [];
+  }, [actionOptions, rerollActionOptions, onParseActionOptions]);
 
   useEffect(() => {
-    if (!recoveryDraft || appliedRecoveryRef.current === recoveryDraft.workflowId) return;
-    appliedRecoveryRef.current = recoveryDraft.workflowId;
-    if (!inputText.trim()) {
-      onInputTextChange(recoveryDraft.input);
-      lastSubmittedRef.current = recoveryDraft.input;
-      requestAnimationFrame(() => inputRef.current?.focus());
+    if (!draft || appliedDraftRef.current === draft.id) return;
+    appliedDraftRef.current = draft.id;
+    if (!input.trim()) {
+      requestAnimationFrame(() => {
+        setInput(draft.text);
+        lastSubmittedRef.current = draft.text;
+        inputRef.current?.focus();
+      });
     }
-  }, [inputText, recoveryDraft, onInputTextChange]);
+  }, [input, draft]);
 
   const handleSend = useCallback(() => {
-    const trimmed = inputText.trim();
+    const trimmed = input.trim();
     if (!trimmed || loading) return;
     lastSubmittedRef.current = trimmed;
     onSend(trimmed);
-    onInputTextChange('');
+    setInput('');
     setRerollActionOptions([]);
     inputRef.current?.focus();
-  }, [inputText, loading, onSend, onInputTextChange]);
+  }, [input, loading, onSend]);
 
   const handleAbortClick = useCallback(() => {
     onAbort();
     if (lastSubmittedRef.current) {
-      onInputTextChange(lastSubmittedRef.current);
+      setInput(lastSubmittedRef.current);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-  }, [onAbort, onInputTextChange]);
+  }, [onAbort]);
 
   const appendActionOptionToInput = useCallback((current: string, option: string) => {
     const normalizedCurrent = current.trim();
@@ -116,9 +108,9 @@ export const InputArea = memo(function InputArea({
   }, []);
 
   const handlePickOption = useCallback((text: string) => {
-    onInputTextChange(appendActionOptionToInput(inputText, text));
+    setInput((current) => appendActionOptionToInput(current, text));
     inputRef.current?.focus();
-  }, [appendActionOptionToInput, inputText, onInputTextChange]);
+  }, [appendActionOptionToInput]);
 
   const showOptions = !loading && !disabled && visibleActionOptions.length > 0;
 
@@ -126,15 +118,15 @@ export const InputArea = memo(function InputArea({
     setRerollActionOptions(actionOptions);
     const restoredInput = await onReroll?.();
     if (typeof restoredInput === 'string') {
-      onInputTextChange(restoredInput);
+      setInput(restoredInput);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-  }, [actionOptions, onReroll, onInputTextChange]);
+  }, [actionOptions, onReroll]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key !== 'Enter' || e.shiftKey) return;
-      if (isComposingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+      if (isComposingRef.current || e.nativeEvent.isComposing) return;
       if (isMobileTextInput()) return;
 
       e.preventDefault();
@@ -145,42 +137,31 @@ export const InputArea = memo(function InputArea({
 
   return (
     <div
-      className="shrink-0 p-2.5 pb-[calc(var(--app-safe-bottom,0px)+74px)] md:p-3 md:pb-3"
+      className="shrink-0 p-2.5 pb-[calc(var(--app-safe-bottom)+74px)] md:p-3 md:pb-3"
       style={{
         borderTop: '1px solid rgba(var(--tj-border), 0.72)',
         background: 'rgba(var(--tj-surface), 0.72)',
         boxShadow: '0 -8px 22px rgba(var(--tj-shadow), 0.05)',
       }}
     >
-      {workflowHint && (
+      {turnStatus.kind !== 'idle' && (
         <div
           className="mb-1.5 flex items-center justify-between gap-3 px-3 py-1.5 font-serif text-[11px] tracking-[0.18em]"
           style={{
             color: 'rgba(var(--tj-text-primary), 0.9)',
             background: 'rgba(var(--tj-accent-primary), 0.06)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
             clipPath: iconClip,
           }}
         >
-          <span className="min-w-0 truncate">{workflowHint}</span>
+          <span className="min-w-0 truncate">{turnStatus.text}</span>
           <span className="flex shrink-0 items-center gap-2">
-          {workflowFailCount > 0 && (
-            <span style={{ color: workflowRetrying ? 'rgba(var(--tj-accent-primary),0.92)' : 'rgba(255,180,180,0.9)' }}>
-              失败 {workflowFailCount} 次{workflowRetrying ? '，正在重试' : ''}
+          {turnStatus.kind === 'failed' && (
+            <span style={{ color: 'rgba(255,180,180,0.9)' }}>
+              失败 {turnStatus.failCount} 次
             </span>
           )}
-          {workflowStatus === 'done' && !workflowFailed ? (
-            <span
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-serif text-[12px] font-bold"
-              style={{
-                color: 'rgb(var(--tj-ui-active-text))',
-                background: 'linear-gradient(135deg, rgba(var(--tj-ui-success),0.95), rgba(var(--tj-ui-success),0.9))',
-                boxShadow: '0 0 10px rgba(var(--tj-ui-success),0.45), inset 0 0 0 1px rgba(var(--tj-ui-success),0.6)',
-              }}
-            >
-              ✓
-            </span>
-          ) : workflowFailed ? (
+          {turnStatus.kind === 'failed' ? (
             <span
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-serif text-[12px] font-bold"
               style={{
@@ -191,7 +172,7 @@ export const InputArea = memo(function InputArea({
             >
               !
             </span>
-          ) : (
+          ) : isTurnStatusActive(turnStatus) ? (
             <span className="inline-flex items-center gap-1.5 shrink-0">
               <span
                 className="h-1.5 w-1.5 animate-pulse-soft rounded-full"
@@ -206,8 +187,16 @@ export const InputArea = memo(function InputArea({
                 style={{ background: 'rgb(var(--tj-accent-primary))', animationDelay: '0.28s', boxShadow: '0 0 8px rgba(var(--tj-accent-primary), 0.35)' }}
               />
             </span>
+          ) : (
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center font-serif text-[11px]"
+              style={{ color: 'rgba(var(--tj-text-secondary), 0.8)' }}
+              title={turnStatus.kind === 'stopped' ? '已停止' : ''}
+            >
+              ∥
+            </span>
           )}
-          {workflowStatus !== 'done' && onCancelWorkflow && (
+          {isTurnStatusCancellable(turnStatus) && onCancelWorkflow && (
             <button
               type="button"
               onClick={onCancelWorkflow}
@@ -215,7 +204,7 @@ export const InputArea = memo(function InputArea({
               style={{
                 color: 'rgba(var(--tj-text-primary),0.92)',
                 background: 'rgba(var(--tj-panel-bg-start),0.2)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-secondary),0.3)',
+                border: '1px solid rgba(var(--tj-accent-secondary), var(--tj-edge-tint))',
                 clipPath: iconClip,
               }}
             >
@@ -226,28 +215,31 @@ export const InputArea = memo(function InputArea({
         </div>
       )}
 
-      {/* 顶部横向快捷图标条 */}
       <div className="mb-1.5 flex items-center gap-1.5">
         {canRestartOpening && (
           <IconButton
-            glyph="↺"
-            title="重新开局"
+            icon={ListRestart}
+            label="重新开局"
+            description="回到初始开局并清除当前进度"
             disabled={loading || disabled}
             onClick={() => onRestartOpening?.()}
           />
         )}
         <IconButton
-          glyph="⟳"
-          title="重roll"
-          hint={canReroll ? undefined : '需先有回复'}
+          icon={Dices}
+          label="重写上一回复"
+          description="回滚上一回合并重新生成回复"
+          disabledReason={!canReroll ? (rerollDisabledReason ?? '需要先完成一条回复') : undefined}
           disabled={!canReroll || loading || disabled}
-          onClick={handleRerollClick}
+          onClick={() => void handleRerollClick()}
         />
         <IconButton
-          glyph={streamingEnabled ? '⟿' : '◐'}
-          title={streamingEnabled ? '流式：开' : '流式：关'}
+          icon={streamingEnabled ? Radio : RadioOff}
+          label={streamingEnabled ? '流式显示已开启' : '流式显示已关闭'}
+          description={streamingEnabled ? '回复生成时逐步显示正文' : '回复完成后一次显示正文'}
           active={streamingEnabled}
           disabled={loading}
+          pressed={streamingEnabled}
           onClick={() => onToggleStreaming?.()}
         />
       </div>
@@ -267,7 +259,7 @@ export const InputArea = memo(function InputArea({
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.92)',
                 background: 'rgba(var(--tj-accent-primary), 0.06)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 clipPath: iconClip,
               }}
             >
@@ -281,8 +273,8 @@ export const InputArea = memo(function InputArea({
       <div className="flex items-stretch gap-2">
         <textarea
           ref={inputRef}
-          value={inputText}
-          onChange={(e) => onInputTextChange(e.target.value)}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => {
             isComposingRef.current = true;
@@ -306,7 +298,7 @@ export const InputArea = memo(function InputArea({
               background: 'linear-gradient(135deg, rgba(var(--tj-danger),0.9), rgba(var(--tj-danger),0.9))',
               color: 'rgb(var(--tj-on-accent))',
               clipPath: btnClip,
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.4)',
+              border: '1px solid rgba(var(--tj-danger), var(--tj-edge-tint-strong))',
             }}
           >
             <span className="inline-flex items-center gap-1">
@@ -323,7 +315,7 @@ export const InputArea = memo(function InputArea({
         ) : (
           <button
             onClick={handleSend}
-            disabled={!inputText.trim() || disabled}
+            disabled={!input.trim() || disabled}
             className="kaituo-btn kaituo-btn-primary group min-w-[58px] px-3 text-xs md:min-w-[64px] md:px-6 md:text-sm"
           >
             <span
@@ -343,40 +335,3 @@ export const InputArea = memo(function InputArea({
     </div>
   );
 });
-
-function IconButton({
-  glyph,
-  title,
-  hint,
-  active,
-  disabled,
-  onClick,
-}: {
-  glyph: string;
-  title: string;
-  hint?: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  const tooltip = hint ? `${title}（${hint}）` : title;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={tooltip}
-      className="flex h-7 w-9 items-center justify-center font-serif text-base transition-all hover:bg-[rgba(var(--tj-accent-primary),0.14)] disabled:opacity-30 disabled:cursor-not-allowed"
-      style={{
-        color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-accent-primary), 0.85)',
-        background: active ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgba(var(--tj-accent-primary), 0.05)',
-        boxShadow: active
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-        clipPath: iconClip,
-      }}
-    >
-      {glyph}
-    </button>
-  );
-}

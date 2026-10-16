@@ -1,6 +1,3 @@
-// 进入游戏后右侧菜单的所有系统入口。
-// 顺序即菜单显示顺序。新增系统时在此追加。
-
 export type GameSystemId =
   | 'path'
   | 'skill'

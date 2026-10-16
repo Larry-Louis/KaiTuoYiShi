@@ -1,43 +1,34 @@
 ﻿import { useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
-import { fetchModels } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { ConnectionTestConfig } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { providerOptions } from './settingsShared';
+import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
 }
 
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
-const providerOptions: { value: AI提供商; label: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'baidu', label: '百度千帆' },
-  { value: 'opencode', label: 'OpenCode Zen' },
-  { value: 'mimo', label: '小米 MiMo' },
-  { value: 'ark', label: '火山方舟' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude_compatible', label: 'Claude 兼容' },
-  { value: 'gemini', label: 'Gemini' },
-];
 
-export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Props) {
+export function StoryWeavingSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels }: Props) {
   const story = settings.剧情编织系统;
-  const mainConfig = apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
 
-  const patch = (patch: Partial<Omit<typeof story, 'api' | '推进判定API'>> & {
-    api?: Partial<typeof story.api>;
-    推进判定API?: Partial<typeof story.推进判定API>;
-  }) => {
+  const patch = (
+    patch: Partial<Omit<typeof story, 'api' | '推进判定API'>> & {
+      api?: Partial<typeof story.api>;
+      推进判定API?: Partial<typeof story.推进判定API>;
+    },
+  ) => {
     onChange({
       ...settings,
       剧情编织系统: {
@@ -56,11 +47,11 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
   };
 
   const effectiveApi = {
-    provider: story.api.provider || mainConfig?.provider || 'openai_compatible',
+    provider: story.api.provider,
     baseUrl: story.api.baseUrl.trim() || mainConfig?.baseUrl || '',
     apiKey: story.api.apiKey.trim() || mainConfig?.apiKey || '',
     model: story.api.model.trim() || mainConfig?.model || '',
-    enableClaudeMode: settings.enableClaudeMode === true,
+    enableClaudeMode: settings.enableClaudeMode,
   };
 
   const handleFetchModels = async () => {
@@ -94,7 +85,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
   };
 
   const handleSave = async () => {
-    await saveSetting('gameSettings', settings);
+    await onPersistSettings(settings);
     setSavedFlash(true);
     setMessage('剧情编织设置已保存。');
     window.setTimeout(() => setSavedFlash(false), 1600);
@@ -107,7 +98,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -132,25 +123,53 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
       />
 
       <ToggleRow
-        label="剧情推进 AI 判定（默认关闭）"
-        desc="用独立 AI 语义判断本分段是否完成与实际进度，比关键词匹配更准。开启后每个普通回合额外消耗一次小请求；关闭时由 AI 申报 + 关键词校验推进。"
-        checked={story.剧情推进AI判定 === true}
+        label="剧情推进 AI 判定"
+        desc="开启后用独立 AI 判断本分段是否完成与实际所在分段；命中后续分段时会直接推进当前段，失败仅留诊断。"
+        checked={story.剧情推进AI判定}
         onChange={(v) => patch({ 剧情推进AI判定: v })}
       />
 
-      {story.剧情推进AI判定 === true && (
+      <ToggleRow
+        label="剧情对齐巡检"
+        desc="每隔若干回合用 AI 把近期正文总结与剧情库比对，向前纠正当前段（只向前；判断不了就不动）。默认关闭。"
+        checked={story.剧情对齐巡检}
+        onChange={(v) => patch({ 剧情对齐巡检: v })}
+      />
+
+      {story.剧情对齐巡检 && (
+        <Field label="对齐巡检间隔（回合）">
+          <input
+            type="number"
+            min={2}
+            max={30}
+            value={story.剧情对齐巡检间隔}
+            onChange={(e) => patch({ 剧情对齐巡检间隔: Math.max(2, Math.min(30, Number(e.target.value) || 6)) })}
+            className="kaituo-input w-28 px-3 py-2 text-sm"
+            style={{ clipPath: smallClip }}
+          />
+        </Field>
+      )}
+
+      <ToggleRow
+        label="世界演变"
+        desc="结算内排期并裁决到期事件、物化世界事实（仅到期或有动态世界线索时调用）；旧存档默认关闭。"
+        checked={story.世界演变}
+        onChange={(v) => patch({ 世界演变: v })}
+      />
+
+      {story.剧情推进AI判定 && (
         <div
           className="space-y-3 px-4 py-4"
           style={{
             background: 'rgba(var(--tj-bg-secondary), 0.45)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
             clipPath: cardClip,
           }}
         >
           <div className="flex items-center gap-2">
             <span className="h-4 w-[3px]" style={{ background: 'rgb(var(--tj-accent-primary))' }} />
             <span className="font-serif text-[13px] font-semibold tracking-[0.28em]" style={{ color: 'rgb(var(--tj-accent-primary))' }}>
-              推进判定 API（留空复用上方分解 API）
+              推进判定 API
             </span>
           </div>
           <Field label="服务商">
@@ -167,7 +186,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
             <input
               value={story.推进判定API.baseUrl}
               onChange={(e) => patch({ 推进判定API: { baseUrl: e.target.value } })}
-              placeholder="留空则复用上方分解 API"
+              placeholder={mainConfig?.baseUrl ? `留空复用剧情编织/主 API：${mainConfig.baseUrl}` : 'https://...'}
               className="kaituo-input w-full px-3 py-2 text-sm font-mono"
               style={{ clipPath: smallClip }}
             />
@@ -177,7 +196,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
               type="password"
               value={story.推进判定API.apiKey}
               onChange={(e) => patch({ 推进判定API: { apiKey: e.target.value } })}
-              placeholder="留空则复用上方分解 API 的 Key"
+              placeholder="留空复用剧情编织/主 API 的 Key"
               className="kaituo-input w-full px-3 py-2 text-sm font-mono"
               style={{ clipPath: smallClip }}
             />
@@ -186,19 +205,8 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
             <input
               value={story.推进判定API.model}
               onChange={(e) => patch({ 推进判定API: { model: e.target.value } })}
-              placeholder="留空则复用上方分解 API 的模型"
+              placeholder={mainConfig?.model ? `留空复用剧情编织/主 API：${mainConfig.model}` : '模型 ID'}
               className="kaituo-input w-full px-3 py-2 text-sm font-mono"
-              style={{ clipPath: smallClip }}
-            />
-          </Field>
-          <Field label="失败重试次数">
-            <input
-              type="number"
-              min={0}
-              max={5}
-              value={story.推进判定API.retryCount ?? 2}
-              onChange={(e) => patch({ 推进判定API: { retryCount: Number(e.target.value) } })}
-              className="kaituo-input w-full px-3 py-2 text-sm"
               style={{ clipPath: smallClip }}
             />
           </Field>
@@ -225,7 +233,7 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
         className="space-y-3 px-4 py-4"
         style={{
           background: 'rgba(var(--tj-bg-secondary), 0.45)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath: cardClip,
         }}
       >
@@ -278,12 +286,12 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
               style={{ clipPath: smallClip }}
             />
             <button
-              onClick={handleFetchModels}
+              onClick={() => void handleFetchModels()}
               disabled={loadingModels}
               className="px-3 py-2 text-xs font-serif tracking-wider disabled:opacity-50"
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.85)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.35)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 background: 'rgba(var(--tj-accent-primary), 0.05)',
                 clipPath: smallClip,
               }}
@@ -320,16 +328,16 @@ export function StoryWeavingSettingsTab({ settings, onChange, apiSettings }: Pro
       {message && <div className="text-xs" style={{ color: message.includes('失败') ? 'rgba(220,120,120,0.9)' : 'rgba(160,200,160,0.85)' }}>{message}</div>}
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: savedFlash
-              ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
-              : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
+            border: savedFlash
+              ? '1px solid rgba(220, 255, 230, var(--tj-edge-tint-strong))'
+              : '1px solid rgba(var(--tj-text-primary), var(--tj-edge))',
             clipPath: cardClip,
           }}
         >
@@ -357,8 +365,8 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: st
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -376,10 +384,10 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: st
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+          clipPath: smallClip,
         }}
       >
         <div
@@ -387,7 +395,7 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: st
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>

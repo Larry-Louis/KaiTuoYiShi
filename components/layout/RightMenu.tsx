@@ -1,5 +1,6 @@
 ﻿import { memo } from 'react';
 import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
+import { mediumClip as itemClip } from '@/components/ui/clipPaths';
 
 interface RightMenuProps {
   activeId: GameSystemId | null;
@@ -7,14 +8,10 @@ interface RightMenuProps {
   onSaveGame: () => void;
   onLoadGame: () => void;
   onSettings: () => void;
-  /** 未处理的记忆失败草稿数量；只用于入口提醒，不在打开面板时自动清除。 */
-  memoryUnread?: number;
 }
 
-const itemClip =
-  'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
 
-export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGame, onLoadGame, onSettings, memoryUnread = 0 }: RightMenuProps) {
+export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGame, onLoadGame, onSettings }: RightMenuProps) {
   return (
     <div className="kaituo-right-menu hidden md:flex md:w-[16%] min-w-[200px] max-w-[240px] flex-col">
       <div
@@ -38,7 +35,6 @@ export const RightMenu = memo(function RightMenu({ activeId, onSelect, onSaveGam
             subtitle={item.subtitle}
             active={activeId === item.id}
             onClick={() => onSelect(item.id)}
-            badge={item.id === 'memory' ? memoryUnread : 0}
           />
         ))}
       </div>
@@ -64,14 +60,12 @@ function SystemButton({
   subtitle,
   active,
   onClick,
-  badge = 0,
 }: {
   glyph: string;
   label: string;
   subtitle: string;
   active: boolean;
   onClick: () => void;
-  badge?: number;
 }) {
   return (
     <button
@@ -81,9 +75,9 @@ function SystemButton({
         background: active
           ? 'linear-gradient(90deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.025))'
           : 'rgba(var(--tj-bubble), 0.34)',
-        boxShadow: active
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.5), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.96), rgba(var(--tj-accent-secondary),0.92))'
-          : 'inset 0 0 0 1px rgba(var(--tj-border), 0.64)',
+        border: active
+          ? '1px solid transparent'
+          : '1px solid rgba(var(--tj-border), var(--tj-edge))',
         clipPath: itemClip,
       }}
     >
@@ -92,7 +86,7 @@ function SystemButton({
         style={{
           color: active ? 'rgb(var(--tj-accent-primary))' : 'rgba(var(--tj-accent-primary), 0.72)',
           background: active ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: `inset 0 0 0 1px rgba(var(--tj-accent-primary), ${active ? 0.55 : 0.28})`,
+          border: `1px solid rgba(var(--tj-accent-primary), ${active ? 0.55 : 0.28})`,
           clipPath: itemClip,
         }}
       >
@@ -112,25 +106,7 @@ function SystemButton({
           {subtitle}
         </span>
       </span>
-      {badge > 0 && <UnreadDot count={badge} />}
     </button>
-  );
-}
-
-function UnreadDot({ count }: { count: number }) {
-  return (
-    <span
-      className="relative ml-auto flex h-4 min-w-4 items-center justify-center px-1 text-[9px] font-bold leading-none"
-      title={`有 ${count} 份失败记忆草稿待处理`}
-      aria-label={`有 ${count} 份失败记忆草稿待处理`}
-      style={{
-        color: 'rgb(var(--tj-text-primary))',
-        background: 'rgba(var(--tj-danger), 0.92)',
-        borderRadius: 999,
-      }}
-    >
-      {count > 99 ? '99+' : count}
-    </span>
   );
 }
 
@@ -142,7 +118,7 @@ function FooterButton({ label, onClick }: { label: string; onClick: () => void }
       style={{
         color: 'rgba(var(--tj-text-primary), 0.92)',
         background: 'rgba(var(--tj-accent-primary), 0.04)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.72)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
         clipPath: itemClip,
       }}
     >

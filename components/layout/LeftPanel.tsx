@@ -1,14 +1,14 @@
-﻿import { memo, useState } from 'react';
+import { memo, useState } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { getPath } from '@/data/journeyPresets';
 import { PATH_STAGE_DEFS } from '@/models/path';
 import { 解析相册资源引用 } from '@/utils/albumActions';
-import { ResilientImage } from '@/components/ui/ResilientImage';
+import { AvatarImage } from '@/components/ui/ResilientImage';
+import { mediumClip, panelClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface LeftPanelProps {
   traveler: 角色数据结构;
-  /** 点击头像 / 名字时触发，打开旅人档案只读弹窗。 */
   onOpenProfile?: () => void;
   onOpenPhone?: () => void;
   phoneUnread?: number;
@@ -30,7 +30,7 @@ export const LeftPanel = memo(function LeftPanel({
   recallFullContent = '',
   desktop = true,
 }: LeftPanelProps) {
-  const mainPath = traveler.命途列表?.find((path) => path.是否主命途) ?? traveler.命途列表?.[0];
+  const mainPath = traveler.命途列表.find((path) => path.是否主命途) ?? traveler.命途列表.at(0);
   const pathDef = mainPath ? getPath(mainPath.id) : traveler.主命途 ? getPath(traveler.主命途) : undefined;
   const pathStageDef = mainPath ? PATH_STAGE_DEFS.find((stage) => stage.stage === mainPath.阶段) : undefined;
   const pathLabel = pathDef
@@ -40,13 +40,12 @@ export const LeftPanel = memo(function LeftPanel({
         pathStageDef?.name,
       ].filter(Boolean).join(' · ')
     : '尚未踏上';
-  const avatarUrl = 解析相册资源引用(album, traveler.头像?.trim() || traveler.图像档案?.头像?.trim());
+  const avatarUrl = 解析相册资源引用(album, traveler.头像.trim() || traveler.图像档案?.头像?.trim());
 
   if (!desktop) return null;
 
   return (
     <div className="kaituo-left-panel relative hidden md:flex md:w-[16%] min-w-[200px] max-w-[240px] flex-col">
-      {/* 顶部金线装饰条 */}
       <div
         className="px-4 py-3.5 text-center"
         style={{ borderBottom: '1px solid rgba(var(--tj-border), 0.72)' }}
@@ -60,7 +59,6 @@ export const LeftPanel = memo(function LeftPanel({
       </div>
 
       <div className="flex flex-1 flex-col overflow-y-auto p-4">
-        {/* 头像 + 姓名：整块可点击，打开只读档案弹窗 */}
         <button
           type="button"
           onClick={onOpenProfile}
@@ -68,7 +66,6 @@ export const LeftPanel = memo(function LeftPanel({
           title={onOpenProfile ? '查看旅人档案' : undefined}
           className="group mt-1 flex flex-col items-center transition-all hover:opacity-95 disabled:cursor-default disabled:hover:opacity-100"
         >
-          {/* Avatar */}
           <div className="relative">
             <div
               className="flex h-[88px] w-[88px] items-center justify-center overflow-hidden font-serif text-4xl font-bold transition-all group-hover:scale-[1.03]"
@@ -77,15 +74,14 @@ export const LeftPanel = memo(function LeftPanel({
                   avatarUrl
                     ? 'rgba(var(--tj-surface-strong), 0.72)'
                     : 'radial-gradient(circle, rgba(var(--tj-bubble), 0.98) 0%, rgba(var(--tj-surface-strong), 0.95) 100%)',
-                boxShadow:
-                  'inset 0 0 0 1.5px rgba(var(--tj-border), 0.9), 0 10px 18px rgba(var(--tj-shadow), 0.1)',
+                border: '2px solid rgba(var(--tj-border), var(--tj-edge-strong))',
                 color: 'rgb(var(--tj-accent-primary))',
                 clipPath:
-                  'polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)',
+                  panelClip,
               }}
             >
               {avatarUrl ? (
-                <ResilientImage src={avatarUrl} alt={`${traveler.姓名 || '旅人'} 头像`} className="h-full w-full object-cover" />
+                <AvatarImage src={avatarUrl} alt={`${traveler.姓名 || '旅人'} 头像`} className="h-full w-full object-cover" />
               ) : (
                 traveler.姓名 ? traveler.姓名[0] : '?'
               )}
@@ -104,7 +100,6 @@ export const LeftPanel = memo(function LeftPanel({
             </span>
           </div>
 
-          {/* Name */}
           <div className="mt-4 text-center">
             <div
               className="font-serif text-xl font-bold tracking-[0.2em]"
@@ -136,7 +131,6 @@ export const LeftPanel = memo(function LeftPanel({
           </div>
         </button>
 
-        {/* 旅人摘要 */}
         <div className="mt-5 space-y-3">
           <InfoLine label="身份" value={traveler.身份 || traveler.背景 || '未记录'} />
           <InfoLine label="命途" value={pathLabel} />
@@ -149,9 +143,9 @@ export const LeftPanel = memo(function LeftPanel({
           className="mt-4 flex items-center justify-between px-3 py-2.5 transition-all hover:opacity-90 disabled:cursor-default"
           style={{
             background: 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.08), rgba(var(--tj-accent-primary), 0.025))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.78)',
+            border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath:
-              'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+              mediumClip,
           }}
           title="打开手机"
         >
@@ -179,9 +173,9 @@ export const LeftPanel = memo(function LeftPanel({
             className="mt-2 px-3 py-2"
 style={{
           background: 'linear-gradient(135deg, rgba(var(--tj-tech-cyan), 0.07), rgba(var(--tj-accent-primary), 0.04))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.22)',
+          border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
               clipPath:
-                'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+                mediumClip,
             }}
           >
             <div className="font-serif text-[10px] tracking-[0.28em]" style={{ color: 'rgba(var(--tj-tech-cyan), 0.82)' }}>
@@ -213,9 +207,9 @@ function RecallSummaryWindow({ content, fullContent }: { content: string; fullCo
       className="mt-3 flex min-h-[150px] flex-1 flex-col overflow-hidden px-3 py-2.5"
       style={{
         background: 'linear-gradient(135deg, rgba(var(--tj-tech-cyan),0.055), rgba(var(--tj-accent-primary),0.035))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan),0.22)',
+        border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          mediumClip,
       }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -233,9 +227,9 @@ function RecallSummaryWindow({ content, fullContent }: { content: string; fullCo
             className="px-1.5 py-0.5 font-serif text-[10px] tracking-[0.14em] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
             style={{
               color: 'rgba(var(--tj-tech-cyan),0.9)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan),0.22)',
+              border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))',
               background: 'rgba(var(--tj-tech-cyan),0.055)',
-              clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              clipPath: tinyClip,
             }}
             title={full ? '显示完整召回内容' : '本回合没有完整召回内容'}
           >
@@ -282,9 +276,9 @@ function InfoLine({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.045)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.72)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
         clipPath:
-          'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          smallClip,
       }}
     >
       <div className="font-serif text-[11px] tracking-[0.32em]" style={{ color: 'rgba(var(--tj-accent-primary), 0.68)' }}>

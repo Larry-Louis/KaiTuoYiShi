@@ -1,23 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  clearApiErrorReports,
-  loadApiErrorReports,
-  sanitizeRequestUrlForReport,
-  type ApiErrorReport,
-} from '@/services/ai/apiErrorReportService';
+import type { ApiErrorReport } from '@/hooks/useAiTools';
+import { 格式化ISO时间 } from '@/utils/format';
+import { smallClip } from '@/components/ui/clipPaths';
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
-function formatTime(iso: string): string {
-  const date = new Date(iso);
-  if (!Number.isFinite(date.getTime())) return iso;
-  return date.toLocaleString();
+interface Props {
+  /** 勿直连 services/ai。 */
+  loadApiErrorReports: () => Promise<ApiErrorReport[]>;
+  clearApiErrorReports: () => Promise<void>;
 }
 
 function formatReport(report: ApiErrorReport): string {
   return [
-    `时间: ${formatTime(report.createdAt)}`,
+    `时间: ${格式化ISO时间(report.createdAt)}`,
     `模块: ${report.source}`,
     `供应商: ${report.provider || '-'}`,
     `模型: ${report.model || '-'}`,
@@ -25,8 +20,7 @@ function formatReport(report: ApiErrorReport): string {
     `API Key: ${report.apiKeyHint || '-'}`,
     `状态码: ${report.status ?? '-'}`,
     `请求模式: ${report.requestMode || '-'}`,
-    // 纵深保护：展示与复制一律使用脱敏后的请求地址，不允许复制原始 requestUrl。
-    `请求地址: ${sanitizeRequestUrlForReport(report.requestUrl) || '-'}`,
+    `请求地址: ${report.requestUrl || '-'}`,
     '',
     '错误信息:',
     report.message || '-',
@@ -34,7 +28,7 @@ function formatReport(report: ApiErrorReport): string {
   ].filter(Boolean).join('\n');
 }
 
-export function ApiErrorReportsTab() {
+export function ApiErrorReportsTab({ loadApiErrorReports, clearApiErrorReports }: Props) {
   const [reports, setReports] = useState<ApiErrorReport[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [message, setMessage] = useState('');
@@ -46,11 +40,13 @@ export function ApiErrorReportsTab() {
   };
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      await refresh();
+    })();
   }, []);
 
   const selected = useMemo(
-    () => reports.find((item) => item.id === selectedId) ?? reports[0] ?? null,
+    () => reports.find((item) => item.id === selectedId) ?? reports.at(0) ?? null,
     [reports, selectedId],
   );
 
@@ -97,7 +93,7 @@ export function ApiErrorReportsTab() {
       {message && <div className="text-xs" style={{ color: 'rgba(160, 200, 160, 0.85)' }}>{message}</div>}
 
       {reports.length === 0 ? (
-        <div className="p-4 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.55)', clipPath: smallClip }}>
+        <div className="p-4 text-sm" style={{ color: 'rgba(var(--tj-text-secondary), 0.7)', border: '1px solid rgba(var(--tj-border), var(--tj-edge))', clipPath: smallClip }}>
           暂无 API 错误报告。
         </div>
       ) : (
@@ -111,7 +107,7 @@ export function ApiErrorReportsTab() {
                 style={{
                   color: 'rgba(var(--tj-text-primary), 0.88)',
                   background: report.id === selected?.id ? 'rgba(var(--tj-accent-primary), 0.12)' : 'rgba(var(--tj-bg-secondary), 0.42)',
-                  boxShadow: `inset 0 0 0 1px ${report.id === selected?.id ? 'rgba(var(--tj-accent-primary), 0.45)' : 'rgba(var(--tj-border), 0.38)'}`,
+                  border: `1px solid ${report.id === selected?.id ? 'rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))' : 'rgba(var(--tj-border), var(--tj-edge-weak))'}`,
                   clipPath: smallClip,
                 }}
               >
@@ -120,7 +116,7 @@ export function ApiErrorReportsTab() {
                   {report.provider || '-'} / {report.model || '-'}
                 </div>
                 <div className="mt-1" style={{ color: 'rgba(var(--tj-text-secondary), 0.58)' }}>
-                  {formatTime(report.createdAt)}
+                  {格式化ISO时间(report.createdAt)}
                 </div>
               </button>
             ))}
@@ -131,7 +127,7 @@ export function ApiErrorReportsTab() {
             style={{
               color: 'rgba(var(--tj-text-primary), 0.86)',
               background: 'rgba(var(--tj-bg-secondary), 0.46)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.42)',
+              border: '1px solid rgba(var(--tj-border), var(--tj-edge-weak))',
               clipPath: smallClip,
             }}
           >

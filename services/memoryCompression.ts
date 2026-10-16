@@ -1,66 +1,48 @@
-import type { API配置项, 记忆系统设置, 忆庭API覆盖 } from '@/models/settings';
+import type { API配置项, 记忆系统设置 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
 
-export type MemoryCompressionKind = 'short' | 'middle' | 'long' | 'npc';
+export type MemoryCompressionKind = 'short' | 'middle' | 'long';
 
 export interface MemoryCompressionSource {
   kind: MemoryCompressionKind;
   turn: number;
   items: string[];
   prompt: string;
-  sourceTurns?: { start: number; end: number };
 }
 
-export type MemoryCompressionFailureCode = 'unconfigured' | 'request_failed' | 'empty_output' | 'source_changed';
+export type MemoryCompressionFailureCode = 'request_failed' | 'empty_output';
+
+export interface MemoryCompressionFailure {
+  code: MemoryCompressionFailureCode;
+  message: string;
+}
 
 export interface MemoryCompressionResult {
   summary: string;
+  /** 因失败而回退本地摘要（区别于玩家关闭 API 总结或未配置接口）。 */
   usedFallback: boolean;
-  usedModel: boolean;
   usedLocal: boolean;
-  failureCode?: MemoryCompressionFailureCode;
-  failureMessage?: string;
-}
-
-export function resolveMemoryCompressionConfig(mainConfig: API配置项, override: 忆庭API覆盖): API配置项 {
-  return {
-    ...mainConfig,
-    provider: override.provider || mainConfig.provider,
-    baseUrl: override.baseUrl.trim() || mainConfig.baseUrl,
-    apiKey: override.apiKey.trim() || mainConfig.apiKey,
-    model: override.model.trim() || mainConfig.model,
-    maxTokens: override.maxTokens ?? mainConfig.maxTokens,
-    temperature: override.temperature ?? mainConfig.temperature,
-    retryCount: override.retryCount ?? mainConfig.retryCount ?? 2,
-  };
+  failure?: MemoryCompressionFailure;
 }
 
 export async function summarizeMemoryBatch(
   source: MemoryCompressionSource,
   settings: 记忆系统设置,
-  mainConfig: API配置项,
+  api: API配置项 | null,
   signal?: AbortSignal,
   retryCount = 2,
 ): Promise<MemoryCompressionResult> {
   const fallback = buildFallbackSummary(source.items, source.turn, source.kind);
 
-  // 这是玩家主动选择的本地模式，必须在解析 API 配置前短路，避免任何回退主 API 或重试器调用。
-  if (settings.启用中短长期API总结 === false) {
-    return { summary: fallback, usedFallback: false, usedModel: false, usedLocal: true };
+  // 玩家主动选择的本地模式必须在解析 API 配置前短路，否则会误报为失败回退。
+  if (!settings.启用中短长期API总结) {
+    return { summary: fallback, usedFallback: false, usedLocal: true };
   }
 
-  const api = resolveMemoryCompressionConfig(mainConfig, settings.记忆总结API);
-
-  if (!api.baseUrl || !api.apiKey || !api.model) {
-    return {
-      summary: fallback,
-      usedFallback: true,
-      usedModel: false,
-      usedLocal: false,
-      failureCode: 'unconfigured',
-      failureMessage: '记忆总结 API 未配置完整。',
-    };
+  // 无可用配置直接本地兜底。
+  if (!api) {
+    return { summary: fallback, usedFallback: true, usedLocal: false };
   }
 
   const systemPrompt = [
@@ -95,7 +77,7 @@ export async function summarizeMemoryBatch(
       {
         retries: retryCount,
         signal,
-        label: source.kind === 'short' ? '即时记忆压缩' : source.kind === 'middle' ? '中期记忆压缩' : source.kind === 'long' ? '长期记忆压缩' : 'NPC记忆压缩',
+        label: source.kind === 'short' ? '即时记忆压缩' : source.kind === 'middle' ? '中期记忆压缩' : '长期记忆压缩',
       },
     );
     const summary = normalizeSummaryOutput(raw);
@@ -103,61 +85,27 @@ export async function summarizeMemoryBatch(
       return {
         summary: fallback,
         usedFallback: true,
-        usedModel: false,
         usedLocal: false,
-        failureCode: 'empty_output',
-        failureMessage: '记忆总结 API 返回了空内容。',
+        failure: { code: 'empty_output', message: '记忆总结 API 返回了空内容。' },
       };
     }
-    return {
-      summary,
-      usedFallback: false,
-      usedModel: true,
-      usedLocal: false,
-    };
+    return { summary, usedFallback: false, usedLocal: false };
   } catch (error) {
-    if (isAbortError(error) || signal?.aborted) throw error;
+    // 取消属于控制流，不是失败：原样抛出，避免中止的回合留下草稿。
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
     return {
       summary: fallback,
       usedFallback: true,
-      usedModel: false,
       usedLocal: false,
-      failureCode: 'request_failed',
-      failureMessage: sanitizeFailureMessage(error, [api.apiKey, settings.记忆总结API.apiKey, mainConfig.apiKey]),
+      failure: {
+        code: 'request_failed',
+        message: error instanceof Error ? error.message : '记忆总结请求失败。',
+      },
     };
   }
 }
 
-function isAbortError(error: unknown): boolean {
-  return (error as { name?: string } | null)?.name === 'AbortError';
-}
-
-function sanitizeFailureMessage(error: unknown, secrets: string[]): string {
-  let message = error instanceof Error ? error.message : String(error || '未知错误');
-  for (const secret of secrets) {
-    if (secret) message = message.split(secret).join('[redacted]');
-  }
-  message = message.replace(/authorization\s*:\s*[^,\s]+/gi, 'authorization: [redacted]');
-  return message.slice(0, 240) || '记忆总结请求失败。';
-}
-
 function buildFallbackSummary(items: string[], turn: number, kind: MemoryCompressionKind): string {
-  // 阶段1·NPC压缩失败兜底：前3条去重记忆各截28字+省略号
-  if (kind === 'npc') {
-    const seen = new Set<string>();
-    const lines: string[] = [];
-    for (const item of items) {
-      const cleaned = String(item || '').replace(/\s+/g, ' ').trim();
-      if (!cleaned) continue;
-      const truncated = cleaned.length > 28 ? cleaned.slice(0, 28) + '…' : cleaned;
-      if (seen.has(truncated)) continue;
-      seen.add(truncated);
-      lines.push(`- ${truncated}`);
-      if (lines.length >= 3) break;
-    }
-    if (!lines.length) return `【NPC记忆·回合${turn}】\n- 空白`;
-    return [`【NPC记忆·回合${turn}】`, ...lines].join('\n');
-  }
   const title = kind === 'short' ? '即时转短期' : kind === 'middle' ? '短期转中期' : '中期转长期';
   const maxLines = kind === 'short' ? 6 : 8;
   const lines = dedupeLines(
@@ -176,8 +124,7 @@ function buildFallbackSummary(items: string[], turn: number, kind: MemoryCompres
 function getCompressionLabel(kind: MemoryCompressionKind): string {
   if (kind === 'short') return '即时 -> 短期';
   if (kind === 'middle') return '短期 -> 中期';
-  if (kind === 'long') return '中期 -> 长期';
-  return 'NPC同行记忆压缩';
+  return '中期 -> 长期';
 }
 
 function normalizeSummaryOutput(raw: string): string {
@@ -193,7 +140,7 @@ function normalizeSummaryOutput(raw: string): string {
 }
 
 function normalizeLine(text: string, limit: number): string {
-  const cleaned = String(text || '')
+  const cleaned = (text || '')
     .replace(/\s+/g, ' ')
     .replace(/^[\d一二三四五六七八九十]+\s*[.、)]\s*/, '')
     .trim();

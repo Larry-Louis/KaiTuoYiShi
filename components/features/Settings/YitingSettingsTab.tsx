@@ -1,31 +1,18 @@
 import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置, 忆庭API覆盖 } from '@/models/settings';
-import { 创建默认记忆系统设置 } from '@/models/settings';
-import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { ConnectionTestConfig, ConnectionTestResult } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { cardClip, providerOptions, smallClip } from './settingsShared';
+import { mediumClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
+  testConnection: (config: ConnectionTestConfig) => Promise<ConnectionTestResult>;
 }
-
-const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: string; defaultModel: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'openai', label: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'deepseek', label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { value: 'baidu', label: '百度千帆', defaultBaseUrl: 'https://qianfan.baidubce.com/v2', defaultModel: 'ernie-4.5-turbo-128k' },
-  { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
-  { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
-  { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
-  { value: 'cline', label: 'Cline', defaultBaseUrl: 'https://api.cline.bot/api/v1', defaultModel: 'cline-pass/kimi-k3' },
-  { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
-];
-
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
 interface ResolvedApi {
   provider: AI提供商;
@@ -38,12 +25,9 @@ interface ResolvedApi {
   enableClaudeMode?: boolean;
 }
 
-export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
-  const memory = settings.记忆系统 ?? 创建默认记忆系统设置();
-  const mainConfig = useMemo(
-    () => apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null,
-    [apiSettings.activeConfigId, apiSettings.configs],
-  );
+export function YitingSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels, testConnection }: Props) {
+  const memory = settings.记忆系统;
+  const mainConfig = resolveMainApiConfig(apiSettings);
 
   const [recallLoadingModels, setRecallLoadingModels] = useState(false);
   const [recallModelOptions, setRecallModelOptions] = useState<string[]>([]);
@@ -69,14 +53,14 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
   };
 
   const buildEffective = (api: 忆庭API覆盖): ResolvedApi => ({
-    provider: (api.provider || mainConfig?.provider || 'openai_compatible') as AI提供商,
+    provider: (api.provider || mainConfig?.provider || 'openai_compatible'),
     baseUrl: api.baseUrl.trim() || mainConfig?.baseUrl || '',
     apiKey: api.apiKey.trim() || mainConfig?.apiKey || '',
     model: api.model.trim() || mainConfig?.model || '',
     maxTokens: api.maxTokens ?? mainConfig?.maxTokens,
     temperature: api.temperature ?? mainConfig?.temperature,
-    retryCount: api.retryCount ?? mainConfig?.retryCount ?? 2,
-    enableClaudeMode: settings.enableClaudeMode === true,
+    retryCount: api.retryCount,
+    enableClaudeMode: settings.enableClaudeMode,
   });
 
   const recallEffective = buildEffective(memory.忆庭召回API);
@@ -189,7 +173,7 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
 
   const handleSave = async () => {
     try {
-      await saveSetting('gameSettings', settings);
+      await onPersistSettings(settings);
       setSavedFlash(true);
       setSaveMessage({ kind: 'info', text: '忆庭设置已保存。' });
       window.setTimeout(() => setSavedFlash(false), 1800);
@@ -206,7 +190,7 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -219,30 +203,28 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
       <Section title="系统开关">
         <ToggleField
           label="启用忆庭召回"
-          desc="开启后，达到触发回合后会检索回忆档案并注入主剧情。关闭只停止召回，回合记忆仍会写入回忆档案，方便之后重新开启。"
-          checked={memory.忆庭启用 !== false}
+          desc="开启后，达到触发回合后会检索回忆档案并注入主剧情。关闭只停止召回，回合纪要仍会入库，方便之后重新开启。"
+          checked={memory.忆庭启用}
           onChange={(checked) => patchMemory({ 忆庭启用: checked })}
         />
         <ToggleField
           label="启用独立精炼"
-          desc="对标参考项目：回忆档案默认由即时记忆直接推导（概括=AI 回合小结）。开启后额外调用精炼 API 生成概要作为概括增强。"
-          checked={memory.忆庭独立精炼 === true}
+          desc="开启后，忆庭入库会调用精炼 API 生成概要；关闭时使用主剧情小总结和本地格式兜底。"
+          checked={memory.忆庭独立精炼}
           onChange={(checked) => patchMemory({ 忆庭独立精炼: checked })}
         />
         <ToggleField
-          label="忆庭命中并存注入"
-          desc="对标参考项目：关闭（默认）时，召回命中会暂停短期/中期/长期记忆注入，旧事承接完全由剧情回忆承担；开启后短/中/长记忆与回忆并存注入。"
-          checked={memory.忆庭命中并存注入 === true}
+          label="命中时并存注入记忆"
+          desc="默认开启：忆庭命中后短/中/长记忆照常并存互补。关闭后命中时暂停短期/中期注入，长期只留最近 3 条锚点，旧事承接交给剧情回忆。"
+          checked={memory.忆庭命中并存注入}
           onChange={(checked) => patchMemory({ 忆庭命中并存注入: checked })}
         />
-        <div className="mt-2">
-          <NumberField
-            label="完整原文条数 N"
-            value={memory.剧情回忆完整原文条数N}
-            onChange={(value) => patchMemory({ 剧情回忆完整原文条数N: Math.max(1, Math.trunc(value)) })}
-            hint="对标参考项目：候选池中最近 N 条回忆向检索模型展示完整原文，更早的只展示概括（默认 20）。"
-          />
-        </div>
+        <NumberField
+          label="完整原文条数 N"
+          value={memory.剧情回忆完整原文条数N}
+          onChange={(value) => patchMemory({ 剧情回忆完整原文条数N: Math.max(1, Math.trunc(value)) })}
+          hint="回忆候选池中最近 N 条向检索模型展示完整原文，更早的只展示概括（默认 20）。"
+        />
       </Section>
 
       <ApiSection
@@ -255,8 +237,8 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
         message={recallMessage}
         testResult={recallTestResult}
         onPatch={patchRecallApi}
-        onFetchModels={fetchRecallModels}
-        onTest={testRecall}
+        onFetchModels={() => void fetchRecallModels()}
+        onTest={() => void testRecall()}
         mainConfig={mainConfig}
       />
 
@@ -270,8 +252,8 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
         message={archiveMessage}
         testResult={archiveTestResult}
         onPatch={patchArchiveApi}
-        onFetchModels={fetchArchiveModels}
-        onTest={testArchive}
+        onFetchModels={() => void fetchArchiveModels()}
+        onTest={() => void testArchive()}
         mainConfig={mainConfig}
       />
 
@@ -288,16 +270,16 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: savedFlash
-              ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
-              : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
+            border: savedFlash
+              ? '1px solid rgba(220, 255, 230, var(--tj-edge-tint-strong))'
+              : '1px solid rgba(var(--tj-text-primary), var(--tj-edge))',
             clipPath: cardClip,
           }}
         >
@@ -311,9 +293,9 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
           style={{
             color: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.9)' : 'rgba(160, 200, 160, 0.85)',
             background: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.06)' : 'rgba(120, 200, 140, 0.06)',
-            boxShadow: saveMessage.kind === 'error'
-              ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
-              : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
+            border: saveMessage.kind === 'error'
+              ? '1px solid rgba(220, 120, 120, var(--tj-edge-tint))'
+              : '1px solid rgba(120, 200, 140, var(--tj-edge-tint))',
             clipPath: smallClip,
           }}
         >
@@ -340,8 +322,8 @@ function ToggleField({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -359,10 +341,10 @@ function ToggleField({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+          clipPath: smallClip,
         }}
       >
         <div
@@ -370,7 +352,7 @@ function ToggleField({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>
@@ -412,7 +394,7 @@ function ApiSection({
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.04)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: smallClip,
         }}
       >
@@ -444,7 +426,7 @@ function ApiSection({
               className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
               style={{
                 color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 background: 'rgba(var(--tj-accent-primary), 0.06)',
                 clipPath: smallClip,
               }}
@@ -489,7 +471,7 @@ function ApiSection({
         />
         <NumberField
           label="重试"
-          value={api.retryCount ?? 2}
+          value={api.retryCount}
           onChange={(value) => onPatch({ retryCount: Math.max(0, Math.trunc(value)) })}
           hint="获取模型和测试连接失败时自动重试的次数。"
           step={1}
@@ -505,7 +487,7 @@ function ApiSection({
           className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
           style={{
             color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             background: 'rgba(var(--tj-accent-primary), 0.06)',
             clipPath: smallClip,
           }}
@@ -518,7 +500,7 @@ function ApiSection({
           className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
           style={{
             color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
             background: 'rgba(var(--tj-accent-primary), 0.06)',
             clipPath: smallClip,
           }}
@@ -539,7 +521,7 @@ function ApiSection({
           style={{
             color: message.kind === 'error' ? '#ffb7b7' : 'rgba(var(--tj-text-secondary), 0.95)',
             background: message.kind === 'error' ? 'rgba(120, 30, 30, 0.35)' : 'rgba(var(--tj-accent-primary), 0.05)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
             clipPath: smallClip,
           }}
         >
@@ -553,7 +535,7 @@ function ApiSection({
           style={{
             color: testResult.ok ? 'rgba(220, 240, 220, 0.95)' : '#ffb7b7',
             background: testResult.ok ? 'rgba(60, 120, 70, 0.28)' : 'rgba(120, 30, 30, 0.35)',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
             clipPath: smallClip,
           }}
         >
@@ -570,7 +552,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       className="px-4 py-4"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.035)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >

@@ -1,33 +1,26 @@
-﻿import { useMemo, useState } from 'react';
-import type { 变量批次诊断, 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
+import { useMemo, useState } from 'react';
+import { 派生变量批次诊断, type 变量命令批次 } from '@/models/variableCommand';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
-import { variableBatchHasFailure, variableBatchHasWarning } from '@/utils/variableBatchStatus';
+import { 队列任务可重试 } from '@/hooks/useGame/turnActionRuntime';
+import {
+  CommandRow,
+  DiagnosticsPanel,
+  QueueActionButton,
+  RawTextPanel,
+  StatusIcon,
+  ViewButton,
+  smallClip,
+} from './variableDrawerPrimitives';
 
 interface Props {
   batches: 变量命令批次[];
   tasks: 队列任务记录[];
-  /** 变量模型正在跑（主回复已落地，变量结算中）。 */
   pending?: boolean;
   onCancelTask?: (id: 队列任务ID) => void;
   onRetryTask?: (task: 队列任务记录, mode: 'retry' | 'reroll') => void | Promise<void>;
-  onOpenRepairCenter?: () => void;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
-
-// 命令 action → 颜色标签（沿用既有配色风格）
-const ACTION_STYLE: Record<变量命令动作, { bg: string; border: string; color: string; label: string }> = {
-  set:    { bg: 'rgba(62, 112, 156, 0.12)',  border: 'rgba(62, 112, 156, 0.38)',  color: 'rgb(43, 88, 128)', label: 'SET' },
-  add:    { bg: 'rgba(54, 111, 74, 0.12)', border: 'rgba(54, 111, 74, 0.38)', color: 'rgb(42, 94, 61)', label: 'ADD' },
-  sub:    { bg: 'rgba(145, 99, 42, 0.12)',  border: 'rgba(145, 99, 42, 0.38)',  color: 'rgb(132, 84, 36)',  label: 'SUB' },
-  push:   { bg: 'rgba(103, 82, 145, 0.12)', border: 'rgba(103, 82, 145, 0.38)', color: 'rgb(86, 68, 125)', label: 'PUSH' },
-  delete: { bg: 'rgba(176, 72, 68, 0.12)', border: 'rgba(176, 72, 68, 0.38)', color: 'rgb(150, 54, 52)', label: 'DEL' },
-};
-
-type TaskStatus = 队列任务状态;
-
-export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryTask, onOpenRepairCenter }: Props) {
+export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryTask }: Props) {
   const [open, setOpen] = useState(false);
 
   const latest = batches.length > 0 ? batches[batches.length - 1] : null;
@@ -37,16 +30,12 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
     return map;
   }, [tasks]);
 
-  const latestHasError = variableBatchHasFailure(latest);
-  const latestHasWarning = variableBatchHasWarning(latest);
-  const variableStatus: TaskStatus = pending
+  const variableStatus: 队列任务状态 = pending
     ? 'pending'
     : latest
-      ? latestHasError
+      ? latest.results.some((r) => !r.ok && r.kind !== 'warning')
         ? 'failed'
-        : latestHasWarning
-          ? 'warning'
-          : 'success'
+        : 'success'
       : latestTaskById.get('variable')?.status ?? 'idle';
 
   const queueRows = [
@@ -57,23 +46,33 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
     latestTaskById.get('phone') ?? createIdleTask('phone', '手机来信', '主动来信种子与通讯入口'),
   ];
 
+  /*
+   * 生图也要在**收起状态**下看得见。
+   *
+   * 自动配图整段可能好几分钟，而它的入口不在聊天区（没有卡片按钮可选），
+   * 用户唯一的常驻线索就是这个侧边把手。变量优先：两件事同时跑时先显示变量。
+   */
+  const 生图进行中 = [latestTaskById.get('narrative_image_parse'), latestTaskById.get('narrative_image_generate')]
+    .some((任务) => 任务?.status === 'pending');
+  const 忙碌 = Boolean(pending) || 生图进行中;
+  const 把手文案 = pending ? '变量正在处理' : 生图进行中 ? '正在生成插图' : '处理队列';
+
   return (
     <>
-      {/* 触发按钮：贴在聊天区最左侧边缘，竖向长方形 */}
       <button
         onClick={() => setOpen((v) => !v)}
         className="absolute top-1/2 -translate-y-1/2 z-20 transition-all hover:opacity-100"
         style={{
           left: 0,
           width: '24px',
-          height: pending ? 112 : 88,
+          height: 忙碌 ? 112 : 88,
           background: open
             ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.95), rgba(var(--tj-amber-deep), 0.95))'
             : 'linear-gradient(180deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
           color: open ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-accent-primary), 0.85)',
-          boxShadow: open
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 4px 0 12px rgba(var(--tj-accent-primary), 0.2)'
-            : 'inset 0 0 0 1px rgba(var(--tj-border), 0.86), 2px 0 8px rgba(var(--tj-shadow), 0.1)',
+          border: open
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
           opacity: 1,
           clipPath: 'polygon(0 0, 100% 8px, 100% calc(100% - 8px), 0 100%)',
           writingMode: 'vertical-rl',
@@ -84,8 +83,8 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
         title={open ? '收起队列' : '展开队列'}
       >
-        {pending ? '变量正在处理' : '处理队列'}
-        {pending && (
+        {把手文案}
+        {忙碌 && (
           <span
             className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full animate-pulse"
             style={{ background: 'rgb(var(--tj-accent-primary))', boxShadow: '0 0 6px rgba(var(--tj-accent-primary), 0.8)' }}
@@ -93,7 +92,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         )}
       </button>
 
-      {/* 背景遮罩：与 SystemDrawer 对称，点击关闭 */}
       <div
         onClick={() => setOpen(false)}
         className="absolute inset-0 z-30 transition-opacity duration-200"
@@ -105,7 +103,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
       />
 
-      {/* 抽屉本体：始终挂载，靠 transform 控制滑入/滑出 */}
       <aside
         className="absolute z-40 flex flex-col overflow-hidden transition-transform duration-300"
         style={{
@@ -120,7 +117,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
         }}
         aria-hidden={!open}
       >
-        {/* 右侧中部圆形关闭按钮（朝外伸出） */}
         <button
           type="button"
           onClick={() => setOpen(false)}
@@ -142,7 +138,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
           ›
         </button>
 
-        {/* 顶部标题栏 */}
         <header
           className="flex items-center gap-3 px-5 py-4"
           style={{
@@ -157,9 +152,9 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
               color: 'rgb(var(--tj-accent-primary))',
               background:
                 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.12), rgba(var(--tj-accent-primary), 0.02))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
               clipPath:
-                'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+                smallClip,
             }}
           >
             ◈
@@ -186,7 +181,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
           </div>
         </header>
 
-        {/* 队列任务列表 */}
         <div className="flex flex-1 min-h-0 flex-col overflow-y-auto px-4 py-4 space-y-3">
           {queueRows.map((task, index) => (
             <TaskRow
@@ -201,22 +195,6 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
               onRetry={onRetryTask}
             />
           ))}
-          {onOpenRepairCenter && (
-            <button
-              type="button"
-              onClick={() => { setOpen(false); onOpenRepairCenter(); }}
-              className="w-full px-4 py-3 text-left transition-colors"
-              style={{
-                color: 'rgba(var(--tj-tech-cyan),0.96)',
-                background: 'rgba(var(--tj-tech-cyan),0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan),0.28)',
-                clipPath: smallClip,
-              }}
-            >
-              <div className="font-serif text-sm font-semibold tracking-[0.16em]">打开变量修复中心</div>
-              <div className="mt-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.68)' }}>扫描久远回合、查看差异与保护存档</div>
-            </button>
-          )}
         </div>
       </aside>
     </>
@@ -227,13 +205,11 @@ function createIdleTask(id: 队列任务ID, title: string, subtitle: string): �
   return { id, title, subtitle, turn: 0, timestamp: 0, status: 'idle' };
 }
 
-// ── 任务行 ──
-
 interface TaskRowProps {
   index: number;
   title: string;
   subtitle?: string;
-  status: TaskStatus;
+  status: 队列任务状态;
   batch?: 变量命令批次;
   task?: 队列任务记录;
   onCancel?: (id: 队列任务ID) => void;
@@ -241,19 +217,18 @@ interface TaskRowProps {
 }
 
 function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetry }: TaskRowProps) {
-  // 默认折叠；用户点「查看原始信息 / 查看变量」才展开。
   const [view, setView] = useState<'raw' | 'commands' | null>(null);
 
   const canViewRaw = !!batch?.rawText || !!task?.rawText;
-  const canViewCommands = !!batch && (batch.results.length > 0 || Boolean(batch.diagnostics?.length));
+  const canViewCommands = !!batch && batch.results.length > 0;
 
   const turnLabel = batch ? `第 ${batch.turn} 回合` : task?.turn ? `第 ${task.turn} 回合` : '尚未运行';
   const summary = batch
     ? (() => {
         const ok = batch.results.filter((r) => r.ok).length;
         const fail = batch.results.length - ok;
-        const diagnosticCount = batch.diagnostics?.length ?? 0;
-        return `${batch.results.length} 条 · ✓ ${ok}${fail > 0 ? ` · ✗ ${fail}` : ''}${diagnosticCount > 0 ? ` · 诊断 ${diagnosticCount}` : ''}`;
+        const diagnosis = 派生变量批次诊断(batch.results).length;
+        return `${batch.results.length} 条 · ✓ ${ok}${fail > 0 ? ` · ✗ ${fail}` : ''}${diagnosis > 0 ? ` · 诊断 ${diagnosis}` : ''}`;
       })()
     : task?.detail ?? '';
   const retrySummary = task?.retrying && task.failCount
@@ -262,27 +237,23 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
       ? `失败 ${task.failCount} 次`
       : '';
   const canCancel = status === 'pending' && !!task?.cancellable && !!onCancel;
-  const canRetry = status === 'failed' && !!task && isRetryableQueueTask(task.id) && !!onRetry;
+  const canRetry = status === 'failed' && !!task && 队列任务可重试(task.id) && !!onRetry;
 
   return (
     <div
       style={{
         background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
-        boxShadow: `inset 0 0 0 1px ${
+        border: `1px solid ${
           status === 'pending'
-            ? 'rgba(var(--tj-accent-primary), 0.45)'
-            : status === 'warning'
-              ? 'rgba(176, 126, 52, 0.42)'
+            ? 'rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
             : status === 'failed'
-              ? 'rgba(var(--tj-danger),0.35)'
-              : 'rgba(var(--tj-border), 0.7)'
+              ? 'rgba(var(--tj-danger), var(--tj-edge-tint-strong))'
+              : 'rgba(var(--tj-border), var(--tj-edge-strong))'
         }`,
         clipPath: smallClip,
       }}
     >
-      {/* 行头 */}
       <div className="flex items-center gap-3 px-3 py-3">
-        {/* 编号圆牌 */}
         <span
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center font-serif text-sm font-bold rounded-full"
           style={{
@@ -294,7 +265,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
           {index}
         </span>
 
-        {/* 标题 + 副标题 */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
@@ -318,21 +288,20 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
             </div>
           )}
           {retrySummary && (
-            <div className="mt-0.5 text-[10px]" style={{ color: task?.retrying ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.92), rgba(var(--tj-accent-secondary),0.88))' : 'rgba(255, 180, 180, 0.86)' }}>
+            <div className="mt-0.5 text-[10px]" style={{ color: task?.retrying ? 'rgba(var(--tj-accent-primary),0.92)' : 'rgba(255, 180, 180, 0.86)' }}>
               {retrySummary}
             </div>
           )}
         </div>
 
-        {/* 状态图标 */}
         <div className="flex shrink-0 items-center gap-2">
-          {canRetry && task && (
+          {canRetry && (
             <div className="flex items-center gap-1">
-              <QueueActionButton label="重试" onClick={() => void onRetry?.(task, 'retry')} />
-              <QueueActionButton label="重生成" onClick={() => void onRetry?.(task, 'reroll')} />
+              <QueueActionButton label="重试" onClick={() => void onRetry(task, 'retry')} />
+              <QueueActionButton label="重生成" onClick={() => void onRetry(task, 'reroll')} />
             </div>
           )}
-          {canCancel && task && (
+          {canCancel && (
             <button
               type="button"
               onClick={() => onCancel(task.id)}
@@ -340,7 +309,7 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
               style={{
                 color: 'rgba(var(--tj-accent-secondary),0.96)',
                 background: 'rgba(var(--tj-accent-primary), 0.08)',
-                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.34)',
+                border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                 clipPath: smallClip,
               }}
             >
@@ -351,7 +320,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         </div>
       </div>
 
-      {/* 按钮条 */}
       <div
         className="flex items-stretch gap-2 px-3 pb-3"
         style={{ borderTop: '1px dashed rgba(var(--tj-accent-primary), 0.15)', paddingTop: '10px' }}
@@ -370,7 +338,6 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         />
       </div>
 
-      {/* 展开区 */}
       {view === 'raw' && batch?.rawText && <RawTextPanel raw={batch.rawText} />}
       {view === 'raw' && !batch?.rawText && task?.rawText && <RawTextPanel raw={task.rawText} />}
       {view === 'commands' && batch && <CommandsPanel batch={batch} />}
@@ -378,369 +345,46 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
   );
 }
 
-function isRetryableQueueTask(id: 队列任务ID): boolean {
-  return id === 'variable' || id === 'news' || id === 'narrative_image_parse' || id === 'narrative_image_generate';
-}
-
-function QueueActionButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="px-2 py-1 font-serif text-[10px] tracking-[0.12em] transition-all hover:opacity-85"
-      style={{
-        color: 'rgb(var(--tj-accent-primary))',
-        background: 'rgba(var(--tj-accent-primary), 0.08)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-        clipPath: smallClip,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function StatusIcon({ status }: { status: TaskStatus }) {
-  if (status === 'pending') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center"
-        title="处理中"
-        aria-label="处理中"
-      >
-        <Spinner />
-      </span>
-    );
-  }
-  if (status === 'success') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-        title="已完成"
-        style={{
-          color: 'rgb(42, 94, 61)',
-          background: 'rgba(54, 111, 74, 0.12)',
-          boxShadow: 'inset 0 0 0 1px rgba(54, 111, 74, 0.45)',
-        }}
-      >
-        ✓
-      </span>
-    );
-  }
-  if (status === 'warning') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-        title="部分写入异常"
-        style={{
-          color: 'rgb(132, 84, 36)',
-          background: 'rgba(176, 126, 52, 0.12)',
-          boxShadow: 'inset 0 0 0 1px rgba(176, 126, 52, 0.45)',
-        }}
-      >
-        !
-      </span>
-    );
-  }
-  if (status === 'failed') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-        title="部分失败"
-        style={{
-          color: 'rgb(150, 54, 52)',
-          background: 'rgba(var(--tj-danger),0.12)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-danger),0.45)',
-        }}
-      >
-        ✗
-      </span>
-    );
-  }
-  if (status === 'skipped') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-        title="已跳过"
-        style={{
-          color: 'rgba(var(--tj-text-secondary), 0.72)',
-          background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
-        }}
-      >
-        -
-      </span>
-    );
-  }
-  if (status === 'cancelled') {
-    return (
-      <span
-        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-        title="已取消"
-        style={{
-          color: 'rgba(var(--tj-accent-secondary),0.92)',
-          background: 'rgba(var(--tj-accent-primary), 0.08)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.3)',
-        }}
-      >
-        ×
-      </span>
-    );
-  }
-  return (
-    <span
-      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
-      title="待运行"
-      style={{
-          color: 'rgba(var(--tj-text-primary), 0.68)',
-        background: 'rgba(var(--tj-accent-primary), 0.04)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-      }}
-    >
-      ◇
-    </span>
-  );
-}
-
-// 圆形旋转加载动画
-function Spinner() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 22 22"
-      style={{ animation: 'kaituo-spin 1s linear infinite' }}
-    >
-      <style>{`@keyframes kaituo-spin { to { transform: rotate(360deg); transform-origin: 11px 11px; } }`}</style>
-      <circle
-        cx="11"
-        cy="11"
-        r="8"
-        fill="none"
-        stroke="rgba(var(--tj-accent-primary), 0.18)"
-        strokeWidth="2"
-      />
-      <path
-        d="M 11 3 A 8 8 0 0 1 19 11"
-        fill="none"
-        stroke="rgb(var(--tj-accent-primary))"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ViewButton({
-  label,
-  active,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex-1 px-2 py-1.5 font-serif text-[11px] tracking-[0.18em] transition-all hover:opacity-90 disabled:opacity-35 disabled:cursor-not-allowed"
-      style={{
-        color: active ? 'rgb(20, 16, 12)' : 'rgba(var(--tj-accent-primary), 0.92)',
-        background: active
-          ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.95), rgba(var(--tj-amber-deep), 0.95))'
-          : 'rgba(var(--tj-accent-primary), 0.04)',
-        boxShadow: active
-          ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.55)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.32)',
-        clipPath:
-          'polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px)',
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function RawTextPanel({ raw }: { raw: string }) {
-  return (
-    <div className="px-3 pb-3">
-      <div
-        className="mb-1 font-serif text-[10px] tracking-[0.3em]"
-        style={{ color: 'rgba(var(--tj-accent-primary), 0.6)' }}
-      >
-        ◆ 原始信息
-      </div>
-      <pre
-        className="whitespace-pre-wrap break-all text-[11px] leading-relaxed px-2.5 py-2 max-h-72 overflow-y-auto"
-        style={{
-          color: 'rgba(var(--tj-text-primary), 0.94)',
-          background: 'rgb(var(--tj-bubble))',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.7)',
-          clipPath: smallClip,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        }}
-      >
-        {raw}
-      </pre>
-    </div>
-  );
-}
-
 function CommandsPanel({ batch }: { batch: 变量命令批次 }) {
+  const diagnostics = 派生变量批次诊断(batch.results);
+  const commandResults = batch.results.filter(
+    (result) => result.kind !== 'warning' && result.kind !== 'error' && result.kind !== 'rejected',
+  );
+
   return (
-    <div className="px-3 pb-3 space-y-1.5">
-      <div
-        className="mb-1 font-serif text-[10px] tracking-[0.3em]"
-        style={{ color: 'rgba(var(--tj-accent-primary), 0.6)' }}
-      >
-        ◆ 变量命令
-      </div>
+    <>
       {batch.report && (
+        <div className="px-3 pb-1">
+          <div
+            className="text-[10px] italic px-2 py-1.5"
+            style={{
+              color: 'rgba(var(--tj-text-primary), 0.82)',
+              background: 'rgb(var(--tj-bubble))',
+              clipPath: smallClip,
+            }}
+          >
+            {batch.report}
+          </div>
+        </div>
+      )}
+
+      <DiagnosticsPanel diagnostics={diagnostics} />
+
+      <div className="px-3 pb-3 space-y-1.5">
         <div
-          className="text-[10px] italic px-2 py-1.5"
-          style={{
-            color: 'rgba(var(--tj-text-primary), 0.82)',
-            background: 'rgb(var(--tj-bubble))',
-            clipPath: smallClip,
-          }}
+          className="mb-1 font-serif text-[10px] tracking-[0.3em]"
+          style={{ color: 'rgba(var(--tj-accent-primary), 0.6)' }}
         >
-          {batch.report}
+          ◆ 变量命令
         </div>
-      )}
-      {batch.results.length === 0 && !batch.diagnostics?.length && (
-        <div className="text-[10px] text-center py-2" style={{ color: 'rgba(var(--tj-text-primary), 0.72)' }}>
-          本回合无变量变化
-        </div>
-      )}
-      {batch.results.map((result, i) => (
-        <CommandRow key={i} result={result} />
-      ))}
-      {batch.diagnostics?.map((diagnostic, i) => (
-        <DiagnosticRow key={`diagnostic-${i}`} diagnostic={diagnostic} />
-      ))}
-    </div>
-  );
-}
-
-function CommandRow({ result }: { result: 变量命令结果 }) {
-  const { command, ok, reason } = result;
-  if (!command) return <DiagnosticRow diagnostic={{
-    code: 'VARIABLE_RESULT_WITHOUT_COMMAND',
-    severity: ok ? 'warning' : 'error',
-    stage: result.stage ?? 'reduce',
-    message: reason ?? '该变量结果没有对应的可执行命令。',
-    factGroupId: result.factGroupId,
-    factIndex: result.factIndex,
-    entityKey: result.entityKey,
-  }} />;
-
-  const style = ACTION_STYLE[command.action];
-  const isNotice = result.kind === 'warning' || result.kind === 'error' || result.kind === 'rejected';
-
-  const valuePreview = useMemo(() => {
-    if (command.action === 'delete') return '';
-    const v = command.value;
-    if (v === null || v === undefined) return 'null';
-    if (typeof v === 'string') return `"${v.length > 28 ? v.slice(0, 28) + '...' : v}"`;
-    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-    if (Array.isArray(v)) return `[数组×${v.length}]`;
-    if (typeof v === 'object') {
-      const keys = Object.keys(v as Record<string, unknown>);
-      return `{${keys.slice(0, 3).join(',')}${keys.length > 3 ? ',...' : ''}}`;
-    }
-    return String(v);
-  }, [command]);
-
-  return (
-    <div
-      className="px-2 py-1.5 text-[11px]"
-      style={{
-        background: ok ? 'rgb(var(--tj-bubble))' : 'rgba(176, 72, 68, 0.1)',
-        boxShadow: `inset 0 0 0 1px ${ok ? 'rgba(var(--tj-border), 0.68)' : 'rgba(176, 72, 68, 0.34)'}`,
-        clipPath: smallClip,
-      }}
-      title={reason}
-    >
-      <div className="flex items-start gap-1.5">
-        <span
-          className="font-mono font-bold text-[9px] px-1.5 py-0.5 flex-shrink-0 mt-0.5"
-          style={{
-            background: style.bg,
-            color: style.color,
-            boxShadow: `inset 0 0 0 1px ${style.border}`,
-            clipPath: 'polygon(2px 0, 100% 0, 100% calc(100% - 2px), calc(100% - 2px) 100%, 0 100%, 0 2px)',
-          }}
-        >
-          {result.kind === 'warning' ? '提示' : result.kind === 'error' ? '解析' : result.kind === 'rejected' ? '拒绝' : style.label}
-        </span>
-        <span className="font-mono break-all min-w-0 flex-1" style={{ color: 'rgba(var(--tj-text-primary), 0.94)' }}>
-          {isNotice ? (reason ?? command.key) : command.key}
-          {!isNotice && valuePreview && (
-            <>
-              <span style={{ color: 'rgba(var(--tj-text-secondary), 0.86)' }}> = </span>
-              <span style={{ color: ok ? 'rgba(var(--tj-accent-primary), 0.95)' : 'rgba(176, 72, 68, 0.9)' }}>{valuePreview}</span>
-            </>
-          )}
-        </span>
+        {commandResults.length === 0 ? (
+          <div className="text-[10px] text-center py-2" style={{ color: 'rgba(var(--tj-text-primary), 0.72)' }}>
+            {batch.results.length === 0 ? '本回合无变量变化' : '本回合无落地命令'}
+          </div>
+        ) : (
+          commandResults.map((result, i) => <CommandRow key={i} result={result} />)
+        )}
       </div>
-      {!isNotice && !ok && reason && (
-        <div className="mt-1 text-[10px] pl-1" style={{ color: 'rgba(var(--tj-danger),0.85)' }}>
-          ✗ {reason}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DiagnosticRow({ diagnostic }: { diagnostic: 变量批次诊断 }) {
-  const label = diagnostic.severity === 'error' ? '错误' : diagnostic.severity === 'warning' ? '提示' : '信息';
-  const color = diagnostic.severity === 'error'
-    ? 'rgba(176, 72, 68, 0.9)'
-    : diagnostic.severity === 'warning'
-      ? 'rgba(145, 99, 42, 0.9)'
-      : 'rgba(var(--tj-accent-primary), 0.9)';
-  const badgeBackground = diagnostic.severity === 'error'
-    ? 'rgba(176, 72, 68, 0.12)'
-    : diagnostic.severity === 'warning'
-      ? 'rgba(145, 99, 42, 0.12)'
-      : 'rgba(var(--tj-accent-primary), 0.12)';
-  const badgeBorder = diagnostic.severity === 'error'
-    ? 'rgba(176, 72, 68, 0.34)'
-    : diagnostic.severity === 'warning'
-      ? 'rgba(145, 99, 42, 0.34)'
-      : 'rgba(var(--tj-accent-primary), 0.34)';
-  const trace = [diagnostic.stage, diagnostic.code, diagnostic.factGroupId].filter(Boolean).join(' · ');
-  return (
-    <div
-      className="px-2 py-1.5 text-[11px]"
-      style={{
-        background: diagnostic.severity === 'error' ? 'rgba(176, 72, 68, 0.1)' : 'rgb(var(--tj-bubble))',
-        boxShadow: `inset 0 0 0 1px ${diagnostic.severity === 'error' ? 'rgba(176, 72, 68, 0.34)' : 'rgba(var(--tj-border), 0.68)'}`,
-        clipPath: smallClip,
-      }}
-      title={trace || diagnostic.code}
-    >
-      <div className="flex items-start gap-1.5">
-        <span
-          className="font-mono font-bold text-[9px] px-1.5 py-0.5 flex-shrink-0 mt-0.5"
-          style={{
-            background: badgeBackground,
-            color,
-            boxShadow: `inset 0 0 0 1px ${badgeBorder}`,
-            clipPath: 'polygon(2px 0, 100% 0, 100% calc(100% - 2px), calc(100% - 2px) 100%, 0 100%, 0 2px)',
-          }}
-        >
-          {label}
-        </span>
-        <span className="font-mono break-all min-w-0 flex-1" style={{ color: 'rgba(var(--tj-text-primary), 0.94)' }}>
-          {diagnostic.message}
-        </span>
-      </div>
-      {trace && <div className="mt-1 text-[9px] pl-1" style={{ color: 'rgba(var(--tj-text-secondary), 0.72)' }}>{trace}</div>}
-    </div>
+    </>
   );
 }

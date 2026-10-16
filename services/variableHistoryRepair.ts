@@ -1,94 +1,27 @@
 import type { 聊天消息 } from '@/models/chat';
-import type { 变量命令批次 } from '@/models/variableCommand';
-import type { VariableRepairPlan } from '@/utils/variableRepair';
-import { variableBatchHasFailure } from '@/utils/variableBatchStatus';
 
-export interface VariableHistoryRepairCandidate {
-  message: 聊天消息;
+export interface 可修复回合 {
   turn: number;
-  hasBatch: boolean;
-  status: 'missing' | 'failed' | 'recorded';
+  targetMessageId: string;
 }
 
-export interface VariableHistoryRepairDraft {
-  schemaVersion: 1;
-  id: string;
-  stateFingerprint: string;
-  messageIds: string[];
-  completedMessageIds: string[];
-  plans: VariableRepairPlan[];
-  status: 'running' | 'paused' | 'ready' | 'completed' | 'cancelled' | 'failed';
-  updatedAt: number;
-  error?: string;
+function 回合正文(message: 聊天消息): string {
+  return message.parsedResponse?.body ?? message.content;
 }
 
-export interface VariableHistoryRepairProgress {
-  total: number;
-  completed: number;
-  currentMessageId?: string;
-}
-
-export function listVariableHistoryRepairCandidates(
-  chatHistory: readonly 聊天消息[],
-  batches: readonly 变量命令批次[],
-  range?: { start?: number; end?: number },
-): VariableHistoryRepairCandidate[] {
-  const batchByMessageId = new Map<string, 变量命令批次>();
-  for (const batch of batches) {
-    if (batch.targetMessageId) batchByMessageId.set(batch.targetMessageId, batch);
+export function 列出可修复回合(
+  messages: readonly 聊天消息[],
+  limit = 40,
+): 可修复回合[] {
+  const results: 可修复回合[] = [];
+  for (let index = messages.length - 1; index >= 0 && results.length < limit; index -= 1) {
+    const message = messages[index];
+    if (message.role !== 'assistant' || message.isStreaming) continue;
+    if (!回合正文(message).trim()) continue;
+    const 原始回合 = message.gameTime;
+    const 数值回合 = 原始回合 === undefined || 原始回合.trim() === '' ? Number.NaN : Number(原始回合);
+    const turn = Number.isFinite(数值回合) && 数值回合 >= 0 ? Math.trunc(数值回合) : index + 1;
+    results.push({ turn, targetMessageId: message.id });
   }
-  return chatHistory
-    .filter((message) => message.role === 'assistant' && !message.isStreaming)
-    .map((message) => {
-      const turn = Number(message.gameTime);
-      const normalizedTurn = Number.isFinite(turn) && turn > 0 ? Math.trunc(turn) : 0;
-      const batch = batchByMessageId.get(message.id);
-      const hasBody = Boolean(message.parsedResponse?.body?.trim() || message.content.trim());
-      const failed = variableBatchHasFailure(batch);
-      const status: VariableHistoryRepairCandidate['status'] = !batch
-        ? 'missing'
-        : failed
-          ? 'failed'
-          : 'recorded';
-      return {
-        message,
-        turn: normalizedTurn,
-        hasBatch: Boolean(batch),
-        status,
-        hasBody,
-      };
-    })
-    .filter((candidate) => candidate.hasBody)
-    .filter((candidate) => range?.start === undefined || candidate.turn === 0 || candidate.turn >= range.start)
-    .filter((candidate) => range?.end === undefined || candidate.turn === 0 || candidate.turn <= range.end)
-    .filter((candidate) => candidate.status !== 'recorded')
-    .map(({ hasBody: _hasBody, ...candidate }) => candidate)
-    .sort((left, right) => left.turn - right.turn || left.message.timestamp - right.message.timestamp);
-}
-
-export function createVariableHistoryRepairDraft(input: {
-  id: string;
-  stateFingerprint: string;
-  messageIds: string[];
-  plans?: VariableRepairPlan[];
-  completedMessageIds?: string[];
-  status?: VariableHistoryRepairDraft['status'];
-  error?: string;
-}): VariableHistoryRepairDraft {
-  return {
-    schemaVersion: 1,
-    id: input.id,
-    stateFingerprint: input.stateFingerprint,
-    messageIds: [...input.messageIds],
-    completedMessageIds: [...(input.completedMessageIds ?? [])],
-    plans: [...(input.plans ?? [])],
-    status: input.status ?? 'running',
-    updatedAt: Date.now(),
-    ...(input.error ? { error: input.error } : {}),
-  };
-}
-
-export function isVariableHistoryRepairAbort(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
-    || (error instanceof Error && /abort|cancel/i.test(error.message));
+  return results;
 }

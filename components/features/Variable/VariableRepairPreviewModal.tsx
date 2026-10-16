@@ -1,103 +1,128 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import type { VariableRepairPlan, VariableRepairItem } from '@/utils/variableRepair';
+import type { 变量修复计划, 变量修复回执 } from '@/models/variableRepair';
+import { cardClip, smallClip } from '@/components/features/Chat/turnStyles';
+import {
+  分类标签,
+  分类顺序,
+  修复项行,
+} from './variableRepairPrimitives';
 
-interface Props {
-  plan: VariableRepairPlan;
+export function VariableRepairPreviewModal({
+  plan,
+  receipt,
+  committing = false,
+  onClose,
+  onCommit,
+}: {
+  plan: 变量修复计划;
+  receipt?: 变量修复回执 | null;
+  committing?: boolean;
   onClose: () => void;
-  onCommit: (confirmedItemIds: string[]) => Promise<{ ok: boolean; receipt: { message: string; code: string } }>;
-}
+  onCommit: (confirmedItemIds: string[]) => void;
+}) {
+  const [选中, set选中] = useState<Set<string>>(new Set());
 
-const categoryLabel: Record<VariableRepairItem['category'], string> = {
-  safe: '可安全补写',
-  existing: '已存在并跳过',
-  confirm: '需要确认',
-  conflict: '冲突',
-  unsupported: '暂不支持',
-};
+  const 分组 = useMemo(() => {
+    const map = new Map<(typeof 分类顺序)[number], typeof plan.items>();
+    for (const category of 分类顺序) map.set(category, []);
+    for (const item of plan.items) map.get(item.category)?.push(item);
+    return map;
+  }, [plan]);
 
-const categoryColor: Record<VariableRepairItem['category'], string> = {
-  safe: 'rgba(150, 220, 170, 0.94)',
-  existing: 'rgba(var(--tj-text-secondary), 0.72)',
-  confirm: 'rgba(255, 210, 120, 0.96)',
-  conflict: 'rgba(255, 145, 145, 0.96)',
-  unsupported: 'rgba(180, 190, 210, 0.82)',
-};
+  const 安全数 = 分组.get('safe')?.length ?? 0;
+  const 确认数 = 分组.get('confirm')?.length ?? 0;
 
-function itemTitle(item: VariableRepairItem): string {
-  const fact = item.fact?.fact;
-  if (fact && 'name' in fact && typeof fact.name === 'string') return `${fact.type} · ${fact.name}`;
-  if (fact && 'npcName' in fact && typeof fact.npcName === 'string') return `${fact.type} · ${fact.npcName}`;
-  if (fact && 'title' in fact && typeof fact.title === 'string') return `${fact.type} · ${fact.title}`;
-  if (fact && 'text' in fact && typeof fact.text === 'string') return `${fact.type} · ${fact.text}`;
-  return item.command?.key || item.fact?.type || '变量事实';
-}
-
-export function VariableRepairPreviewModal({ plan, onClose, onCommit }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(plan.items.filter((item) => item.category === 'confirm').map((item) => item.id)));
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const confirmItems = useMemo(() => plan.items.filter((item) => item.category === 'confirm'), [plan.items]);
-
-  const toggle = (id: string) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
+  const 切换确认 = (id: string) => {
+    set选中((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const submit = async () => {
-    setSubmitting(true);
-    setError('');
-    try {
-      const result = await onCommit([...selected]);
-      if (!result.ok) {
-        setError(result.receipt.message);
-        return;
-      }
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '变量修复提交失败。');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const 提交数 = 安全数 + 选中.size;
+  const 可提交 = 提交数 > 0;
 
   return (
-    <Modal onClose={onClose} title="变量修复预览" className="max-w-3xl">
-      <div className="space-y-4">
-        <div className="grid gap-2 text-xs sm:grid-cols-3">
-          <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.07)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)' }}>第 {plan.turn} 回合</div>
-          <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.07)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)' }}>事实 {plan.analysis.facts.length} 条</div>
-          <div className="px-3 py-2" style={{ background: 'rgba(var(--tj-accent-primary),0.07)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary),0.18)' }}>候选 {plan.items.length} 项</div>
-        </div>
-        <div className="space-y-2">
-          {plan.items.map((item) => (
-            <div key={item.id} className="px-3 py-3" style={{ background: 'rgba(var(--tj-surface-strong),0.55)', boxShadow: `inset 0 0 0 1px ${categoryColor[item.category]}40` }}>
-              <div className="flex items-start gap-3">
-                {item.category === 'confirm' && (
-                  <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} className="mt-1 h-4 w-4 accent-[rgb(var(--tj-accent-primary))]" aria-label={`确认${itemTitle(item)}`} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-serif text-sm font-semibold" style={{ color: 'rgb(var(--tj-text-primary))' }}>{itemTitle(item)}</span>
-                    <span className="px-2 py-0.5 text-[10px]" style={{ color: categoryColor[item.category], boxShadow: `inset 0 0 0 1px ${categoryColor[item.category]}66` }}>{categoryLabel[item.category]}</span>
-                  </div>
-                  <div className="mt-1 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.86)' }}>{item.reason}</div>
-                  {item.command && <div className="mt-2 font-mono text-[11px] break-all" style={{ color: 'rgba(var(--tj-tech-cyan),0.86)' }}>{item.command.action} · {item.command.key} · {JSON.stringify(item.command.value)}</div>}
-                  {item.evidence.length > 0 && <div className="mt-2 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary),0.7)' }}>正文证据：{item.evidence.join('；')}</div>}
+    <Modal onClose={onClose} title="重新解析变量 · 修复预览" className="max-w-3xl">
+      <div className="flex h-full flex-col">
+        <div className="flex-1 overflow-y-auto px-4 py-3 md:px-5">
+          <p className="mb-3 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.9)' }}>
+            第 {plan.turn} 回合 · 安全 {安全数} 条、需确认 {确认数} 条。冲突与不支持项只展示、永不写入；
+            提交时会先校验变量状态指纹，过期计划会被拒绝。
+          </p>
+
+          {分类顺序.map((category) => {
+            const items = 分组.get(category) ?? [];
+            if (items.length === 0) return null;
+            return (
+              <section key={category} className="mb-4">
+                <div
+                  className="mb-1.5 font-serif text-[11px] tracking-[0.3em]"
+                  style={{ color: 'rgba(var(--tj-btn-primary-start), 0.75)' }}
+                >
+                  ◆ {分类标签[category]}（{items.length}）
                 </div>
-              </div>
+                <div className="space-y-1.5">
+                  {items.map((item) => (
+                    <修复项行
+                      key={item.id}
+                      item={item}
+                      category={category}
+                      checked={选中.has(item.id)}
+                      onToggle={category === 'confirm' ? () => 切换确认(item.id) : undefined}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+
+          {receipt && (
+            <div
+              className="mt-2 px-3 py-2 text-xs"
+              style={{
+                background: receipt.code === 'OK' ? 'rgba(var(--tj-btn-primary-start), 0.12)' : 'rgba(var(--tj-danger), 0.08)',
+                border: `1px solid ${receipt.code === 'OK' ? 'rgba(var(--tj-btn-primary-start), var(--tj-edge-tint-strong))' : 'rgba(var(--tj-danger), var(--tj-edge-tint-strong))'}`,
+                clipPath: cardClip,
+                color: 'rgba(var(--tj-text-primary), 0.9)',
+              }}
+            >
+              {receipt.code === 'OK' ? '✓ ' : '⚠ '}{receipt.detail}
             </div>
-          ))}
-          {plan.items.length === 0 && <div className="py-8 text-center text-sm" style={{ color: 'rgba(var(--tj-text-secondary),0.74)' }}>本回合没有解析出可比较的变量事实。</div>}
+          )}
         </div>
-        {confirmItems.length > 0 && <div className="text-xs" style={{ color: 'rgba(255,210,120,0.9)' }}>已预选 {selected.size}/{confirmItems.length} 个高风险项目；好感、物品、关系和世界事件不会静默写入。</div>}
-        {error && <div className="px-3 py-2 text-xs" style={{ color: 'rgba(255,145,145,0.96)', background: 'rgba(255,100,100,0.08)', boxShadow: 'inset 0 0 0 1px rgba(255,100,100,0.25)' }}>{error}</div>}
-        <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={submitting} className="px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.86)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.55)' }}>取消</button>
-          <button type="button" onClick={() => void submit()} disabled={submitting || plan.items.every((item) => item.category !== 'safe' && item.category !== 'confirm')} className="px-4 py-2 text-xs font-serif tracking-[0.16em] disabled:opacity-50" style={{ color: 'rgb(var(--tj-on-accent))', background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start),0.96), rgba(var(--tj-btn-primary-end),0.84))' }}>{submitting ? '提交中…' : '确认并补写'}</button>
+
+        <div className="flex items-center justify-end gap-2 px-4 py-3 md:px-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 font-serif text-xs tracking-[0.25em] transition-all hover:opacity-90"
+            style={{
+              color: 'rgba(var(--tj-text-primary), 0.9)',
+              background: 'rgba(var(--tj-btn-primary-start), 0.04)',
+              border: '1px solid rgba(var(--tj-btn-primary-start), var(--tj-edge-tint))',
+              clipPath: smallClip,
+            }}
+          >
+            关闭
+          </button>
+          <button
+            type="button"
+            disabled={!可提交 || committing}
+            onClick={() => onCommit([...选中])}
+            className="px-4 py-1.5 font-serif text-xs tracking-[0.25em] transition-all hover:opacity-90 disabled:opacity-40"
+            style={{
+              color: 'rgb(var(--tj-on-accent))',
+              background: 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.95))',
+              border: '1px solid rgba(var(--tj-text-primary), var(--tj-edge))',
+              clipPath: smallClip,
+            }}
+          >
+            {committing ? '正在提交…' : `提交修复（${提交数}）`}
+          </button>
         </div>
       </div>
     </Modal>

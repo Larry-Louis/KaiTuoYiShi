@@ -1,6 +1,6 @@
 import { jsonResponse, optionsResponse, type PagesContextLike } from './auth/_shared';
 
-const PRESENCE_SYSTEM_ENABLED = false;
+const PRESENCE_SYSTEM_ENABLED = false as boolean;
 const HEARTBEAT_TTL_MS = 2 * 60 * 1000;
 const SESSION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS = 500;
@@ -76,8 +76,8 @@ function getClientIp(request: Request): string {
 }
 
 function getBucket(env: PagesContextLike['env']): R2BucketLike | null {
-  const candidate = (env as Record<string, unknown>)?.ONLINE_SESSIONS_R2
-    ?? (env as Record<string, unknown>)?.CNB_SYNC_R2;
+  const candidate = env.ONLINE_SESSIONS_R2
+    ?? env.CNB_SYNC_R2;
   if (
     candidate &&
     typeof candidate === 'object' &&
@@ -90,7 +90,7 @@ function getBucket(env: PagesContextLike['env']): R2BucketLike | null {
 }
 
 function getKvNamespace(env: PagesContextLike['env']): KvNamespaceLike | null {
-  const candidate = (env as Record<string, unknown>)?.ONLINE_SESSIONS_KV;
+  const candidate = env.ONLINE_SESSIONS_KV;
   if (
     candidate &&
     typeof candidate === 'object' &&
@@ -235,7 +235,7 @@ async function readPresenceSessions(env: PagesContextLike['env'], now: number): 
 function normalizeRegistry(parsed: Partial<PresenceRegistry> | null | undefined): PresenceRegistry {
   return {
     sessions: Array.isArray(parsed?.sessions)
-      ? parsed.sessions.filter((item): item is PresenceSessionRecord => Boolean(item && typeof item === 'object' && typeof item.id === 'string'))
+      ? (parsed.sessions as unknown[]).filter((item): item is PresenceSessionRecord => Boolean(item) && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string')
       : [],
   };
 }
@@ -278,29 +278,25 @@ async function upsertPresenceSession(params: {
 }
 
 function noStore(init: ResponseInit = {}): ResponseInit {
-  return {
-    ...init,
-    headers: {
-      ...(init.headers ?? {}),
-      'cache-control': 'no-store',
-    },
-  };
+  const headers = new Headers(init.headers);
+  headers.set('cache-control', 'no-store');
+  return { ...init, headers };
 }
 
-export const onRequestOptions = async ({ request }: PagesContextLike): Promise<Response> => optionsResponse(request);
+export const onRequestOptions = (): Response => optionsResponse();
 
-export const onRequestGet = async ({ request, env }: PagesContextLike): Promise<Response> => {
+export const onRequestGet = async ({ env }: PagesContextLike): Promise<Response> => {
   if (!PRESENCE_SYSTEM_ENABLED) {
-    return jsonResponse(request, buildDisabledPresenceBody(), noStore());
+    return jsonResponse(buildDisabledPresenceBody(), noStore());
   }
   const now = Date.now();
   const { sessions, storage } = await readPresenceSessions(env, now);
-  return jsonResponse(request, buildPresenceBody(sessions, now, storage), noStore());
+  return jsonResponse(buildPresenceBody(sessions, now, storage), noStore());
 };
 
 export const onRequestPost = async ({ request, env }: PagesContextLike): Promise<Response> => {
   if (!PRESENCE_SYSTEM_ENABLED) {
-    return jsonResponse(request, buildDisabledPresenceBody(), noStore());
+    return jsonResponse(buildDisabledPresenceBody(), noStore());
   }
   const now = Date.now();
   let sessionId = '';
@@ -310,11 +306,10 @@ export const onRequestPost = async ({ request, env }: PagesContextLike): Promise
     sessionId = readSessionId(payload.sessionId);
     path = readText(payload.path);
   } catch {
-    sessionId = '';
   }
   if (!sessionId) {
-    return jsonResponse(request, { error: '缺少在线心跳 sessionId。' }, { status: 400 });
+    return jsonResponse({ error: '缺少在线心跳 sessionId。' }, { status: 400 });
   }
   const { sessions, storage } = await upsertPresenceSession({ request, env, sessionId, path, now });
-  return jsonResponse(request, buildPresenceBody(sessions, now, storage), noStore());
+  return jsonResponse(buildPresenceBody(sessions, now, storage), noStore());
 };

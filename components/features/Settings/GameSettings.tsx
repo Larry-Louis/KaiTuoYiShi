@@ -2,27 +2,23 @@ import { useState } from 'react';
 import type { 游戏设置 } from '@/models/settings';
 import type { 提示词模块 } from '@/models/prompts';
 import type { 世界状态 } from '@/models/world';
-import type { 剧情模式 } from '@/models/journey';
 import { storyModes } from '@/data/journeyPresets';
-import { saveSetting } from '@/services/dbService';
-import { PERSPECTIVE_MODULE_IDS } from '@/utils/narrativeRuntimePolicy';
+import { mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   worldState: 世界状态;
   onWorldStateChange: (s: 世界状态) => void;
+  /** 勿直连 saveSetting。 */
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
 }
 
-const smallClip =
-  'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
-// 把 builtin module 的 enabled 同步成 v。若数组里还没有这条 builtin（异常存档），直接跳过。
 function setModuleEnabled(modules: 提示词模块[], id: string, v: boolean): 提示词模块[] {
   return modules.map((m) => (m.id === id ? { ...m, enabled: v, updatedAt: Date.now() } : m));
 }
 
-// 三种内置文风互斥：选 activeId 启用，其余两条强制关闭；activeId=null 表示启用「文风-自定义」模块。
 const WRITING_STYLE_IDS = [
   'builtin_writing_style',
   'builtin_writing_style_hsr',
@@ -56,13 +52,19 @@ function getActiveWritingStyle(modules: 提示词模块[]): WritingStyleId | nul
   return (hit?.id as WritingStyleId | undefined) ?? null;
 }
 
+const PERSPECTIVE_MODULE_IDS: Record<'first' | 'second' | 'third', string> = {
+  first: 'builtin_perspective_first',
+  second: 'builtin_perspective_second',
+  third: 'builtin_perspective_third',
+};
+
 function setActivePerspective(
   modules: 提示词模块[],
   active: 'first' | 'second' | 'third',
 ): 提示词模块[] {
   const now = Date.now();
   const activeId = PERSPECTIVE_MODULE_IDS[active];
-  const allIds = Object.values(PERSPECTIVE_MODULE_IDS) as string[];
+  const allIds = Object.values(PERSPECTIVE_MODULE_IDS);
   return modules.map((m) => {
     if (!allIds.includes(m.id)) return m;
     const shouldBeOn = m.id === activeId;
@@ -72,23 +74,20 @@ function setActivePerspective(
 }
 
 const WRITING_STYLE_OPTIONS: { id: WritingStyleId | 'none'; label: string; desc: string }[] = [
-  { id: 'builtin_writing_style_hsr', label: '崩铁式', desc: '原作风 / 第三人称 / 角色口吻差异 / 星海宿命感' },
+  { id: 'builtin_writing_style_hsr', label: '崩铁式', desc: '原作风 / 角色口吻差异 / 星海宿命感' },
   { id: 'builtin_writing_style', label: '日记体', desc: '轻松随意 / 对白≥40% / 比喻可爱 / 动作代替「说」' },
   { id: 'builtin_writing_style_baimiao', label: '白描', desc: '汪曾祺式 / 动作+物件 / 不写情绪 / 短句留白' },
   { id: 'none', label: '自定义', desc: '启用提示词模块里的「文风-自定义」槽位' },
 ];
 
-export function GameSettingsTab({ settings, onChange, worldState, onWorldStateChange }: Props) {
+export function GameSettingsTab({ settings, onChange, worldState, onWorldStateChange, onPersistSettings }: Props) {
   const activeWritingStyle = getActiveWritingStyle(settings.promptModules);
   const [saveMessage, setSaveMessage] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
 
   const handleSave = async () => {
     try {
-      await Promise.all([
-        saveSetting('gameSettings', settings),
-        saveSetting('worldState', worldState),
-      ]);
+      await onPersistSettings(settings);
       setSaveMessage('游戏设定已保存。');
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 1600);
@@ -99,7 +98,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
 
   return (
     <div className="space-y-5">
-      {/* Word count */}
       <Field label="◆ 最少字数">
         <div className="flex items-center gap-3">
           <input
@@ -120,7 +118,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* 默认文风（三选一 + 自定义槽） */}
       <Field label="◆ 默认文风">
         <div className="grid grid-cols-2 gap-2">
           {WRITING_STYLE_OPTIONS.map((opt) => {
@@ -145,9 +142,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                   background: active
                     ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.04))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
-                  boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+                  border: active
+                    ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge))'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -171,7 +168,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         )}
       </Field>
 
-      {/* Narrative person */}
       <Field label="◆ 叙述人称">
         <div className="flex gap-2">
           {(
@@ -198,9 +194,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'transparent',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
-                  boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
+                  border: active
+                    ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -211,7 +207,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* 思维链输出语言（参考 Izumi，P2 可选） */}
       <Field label="◆ 思维链语言">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(
@@ -237,9 +232,9 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'transparent',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.85)',
-                  boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.25)',
+                  border: active
+                    ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -253,7 +248,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </p>
       </Field>
 
-      {/* 剧情偏向 */}
       <Field label="◆ 剧情偏向（可中途切换）">
         <div className="grid grid-cols-2 gap-2">
           {storyModes.map((mode) => {
@@ -261,15 +255,15 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
             return (
               <button
                 key={mode.id}
-                onClick={() => onWorldStateChange({ ...worldState, 剧情模式: mode.id as 剧情模式 })}
+                onClick={() => onWorldStateChange({ ...worldState, 剧情模式: mode.id })}
                 className="px-3 py-2 text-left transition-all hover:opacity-90"
                 style={{
                   background: active
                     ? 'linear-gradient(135deg, rgba(var(--tj-accent-primary), 0.18), rgba(var(--tj-accent-primary), 0.04))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
-                  boxShadow: active
-                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.55)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+                  border: active
+                    ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge))'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
                   clipPath: smallClip,
                 }}
               >
@@ -288,7 +282,6 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         </div>
       </Field>
 
-      {/* Toggles */}
       <ToggleRow
         label="Claude 专用模式"
         desc="用于 Claude 兼容中转的 Messages API。开启后，模型名像 Claude / Opus / Sonnet / Haiku 的 Claude 兼容请求会走 Claude 通道；Gemini、DeepSeek、OpenAI 兼容模型仍走各自通道。"
@@ -302,7 +295,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
             { value: 'standard' as const, label: '标准', desc: '直发并追加 DS 格式校验' },
             { value: 'lock_format' as const, label: '锁格式', desc: '尝试 prefix 锁定 <thinking>' },
           ]).map((opt) => {
-            const active = (settings.deepSeekMainMode ?? 'off') === opt.value;
+            const active = settings.deepSeekMainMode === opt.value;
             return (
               <button
                 key={opt.value}
@@ -314,9 +307,10 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
-                  boxShadow: active
-                    ? '0 0 16px rgba(var(--tj-accent-primary), 0.18)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
+                  // 用透明边而不是 `none`，避免 1px 边框宽度变化带动布局。
+                  border: active
+                    ? '1px solid transparent'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
                   clipPath: smallClip,
                 }}
               >
@@ -333,7 +327,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
       <ToggleRow
         label="缓存前缀诊断"
         desc="开启后，新回合的响应详情会显示请求与上一回合从哪里开始变化、公共前缀估算 tokens 和变化后较大的请求块。只用于排查缓存命中，默认关闭。"
-        checked={settings.enableCacheDiagnostics ?? false}
+        checked={settings.enableCacheDiagnostics}
         onChange={(v) => onChange({ ...settings, enableCacheDiagnostics: v })}
       />
       <ToggleRow
@@ -385,8 +379,8 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
       />
       <ToggleRow
         label="抢话 / 适度代写玩家对白"
-        desc="允许 AI 自由编排玩家输入的承接，必要时少量扩写对白或轻动作；不要求玩家话固定开场，也不允许代替玩家做关键决定、长篇独白或深层心理。"
-        checked={settings.enablePlayerSpeechExpansion === true}
+        desc="允许 AI 少量扩写玩家话语或轻动作，避免主角完全沉默；不允许代替玩家做关键决定、长篇独白或深层心理。"
+        checked={settings.enablePlayerSpeechExpansion}
         onChange={(v) =>
           onChange({
             ...settings,
@@ -451,7 +445,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
             { value: 'sequential' as const, label: '稳序', desc: '变量落库后按顺序处理后台任务，接口压力最低' },
             { value: 'parallel' as const, label: '并行', desc: '变量落库后同时启动新闻、忆庭入库、手机种子和正文插图' },
           ]).map((opt) => {
-            const active = (settings.backgroundTaskMode ?? 'sequential') === opt.value;
+            const active = settings.backgroundTaskMode === opt.value;
             return (
               <button
                 key={opt.value}
@@ -463,9 +457,10 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
                     ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
                     : 'rgba(var(--tj-bg-secondary), 0.45)',
                   color: active ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-primary), 0.9)',
-                  boxShadow: active
-                    ? '0 0 16px rgba(var(--tj-accent-primary), 0.18)'
-                    : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.14)',
+                  // 用透明边而不是 `none`，避免 1px 边框宽度变化带动布局。
+                  border: active
+                    ? '1px solid transparent'
+                    : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
                   clipPath: smallClip,
                 }}
               >
@@ -493,7 +488,7 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
       />
       <ToggleRow
         label="开发者模式"
-        desc="向 AI 注入开发者身份提示，AI 会把你的消息当作测试指令并尽量配合（同步「提示词模块·开发者模式」开关）"
+        desc="向 AI 注入开发者身份提示，AI 会把你的消息当作测试指令并尽量配合（同步「提示词模块·开发者模式」开关）。开启后，每条回复工具栏会多出「请求诊断」面板。"
         checked={settings.devMode}
         onChange={(v) =>
           onChange({
@@ -503,8 +498,21 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
           })
         }
       />
+      {settings.devMode && (
+        <div
+          className="px-3 py-2 text-[11px] leading-relaxed"
+          style={{
+            color: 'rgba(var(--tj-text-secondary), 0.78)',
+            background: 'rgba(var(--tj-bg-secondary), 0.32)',
+            border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))',
+            clipPath: smallClip,
+          }}
+        >
+          「请求诊断」只读取本回合已保存的本地调试字段（协议与模式、召回、缓存前缀、Token 用量），仅本地展示，
+          不会发送给主剧情模型。与「请求上下文」的区别：后者展示真实请求，前者聚焦本地运行信号。
+        </div>
+      )}
 
-      {/* Custom prompt 已迁移到「提示词模块」tab，此处不再提供 */}
       <div className="sticky bottom-0 z-10 pt-3" style={{ background: 'linear-gradient(180deg, rgba(var(--tj-bg-primary),0), rgba(var(--tj-bg-primary),0.98) 30%)' }}>
         {saveMessage && (
           <div className="mb-2 text-right text-xs" style={{ color: saveMessage.startsWith('保存失败') ? 'rgba(255,180,180,0.92)' : 'rgba(165,230,170,0.92)' }}>
@@ -513,14 +521,14 @@ export function GameSettingsTab({ settings, onChange, worldState, onWorldStateCh
         )}
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="relative w-full overflow-hidden py-3 font-serif text-sm font-bold tracking-[0.32em] transition-all hover:opacity-95"
           style={{
             color: 'rgb(var(--tj-on-accent))',
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(165, 230, 170, 0.96), rgba(105, 190, 130, 0.92))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.72), 0 0 18px rgba(var(--tj-tech-cyan),0.14)',
+            border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath: smallClip,
           }}
         >
@@ -561,9 +569,9 @@ function ToggleRow({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.42)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan), 0.14)',
+        border: '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint-weak))',
         clipPath:
-          'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+          mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -584,11 +592,11 @@ function ToggleRow({
           background: checked
           ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
           clipPath:
-            'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+            smallClip,
         }}
       >
         <div
@@ -597,7 +605,7 @@ function ToggleRow({
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
             clipPath:
-              'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+              tinyClip,
           }}
         />
       </button>

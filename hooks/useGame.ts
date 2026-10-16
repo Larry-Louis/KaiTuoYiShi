@@ -1,140 +1,296 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGameState, type UseGameStateReturn } from '@/hooks/useGameState';
-import { executeSendWorkflow, regenerateNarrativeImagesForMessage, retryQueueTask } from '@/hooks/useGame/sendWorkflow';
+import { executeSendWorkflow } from '@/hooks/useGame/sendWorkflow';
+import { executeResumeWorkflow } from '@/hooks/useGame/resumeWorkflow';
+import { 初始化新局checkpoint } from '@/hooks/useGame/commitTurn';
+import { retryQueueTask } from '@/hooks/useGame/workflowRetry';
+import { cancelActiveWorkflow } from '@/hooks/useGame/workflowTransaction';
 import { buildContextSnapshot, type ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
-import {
-  buildSavePayload,
-  commitActiveSaveTreeMeta,
-  handleLoadLatest,
-  handleManualSave,
-} from '@/hooks/useGame/saveLoadWorkflow';
-import { restorePreTurnSnapshotPersisted } from '@/hooks/useGame/turnSnapshot';
-import {
-  创建空记忆系统,
-  serializeMemoryFailureSource,
-  type 记忆失败草稿,
-  type 记忆系统,
-} from '@/models/memory';
-import { retryMemoryFailureDraft, computeMemoryFingerprint, autoCompressMemorySystemWithArchivesAsync, appendLongTermArchivesToYiting } from '@/hooks/useGame/memoryUtils';
-import { 创建空忆庭系统, type 忆庭系统, type 回忆条目 } from '@/models/yiting';
-import {
-  runPhoneMemoryCommit,
-  type PhoneMemoryCommitIntent,
-  type PhoneDualWriteResult,
-} from '@/services/phoneMemoryDualWrite';
-import { 创建空手机系统 } from '@/models/phone';
-import type { API配置项, 记忆系统设置 } from '@/models/settings';
-import type { 队列任务记录 } from '@/models/queueTask';
-import { 根据开局档案创建初始NPC记录, 生成开局已成立事实, 归一化开局档案 } from '@/models/world';
-import { loadSetting, saveGame, saveSetting, updateSetting } from '@/services/dbService';
-import { summarizeMemoryBatch } from '@/services/memoryCompression';
-import {
-  commitMemoryRebuildTask,
-  createMemoryRebuildTask,
-  runMemoryRebuildTask,
-  type MemoryRebuildProgress,
-  type MemoryRebuildRange,
-  type MemoryRebuildTask,
-} from '@/services/memoryRebuild';
-import { clearWorkflowRecoveryJournal } from '@/services/workflowRecovery';
-import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { addImmediateMemory, autoCompressMemorySystemWithArchivesAsync, compressNpcMemoryLedger } from '@/hooks/useGame/memoryUtils';
+import { ignoreMemoryDraft, retryMemoryDraft } from '@/hooks/useGame/memoryRecovery';
+import { analyzeTavernRegexScript, dryRunTavernRegexScript, extractTavernRegexScripts } from '@/hooks/useGame/tavernRegexProcessor';
+import type { TavernRegexDryRunResult, TavernRegexScriptSafety } from '@/contracts/ai';
+import { beginSession, clearActiveSaveTreeMetaIfMatches, delete存档目标, handleBranchFromSave, handleLoadById, handleLoadLatest, hydrate, prepareHydration, resetWorkflowProjection, resolve存档删除目标, type 存档删除目标 } from '@/hooks/useGame/saveLoadWorkflow';
+import type { API设置, API配置项, 存档数据 } from '@/models/settings';
+import type { 存档树元信息 } from '@/utils/saveTree';
+import type { 队列任务ID, 队列任务记录 } from '@/models/queueTask';
+import type { 开局整理档案 } from '@/models/world';
+import { 提取NPC同行记忆文本列表, type NPC同行记忆条目 } from '@/models/npc';
+import type { STRegexScript } from '@/models/stTypes';
+import { deleteLegacyBackupSaves, deleteSaveTree, forkSaveTreeLeaf, loadActiveLeaf, loadSaveTree } from '@/services/storage/saveTree';
+import { getSaveCatalogSnapshot, loadSave, loadSaveForCloudTransfer, loadSaveIdByNodeId, saveGame } from '@/services/storage/saveCrud';
+import { exportSavePackage, exportSaveTreePackage, importSaveFileAsMany } from '@/services/storage/importExport';
+import { repairSaveDatabase, startSaveCatalogRepair } from '@/services/storage/catalogMaintenance';
+import { loadSetting, saveSetting } from '@/services/storage/settings';
+import { 剥离检查点队列任务 } from '@/services/storage/saveSummary';
+import { subscribeSaveCatalogRepair } from '@/services/storage/saveCatalogRepair';
+import type { SaveCatalogRepairResult, SaveCatalogRepairScope, SaveCatalogRepairState, SaveCatalogSnapshot, SaveListItemSummary } from '@/contracts/storage';
+import type { CloudTransferSaveBundle } from '@/contracts/cloudSave';
+import { abandonTurnRecovery } from '@/hooks/useGame/recoveryActions';
+import { buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, buildPersistedZhikuSystem, loadAllBundledZhikuPresets, mergeBundledZhikuSystem } from '@/data/zhikuPreset';
+import { parseOpeningArchiveWithAI } from '@/services/ai/openingArchive';
+import type { OpeningPlayerPreset, OpeningPresetDraft } from '@/models/opening';
+import { OPENING_PLAYER_PRESETS_KEY, normalizeOpeningPresets } from '@/models/opening';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
-import { callVariableModel } from '@/services/ai/variableModel';
-import { linkVariableTurn, splitVariableRuntimeState } from '@/services/variableRuntime';
-import { commitVariableState, snapshotVariableState } from '@/utils/variableExecutor';
-import { buildVariableRepairPlan, commitVariableRepairPlan, mergeVariableRepairPlans, type VariableRepairPlan } from '@/utils/variableRepair';
-import { findLinkedVariableBatchAssistant, findLinkedVariableBatchUser, linkVariableBatchesToChatHistory } from '@/utils/variableBatchIdentity';
-import { stableFingerprint } from '@/utils/stableFingerprint';
-import { createVariableHistoryRepairDraft, type VariableHistoryRepairDraft, type VariableHistoryRepairProgress } from '@/services/variableHistoryRepair';
+import { devLog, devLogError } from '@/utils/devLog';
+import { TURN_STATUS_IDLE } from '@/hooks/useGame/turnStatus';
+import {
+  派生回合动作视图,
+  评估回合动作执行,
+  type TurnActionsApi,
+  type 回合动作ID,
+  type 回合动作上下文,
+  type 回合动作执行结局,
+} from '@/hooks/useGame/turnActionRuntime';
+import type { 聊天消息 } from '@/models/chat';
+import { pushQueueTask } from '@/hooks/useGame/workflowTaskRuntime';
+import { 提交变量修复计划 } from '@/hooks/useGame/variableRepairWorkflow';
+import { useVariableRepairCenter, type 变量修复中心动作 } from '@/hooks/useGame/variableRepairCenter';
+import { isWorkflowAbortError } from '@/hooks/useGame/workflowTransaction';
+import { 重新解析变量计划 } from '@/services/variableRepair';
+import { snapshotVariableState } from '@/utils/variableExecutor';
+import { variableStateFingerprint } from '@/utils/variableFingerprint';
+import { findPreviousUserInput } from '@/utils/chatHistory';
+import { 发送远程输入, 是主机端 } from '@/services/localSave/liveSync';
+import type { 变量修复计划, 变量修复回执 } from '@/models/variableRepair';
+import { buildPhoneApiConfig, generatePhoneReply } from '@/services/ai/phoneService';
+import { generateSkillDraft } from '@/services/ai/skillGenerator';
+import { generateTravelerTemplate } from '@/services/ai/travelerTemplate';
+import { resolveApiConfig, resolveMainApiConfig } from '@/services/apiConfig';
+import { parseActionOptionsBlock } from '@/services/ai/responseParser';
+import { 生成消息插图, 重生成消息单张插图, 保存插图结果, 标记插图为生成中, 标记插图失败 } from '@/hooks/useGame/illustrationWorkflow';
+import { 合并重跑提示词 } from '@/services/ai/imageGen/illustrationPipeline';
+import type { 战技生成草稿, 战技生成上下文, TravelerTemplateContext, TravelerTemplateDraft } from '@/contracts/ai';
+import type { 手机回复上下文, PhoneMemoryCommitInput } from '@/contracts/phone';
+import type { 剧情编织系统 } from '@/models/storyWeaving';
+import { 归一化智库系统, type 智库系统 } from '@/models/zhiku';
+import { createInitialWorkspace, type 新局工作区字段集 } from '@/services/newGameInitialization';
+import { OPENING_INPUT, deriveOpeningDraftContext, isOpeningLanded, shouldStartOpening } from '@/models/opening';
 
 export interface UseGameReturn {
   state: UseGameStateReturn;
   actions: {
     handleSend: (text: string) => Promise<void>;
+    handleStartOpening: () => Promise<void>;
     handleAbort: () => void;
+    handleCancelTask: (id: 队列任务ID) => void;
+    handleResumeRecovery: () => Promise<boolean>;
+    handleAbandonRecovery: () => Promise<void>;
+    handleRetryRecovery: () => Promise<void>;
+    handleUndoRecovery: () => Promise<string | null>;
     handleNewGame: () => void;
     handleContinue: () => Promise<boolean>;
+    handleLoadSave: (id: number) => Promise<boolean>;
+    handleBranch: (id: number) => Promise<boolean>;
     handleGoHome: () => void;
-    handleSave: () => Promise<number>;
-    handleReroll: () => Promise<string | void>;
-    handleRegenerateNarrativeImage: (messageId: string) => Promise<void>;
+    handleReroll: () => Promise<string | undefined>;
+    turnActions: TurnActionsApi;
+    变量修复: {
+      计划: 变量修复计划 | null;
+      回执: 变量修复回执 | null;
+      提交中: boolean;
+      提交: (confirmedItemIds: string[]) => Promise<void>;
+      关闭: () => void;
+    };
+    变量修复中心: 变量修复中心动作;
     handleRetryQueueTask: (task: 队列任务记录, mode?: 'retry' | 'reroll') => Promise<void>;
-    buildVariableRepairPlan: (messageId: string) => Promise<VariableRepairPlan>;
-    buildVariableRepairBatch: (messageIds: string[], options?: {
-      signal?: AbortSignal;
-      onProgress?: (progress: VariableHistoryRepairProgress) => void;
-    }) => Promise<VariableRepairPlan>;
-    commitVariableRepairPlan: (plan: VariableRepairPlan, confirmedItemIds?: string[]) => Promise<ReturnType<typeof commitVariableRepairPlan>>;
-    handleRetryMemoryFailureDraft: (draftId: string) => Promise<void>;
-    handleIgnoreMemoryFailureDraft: (draftId: string) => Promise<void>;
-    handleSilentMemoryCompress: () => Promise<void>;
-    commitPhoneMemory: (intent: PhoneMemoryCommitIntent) => Promise<PhoneDualWriteResult | undefined>;
-    handleBatchMemoryRebuild: (options: {
-      batchSize: number;
-      range?: MemoryRebuildRange;
-      task?: MemoryRebuildTask;
-      onProgress?: (progress: MemoryRebuildProgress) => void;
-    }) => Promise<MemoryRebuildTask>;
-    handleRestartOpening: () => void;
+    handleRestartOpening: () => Promise<void>;
     getContextSnapshot: (kind?: ContextSnapshotKind) => ReturnType<typeof buildContextSnapshot>;
+    handlePhoneMemoryCommit: (input: PhoneMemoryCommitInput) => Promise<void>;
+    handleRetryMemoryDraft: (draftId: string) => Promise<void>;
+    handleIgnoreMemoryDraft: (draftId: string) => Promise<void>;
+    handleGeneratePhoneReply: (apiConfig: API设置, context: 手机回复上下文) => Promise<string>;
+    handleDeleteSave: (save: SaveListItemSummary) => Promise<boolean>;
+    handleDeleteSaveTree: (rootId: string) => Promise<void>;
+    handleClearActiveSaveTreeMeta: (target?: { rootId?: string; nodeId?: string } | null) => void;
+    handleGetSaveCatalogSnapshot: () => Promise<SaveCatalogSnapshot>;
+    handleStartSaveCatalogRepair: (scope?: SaveCatalogRepairScope) => Promise<SaveCatalogRepairResult>;
+    handleSubscribeSaveCatalogRepair: (listener: (state: SaveCatalogRepairState) => void) => () => void;
+    handleRepairSaveDatabase: () => Promise<void>;
+    handleDeleteLegacyBackupSaves: () => Promise<number>;
+    handleGetSaveForExport: (id: number) => Promise<存档数据 | null>;
+    handleGetSaveTreeForExport: (rootId: string) => Promise<存档数据[]>;
+    handlePersistImportedSave: (data: 存档数据) => Promise<number>;
+    handleExportSavePackage: (id: number) => Promise<void>;
+    handleExportActiveLeafPackage: () => Promise<number | null>;
+    handleExportSaveTreePackage: (rootId: string) => Promise<void>;
+    handleImportSaveFileAsMany: (file: File) => Promise<number>;
+    handleLoadSaveForCloudTransfer: (id: number) => Promise<CloudTransferSaveBundle | null>;
+    handleExtractTavernRegexScripts: (rawPreset: unknown) => STRegexScript[];
+    handleAnalyzeTavernRegexScript: (script: STRegexScript) => TavernRegexScriptSafety;
+    handleDryRunTavernRegexScript: (script: STRegexScript, sampleText: string) => TavernRegexDryRunResult;
+    handleLoadOpeningPresets: () => Promise<OpeningPlayerPreset[]>;
+    handleSaveOpeningPresets: (presets: OpeningPlayerPreset[]) => Promise<OpeningPlayerPreset[]>;
+    handleParseOpeningArchive: (draft: OpeningPresetDraft) => Promise<开局整理档案 | null>;
+    handlePrepareNewGame: (draft: OpeningPresetDraft) => Promise<boolean>;
+    handleSaveStoryWeaving: (system: 剧情编织系统) => Promise<void>;
+    handleGenerateSkillDraft: (apiConfig: API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
+    handleGenerateTravelerTemplate: (context: TravelerTemplateContext) => Promise<TravelerTemplateDraft>;
+    handleParseActionOptionsBlock: (text: string) => string[];
+    handleSaveZhikuSystem: (system: 智库系统) => Promise<void>;
+    handleZhikuMigration: (current: 智库系统) => Promise<智库系统>;
+    handleGenerateIllustrations: (
+      messageId: string,
+      options?: { 只重新生成提示词?: boolean; signal?: AbortSignal },
+    ) => Promise<import('@/services/ai/imageGen/illustrationPipeline').生成正文插图结果>;
+    handleRegenerateIllustration: (
+      messageId: string,
+      插图: import('@/models/chat').叙事插图,
+      options?: { 新提示词正文?: string; 覆盖尺寸?: { 宽度: number; 高度: number } | null; signal?: AbortSignal },
+    ) => Promise<import('@/models/chat').叙事插图>;
+    handleRerollIllustrationPrompts: (
+      messageId: string,
+      options?: { signal?: AbortSignal },
+    ) => Promise<import('@/models/chat').叙事插图[]>;
   };
+  canRerollWithTree: boolean;
+  rerollParentStatus: 'pending' | 'valid' | 'invalid';
+}
+
+function 投影新局工作区(s: UseGameStateReturn, workspace: 新局工作区字段集): void {
+  s.set旅人(workspace.旅人);
+  s.set世界(workspace.世界);
+  s.setChatHistory(workspace.chatHistory);
+  s.set记忆(workspace.记忆);
+  s.set忆庭(workspace.忆庭);
+  s.set智库(workspace.智库);
+  s.set手机(workspace.手机);
+  s.setNPC(workspace.NPC);
+  s.set相册(workspace.相册);
+  s.set新闻(workspace.新闻);
+  s.set剧情(workspace.剧情);
+  s.set剧情编织(workspace.剧情编织);
+  s.setVariableBatches(workspace.variableBatches);
+  s.setQueueTasks(workspace.queueTasks);
+  s.setTurnCount(workspace.turnCount);
+  s.setTurnPhase(workspace.turnPhase ?? null);
+  s.activeWorkflow.setRecovery(workspace.recoveryContext ?? null);
 }
 
 export function useGame(): UseGameReturn {
   const state = useGameState();
-  // Keep a live ref so action callbacks stay identity-stable across state ticks.
   const stateRef = useRef(state);
   useLayoutEffect(() => {
     stateRef.current = state;
   }, [state]);
-  const rerollContextRef = useRef<{ nonce: string; previousResponse: string } | null>(null);
 
   const getActiveConfig = useCallback((): API配置项 | null => {
     const s = stateRef.current;
-    if (!s.apiSettings.activeConfigId) {
-      if (s.apiSettings.configs.length > 0) {
-        const first = s.apiSettings.configs[0];
-        s.setApiSettings((prev) => ({ ...prev, activeConfigId: first.id }));
-        return {
-          ...first,
-          enableClaudeMode: s.gameSettings.enableClaudeMode === true,
-        };
-      }
-      return null;
+    const config = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'main');
+    if (config && !s.deviceSettings.apiSettings.activeConfigId) {
+      s.setDeviceApiSettings((prev) => ({ ...prev, activeConfigId: config.id }));
     }
-    const config = s.apiSettings.configs.find((c) => c.id === s.apiSettings.activeConfigId) ?? null;
-    return config ? {
-      ...config,
-      enableClaudeMode: s.gameSettings.enableClaudeMode === true,
-    } : null;
+    return config;
   }, []);
+
+  const sendWithCleanReroll = useCallback(async (
+    text: string,
+    rerollContext: { nonce: string; previousResponse: string } | null,
+  ) => {
+    await executeSendWorkflow(text, {
+      state: stateRef.current,
+      getActiveConfig,
+      onAfterSend: () => {
+        stateRef.current.activeWorkflow.rerollContextRef.current = null;
+      },
+      rerollContext,
+    });
+  }, [getActiveConfig]);
 
   const handleSend = useCallback(
     async (text: string) => {
+      // 非主机（手机遥控端）：任何发送（包括开局派发、动作选项等内部路径）都不本地生成，
+      // 一律转给主机去跑——从源头断开“双份生成”。
+      if (!是主机端()) {
+        await 发送远程输入(text);
+        return;
+      }
       const s = stateRef.current;
-      s.setInterruptedWorkflow(null);
-      await executeSendWorkflow(text, {
-        state: s,
-        getActiveConfig,
-        onBeforeSend: () => {},
-        onAfterSend: () => {
-          rerollContextRef.current = null;
-        },
-        rerollContext: rerollContextRef.current,
-      });
+      // 不先放弃旧恢复现场的话，未落地回合的用户消息会与新回合叠加。
+      if (s.activeWorkflow.recovery || s.turnPhase) {
+        const abandoned = await abandonTurnRecovery(s);
+        if (!abandoned.ok) {
+          s.activeWorkflow.setTurnStatus({ kind: 'failed', text: '旧回合现场清理失败，未发送新消息，请重试。', failCount: 1 });
+          return;
+        }
+      }
+      await sendWithCleanReroll(text, stateRef.current.activeWorkflow.rerollContextRef.current);
     },
-    [getActiveConfig],
+    [sendWithCleanReroll],
   );
 
+  const handleStartOpening = useCallback(async () => {
+    const s = stateRef.current;
+    if (!shouldStartOpening({
+      turnPhase: s.turnPhase,
+      openingLanded: isOpeningLanded(s.turnCount, s.chatHistory),
+      hasRecovery: Boolean(s.activeWorkflow.recovery),
+    })) return;
+    // 在途守卫：StrictMode 双跑 effect 会第二次派发，且开局不抢占其他工作流。
+    if (s.activeWorkflow.abortControllerRef.current) return;
+    s.setTurnPhase(null);
+    await sendWithCleanReroll(OPENING_INPUT, null);
+  }, [sendWithCleanReroll]);
+
   const handleAbort = useCallback(() => {
-    stateRef.current.abortControllerRef.current?.abort();
+    cancelActiveWorkflow(stateRef.current);
+  }, []);
+
+  const handleCancelTask = useCallback((id: 队列任务ID) => {
+    cancelActiveWorkflow(stateRef.current, { taskId: id });
+  }, []);
+
+  const handleResumeRecovery = useCallback(async (): Promise<boolean> => {
+    const s = stateRef.current;
+    if (s.activeWorkflow.loading || s.activeWorkflow.pendingVariable) return false;
+    s.activeWorkflow.abortControllerRef.current?.abort();
+    return executeResumeWorkflow({
+      state: s,
+      getState: () => stateRef.current,
+      getActiveConfig,
+      onAfterSend: () => {
+        stateRef.current.activeWorkflow.rerollContextRef.current = null;
+      },
+      rerollContext: null,
+    });
+  }, [getActiveConfig]);
+
+  const handleAbandonRecovery = useCallback(async (): Promise<void> => {
+    const s = stateRef.current;
+    await abandonTurnRecovery(s);
+    s.activeWorkflow.setTurnStatus(TURN_STATUS_IDLE);
+  }, []);
+
+  const handleRetryRecovery = useCallback(async (): Promise<void> => {
+    const s = stateRef.current;
+    if (s.turnPhase !== 'awaitingLanding' || !s.activeWorkflow.recovery) return;
+    if (!getActiveConfig()) {
+      alert('请先在设置中配置至少一个 API 接口。');
+      return;
+    }
+    const abandoned = await abandonTurnRecovery(s);
+    if (!abandoned.ok || !abandoned.text) {
+      s.activeWorkflow.setTurnStatus({ kind: 'failed', text: '重试前清理旧回合现场失败，请刷新后重试。', failCount: 1 });
+      return;
+    }
+    await sendWithCleanReroll(abandoned.text, null);
+  }, [getActiveConfig, sendWithCleanReroll]);
+
+  const handleUndoRecovery = useCallback(async (): Promise<string | null> => {
+    const s = stateRef.current;
+    if (s.turnPhase !== 'awaitingLanding' || !s.activeWorkflow.recovery) return null;
+    const abandoned = await abandonTurnRecovery(s);
+    if (!abandoned.ok) {
+      s.activeWorkflow.setTurnStatus({ kind: 'failed', text: '撤销失败，请重试。', failCount: 1 });
+      return null;
+    }
+    return abandoned.text;
   }, []);
 
   const handleNewGame = useCallback(() => {
     const s = stateRef.current;
-    void clearWorkflowRecoveryJournal(s.interruptedWorkflow?.workflowId);
-    s.setInterruptedWorkflow(null);
-    s.setInputText('');
+    void abandonTurnRecovery(s);
     s.setView('new_game');
   }, []);
 
@@ -142,837 +298,997 @@ export function useGame(): UseGameReturn {
     return handleLoadLatest(stateRef.current);
   }, []);
 
+  const handleLoadSave = useCallback(async (id: number): Promise<boolean> => {
+    const ok = await handleLoadById(id, stateRef.current);
+    devLog('save', 'save-load-by-id', { id, ok });
+    return ok;
+  }, []);
+
+  const handleBranch = useCallback(async (id: number): Promise<boolean> => {
+    return handleBranchFromSave(id, stateRef.current);
+  }, []);
+
   const handleGoHome = useCallback(() => {
     const s = stateRef.current;
-    s.abortControllerRef.current?.abort();
+    cancelActiveWorkflow(s);
     s.setView('home');
   }, []);
 
-  const handleSave = useCallback(async (): Promise<number> => {
-    return handleManualSave(stateRef.current);
-  }, []);
-
-  // 重roll：找到最后一条 user → AI 对，回滚状态，并把 user 输入交还给输入框。
-  // 关键：用 aiMsg.preTurnSnapshot 把所有变量切片回滚到「该 user 发送前」的状态，
-  // 防止重 roll 后上一次的 NPC / 新闻等副作用与新一次的叠加。
-  const handleReroll = useCallback(async (): Promise<string | void> => {
+  // 不能直接 fork 直接父检查点：commitTurn 每回合末尾已封版当前叶子，父检查点含本轮输入与副作用，
+  // 必须上溯到第一个「不含本轮输入」的检查点。
+  const handleReroll = useCallback(async (): Promise<string | undefined> => {
     const s = stateRef.current;
-    if (s.loading || s.pendingVariable) {
-      s.setWorkflowHint('后台结算尚未完成，稍等完成后再重roll，避免记忆/忆庭/变量写入错位。');
+    if (s.activeWorkflow.loading || s.activeWorkflow.pendingVariable) {
+      s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '后台结算尚未完成，稍等完成后再重roll，避免记忆/忆庭/变量写入错位。' });
       return;
     }
-    s.abortControllerRef.current?.abort();
-    s.abortControllerRef.current = null;
+    s.activeWorkflow.abortControllerRef.current?.abort();
+    s.activeWorkflow.abortControllerRef.current = null;
     const history = s.chatHistory;
 
-    // 特殊情况：最后一条是 user 且没有对应的 assistant，说明本回合主剧情生成失败了。
-    // 此时只回退这条孤立的 user 消息，不应回退到上一回合。
-    const lastMsg = history[history.length - 1];
-    if (lastMsg && lastMsg.role === 'user') {
-      // 孤立 user：主剧情生成失败，只砍掉这条 user
-      const userInput = lastMsg.content;
-      const snapshot = lastMsg.preTurnSnapshot;
-      const trimmed = history.slice(0, -1);
-      s.setChatHistory(trimmed);
-      setStreamingMessage('');
-      s.setWorkflowStatus('');
-      s.setWorkflowHint(snapshot ? '已回滚到本回合发送前，可修改后重新发送。' : '本回合缺少快照，仅恢复输入文本。');
-      if (snapshot) {
-        // 已完成的回合重 Roll：React 与持久化智库运行态一起回到回合前。
-        await restorePreTurnSnapshotPersisted(s, snapshot, updateSetting);
-      } else {
-        s.setTurnCount(Math.max(1, s.turnCount - 1));
-      }
-      // 生成失败的重 roll 不需要 rerollContext（没有上一版回复可比对）
-      rerollContextRef.current = null;
-      return userInput;
-    }
-
-    // 正常情况：找到最后一条 user → AI 对
-    // 找到最后一条 AI 消息
-    let lastAiIdx = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].role === 'assistant') {
-        lastAiIdx = i;
-        break;
-      }
-    }
-    if (lastAiIdx === -1) return;
-    // 它前面紧邻的 user 输入
     let lastUserIdx = -1;
-    for (let i = lastAiIdx - 1; i >= 0; i--) {
-      if (history[i].role === 'user') {
-        lastUserIdx = i;
-        break;
-      }
-    }
-    if (lastUserIdx === -1) return;
-    const userInput = history[lastUserIdx].content;
-    const snapshot = history[lastAiIdx].preTurnSnapshot;
-    const previousResponse = history[lastAiIdx].parsedResponse?.body || history[lastAiIdx].content || '';
-    rerollContextRef.current = {
-      nonce: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      previousResponse,
-    };
-
-    // 砍掉 user + ai；如果有 snapshot，把所有变量切片回滚到 user 发送前
-    const trimmed = history.slice(0, lastUserIdx);
-    s.setChatHistory(trimmed);
-    setStreamingMessage('');
-    s.setWorkflowStatus('');
-    s.setWorkflowHint(snapshot ? '已回滚到上一回合发送前，可修改后重新发送。' : '旧回复缺少完整快照，仅恢复输入文本。');
-    if (snapshot) {
-      await restorePreTurnSnapshotPersisted(s, snapshot, updateSetting);
+    let lastAiIdx = -1;
+    const lastMsg = history.at(-1);
+    if (lastMsg && lastMsg.role === 'user') {
+      lastUserIdx = history.length - 1;
     } else {
-      // 老回复没 snapshot（迁移期 / 旧存档），只能粗略 turnCount -1，状态保持不变
-      s.setTurnCount(Math.max(1, s.turnCount - 1));
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role === 'assistant') {
+          lastAiIdx = i;
+          break;
+        }
+      }
+      if (lastAiIdx === -1) return;
+      for (let i = lastAiIdx - 1; i >= 0; i--) {
+        if (history[i].role === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx === -1) return;
+    }
+    const userInput = history[lastUserIdx].content;
+    const rerolledUserMsgId = history[lastUserIdx].id;
+
+    const active = await loadActiveLeaf();
+    const leaf = active.status === 'ok' ? active.leaf : null;
+    const tree = (leaf as { saveTree?: 存档树元信息 | null } | null)?.saveTree;
+    if (!leaf || !tree?.rootId || !tree.parentNodeId) {
+      s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '当前工作区缺少可回退的父检查点，无法重roll。' });
+      return;
     }
 
-    return userInput;
+    let forkTargetNodeId: string | null = tree.parentNodeId;
+    const disableReroll = (text: string) => {
+      s.activeWorkflow.setTurnStatus({ kind: 'stopped', text });
+      s.setActiveTreeMeta((prev) => {
+        if (!prev || prev.rootId !== tree.rootId || prev.nodeId !== tree.nodeId) return prev;
+        const { parentNodeId: _removedParentNodeId, ...rest } = prev;
+        void _removedParentNodeId;
+        return rest;
+      });
+    };
+    try {
+      for (let guard = 0; guard < 32; guard++) {
+        const parentSaveId = await loadSaveIdByNodeId(forkTargetNodeId);
+        const parentSave = parentSaveId ? await loadSave(parentSaveId) : null;
+        const parentTree = (parentSave as { saveTree?: 存档树元信息 | null } | null)?.saveTree;
+        if (!parentSave || !parentTree) {
+          devLogError('turn', 'reroll-parent-missing', new Error(`父检查点缺失：${forkTargetNodeId}`), { rootId: tree.rootId });
+          disableReroll('父检查点缺失，无法重roll。');
+          return;
+        }
+        if (parentTree.rootId !== tree.rootId) {
+          devLogError('turn', 'reroll-root-mismatch', new Error(`父检查点 rootId 与当前工作区不一致：${parentTree.rootId}`), {
+            rootId: tree.rootId,
+            parentRootId: parentTree.rootId,
+            forkTargetNodeId,
+          });
+          disableReroll('父检查点不属于当前存档树，无法重roll。');
+          return;
+        }
+        const containsRerolledUser = Array.isArray(parentSave.chatHistory)
+          && parentSave.chatHistory.some((msg) => msg.id === rerolledUserMsgId);
+        if (!containsRerolledUser) break;
+        if (!parentTree.parentNodeId) break;
+        forkTargetNodeId = parentTree.parentNodeId;
+      }
+
+      if (!forkTargetNodeId) {
+        devLogError('turn', 'reroll-fork-target-missing', new Error('未找到可回退的父检查点。'));
+        s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '未找到可回退的父检查点，无法重roll。' });
+        return;
+      }
+
+      const fork = await forkSaveTreeLeaf({
+        rootId: tree.rootId,
+        targetNodeId: forkTargetNodeId,
+        branchName: '重roll分支',
+      });
+      devLog('turn', 'reroll-forked-leaf', {
+        rootId: tree.rootId,
+        fromCheckpoint: forkTargetNodeId,
+        abandonedLeaf: tree.nodeId,
+        headNodeId: fork.headNodeId,
+      });
+      if (!fork.headNodeId) {
+        devLogError('turn', 'reroll-fork-head-missing', new Error('分叉返回空 headNodeId。'));
+        s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '分叉叶子创建失败，重roll失败，请重试。' });
+        return;
+      }
+
+      const newLeafSaveId = await loadSaveIdByNodeId(fork.headNodeId);
+      const newLeaf = newLeafSaveId ? await loadSave(newLeafSaveId) : null;
+      if (!newLeaf) {
+        devLogError('turn', 'reroll-hydrate-leaf-missing', new Error(`分叉叶子数据缺失：${fork.headNodeId}`));
+        s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: '分叉叶子数据缺失，重roll失败，请重试。' });
+        return;
+      }
+      resetWorkflowProjection(s);
+      hydrate(await prepareHydration(newLeaf), s);
+
+      if (lastAiIdx >= 0) {
+        const previousResponse = history[lastAiIdx].parsedResponse?.body || history[lastAiIdx].content || '';
+        s.activeWorkflow.rerollContextRef.current = {
+          nonce: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          previousResponse,
+        };
+      } else {
+        s.activeWorkflow.rerollContextRef.current = null;
+      }
+
+      setStreamingMessage('');
+      s.activeWorkflow.setTurnStatus({
+        kind: 'stopped',
+        text: lastAiIdx >= 0
+          ? '已回滚到上一回合发送前，可修改后重新发送。'
+          : '已回滚到本回合发送前，可修改后重新发送。',
+      });
+      return userInput;
+    } catch (err) {
+      devLogError('turn', 'reroll-failed', err, { rootId: tree.rootId, targetCheckpoint: forkTargetNodeId });
+      s.activeWorkflow.setTurnStatus({ kind: 'stopped', text: `重roll失败：${err instanceof Error ? err.message : '未知错误'}，请重试。` });
+      return;
+    }
   }, []);
 
-  const handleRegenerateNarrativeImage = useCallback(async (messageId: string) => {
-    await regenerateNarrativeImagesForMessage(stateRef.current, getActiveConfig, messageId);
+  const { activeTreeMeta, rerollParentStatus } = state;
+  const canRerollWithTree = Boolean(activeTreeMeta?.rootId && activeTreeMeta.parentNodeId)
+    && rerollParentStatus === 'valid';
+
+  const [变量修复计划, set变量修复计划] = useState<变量修复计划 | null>(null);
+  const [变量修复回执, set变量修复回执] = useState<变量修复回执 | null>(null);
+  const [变量修复提交中, set变量修复提交中] = useState(false);
+  const 变量修复AbortRef = useRef<AbortController | null>(null);
+
+  const handle重新解析变量 = useCallback(async (message: 聊天消息) => {
+    const s = stateRef.current;
+    const mainConfig = getActiveConfig();
+    const turn = Number(message.gameTime) || s.turnCount;
+    const 报告 = (status: 'pending' | 'success' | 'failed' | 'cancelled', detail: string) => pushQueueTask(
+      s, 'variable_reparse', status, { detail, turn, targetMessageId: message.id },
+    );
+    if (!mainConfig) {
+      报告('failed', '请先在设置中配置至少一个 API 接口，再重新解析变量。');
+      return;
+    }
+    const controller = new AbortController();
+    变量修复AbortRef.current?.abort();
+    变量修复AbortRef.current = controller;
+    const 上一条输入 = findPreviousUserInput(s.chatHistory, message.id);
+    报告('pending', '正在重新解析历史回合的变量。');
+    try {
+      const variableConfig = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'variable');
+      if (!variableConfig) {
+        报告('failed', '请先在设置中配置至少一个 API 接口，再重新解析变量。');
+        return;
+      }
+      const stateSnapshot = snapshotVariableState(s);
+      const plan = await 重新解析变量计划({
+        message,
+        turn,
+        stateSnapshot,
+        baseStateFingerprint: await variableStateFingerprint(stateSnapshot),
+        batches: s.variableBatches,
+        mainApiConfig: variableConfig,
+        userInput: 上一条输入,
+        nsfwEnabled: s.deviceSettings.gameSettings.enableNsfw,
+        maleNsfwArchiveEnabled: s.deviceSettings.gameSettings.enableMaleNsfwArchive,
+        retryCount: s.deviceSettings.gameSettings.variableApi.retryCount ?? 2,
+        promptModules: s.deviceSettings.gameSettings.promptModules,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      set变量修复计划(plan);
+      set变量修复回执(null);
+      报告('success', `重新解析完成：共 ${plan.items.length} 条修复项。`);
+    } catch (error) {
+      if (isWorkflowAbortError(error) || controller.signal.aborted) {
+        报告('cancelled', '已取消变量重新解析。');
+        return;
+      }
+      devLogError('net', '变量重新解析失败', error, { turn, targetMessageId: message.id });
+      报告('failed', `变量重新解析失败：${(error as Error).message}`);
+    } finally {
+      if (变量修复AbortRef.current === controller) 变量修复AbortRef.current = null;
+    }
   }, [getActiveConfig]);
+
+  const handle提交变量修复 = useCallback(async (confirmedItemIds: string[]) => {
+    if (!变量修复计划) return;
+    set变量修复提交中(true);
+    try {
+      const receipt = await 提交变量修复计划({
+        state: stateRef.current,
+        plan: 变量修复计划,
+        confirmedItemIds,
+      });
+      if (receipt.code === 'OK') {
+        set变量修复计划(null);
+        set变量修复回执(null);
+        return;
+      }
+      set变量修复回执(receipt);
+    } finally {
+      set变量修复提交中(false);
+    }
+  }, [变量修复计划]);
+
+  const 变量修复中心 = useVariableRepairCenter({
+    getState: () => stateRef.current,
+    sessionEpoch: state.activeWorkflow.sessionEpoch,
+    pushQueueTask,
+  });
+
+  const handle关闭变量修复 = useCallback(() => {
+    变量修复AbortRef.current?.abort();
+    变量修复AbortRef.current = null;
+    set变量修复计划(null);
+    set变量修复回执(null);
+  }, []);
+
+  const turnActionExecute = useCallback(
+    async (
+      message: 聊天消息,
+      id: 回合动作ID,
+      context: 回合动作上下文,
+    ): Promise<回合动作执行结局> => {
+      const outcome = 评估回合动作执行(message, id, context);
+      if (outcome.kind === 'refused') {
+        const s = stateRef.current;
+        pushQueueTask(s, outcome.taskId, 'failed', {
+          detail: outcome.detail,
+          turn: Number(message.gameTime) || s.turnCount,
+          targetMessageId: message.id,
+        });
+        return outcome;
+      }
+      if (id === 'regenerate_snapshot') {
+        const 目标消息 = stateRef.current.chatHistory.find((项) => 项.id === message.id);
+        const 回合 = Number(message.gameTime) || stateRef.current.turnCount;
+        // 先落一条 pending 任务：没有它，从点击到出图之间界面上**完全没有反馈**，
+        // 用户看到的就是「点了没反应」（实际反馈过两次）。它同时驱动卡片的「正在生成…」。
+        pushQueueTask(stateRef.current, 'narrative_image_parse', 'pending', {
+          detail: '正在请求 LLM 生成插图提示词…',
+          turn: 回合,
+          targetMessageId: message.id,
+        });
+        // 必须自己接住异常：调用方是 `void 执行(...)`（即发即忘），抛出去没人接。
+        try {
+          const 结果 = await 生成消息插图(
+            stateRef.current,
+            message.id,
+            目标消息?.parsedResponse?.body.trim() || 目标消息?.content.trim() || message.content,
+            undefined,
+            {
+              // 出图阶段单独报一条：只留一条「正在请求 LLM…」的话，出图那几十秒里
+              // 界面看不出还在干活，用户会以为卡住了。
+              // 只报第一次（完成数 0），后续每张不再刷屏，终局另有 success/failed。
+              on进度: (事件) => {
+                if (事件.阶段 !== '出图' || (事件.完成数 ?? 0) > 0) return;
+                pushQueueTask(stateRef.current, 'narrative_image_generate', 'pending', {
+                  detail: `正在逐张出图（共 ${事件.总数 ?? 0} 张）…`,
+                  turn: 回合,
+                  targetMessageId: message.id,
+                  阶段: '出图中',
+                });
+              },
+            },
+          );
+          // 把 LLM 的**原文**一并留下：解析失败时用户需要看到模型到底回了什么，
+          // 否则只能靠猜「是没返回，还是返回了但格式不对」。
+          const 原文 = 结果.原始回复 ?? '';
+          if (结果.插图.length === 0) {
+            pushQueueTask(stateRef.current, 'narrative_image_parse', 'failed', {
+              detail: 结果.提示词诊断 ?? 'LLM 没有产出任何插图提示词。',
+              rawText: 原文,
+              turn: 回合,
+              targetMessageId: message.id,
+            });
+          } else {
+            // 必须把插图**写回消息**：渲染层只看 `message.narrativeImages`，
+            // 不写回去的话图已经生成、相册里也有，正文里却什么都看不到
+            //（这正是「生成成功了但根本没插入进正文」的实际反馈）。
+            const 下一份历史 = stateRef.current.chatHistory.map((项) => (
+              项.id === message.id ? { ...项, narrativeImages: 结果.插图 } : 项
+            ));
+            stateRef.current.setChatHistory(下一份历史);
+            stateRef.current.set相册(结果.相册);
+            // 手动生图在回合之外，没有 commitTurn 兜底，必须自己落盘，
+            // 否则重新进入后图和相册都会消失。返回值是回读校验结果，
+            // 直接写进队列文案，用户就能当场看到「到底存下来没有」。
+            const 落盘 = await 保存插图结果(stateRef.current, 下一份历史, 结果.相册, 结果.新增条目);
+            pushQueueTask(stateRef.current, 'narrative_image_parse', 'success', {
+              detail: `LLM 返回 ${结果.插图.length} 条插图提示词，成功 ${结果.成功数} 张。`
+                + `落盘：${落盘.回读确认数}/${落盘.资产数} 张${落盘.成功 ? '（已确认）' : `（未确认：${落盘.原因 ?? '未知'}）`}`,
+              rawText: 原文,
+              turn: 回合,
+              targetMessageId: message.id,
+            });
+          }
+        } catch (错误) {
+          const 原因 = 错误 instanceof Error ? 错误.message : String(错误);
+          pushQueueTask(stateRef.current, 'narrative_image_parse', 'failed', {
+            detail: 原因,
+            turn: 回合,
+            targetMessageId: message.id,
+          });
+          devLog('turn', 'narrative-image-manual-failed', { 消息Id: message.id, 原因 });
+        }
+      } else {
+        await handle重新解析变量(message);
+      }
+      return { kind: 'ran' };
+    },
+    [getActiveConfig, handle重新解析变量],
+  );
+  const turnActions = useMemo<TurnActionsApi>(
+    () => ({ 视图状态: 派生回合动作视图, 执行: turnActionExecute }),
+    [turnActionExecute],
+  );
 
   const handleRetryQueueTask = useCallback(async (task: 队列任务记录, mode: 'retry' | 'reroll' = 'retry') => {
     await retryQueueTask(stateRef.current, getActiveConfig, task, mode);
   }, [getActiveConfig]);
 
-  const buildVariableRepairPlanAction = useCallback(async (messageId: string): Promise<VariableRepairPlan> => {
+  const handleRestartOpening = useCallback(async () => {
     const s = stateRef.current;
-    const assistant = s.chatHistory.find((message) => message.id === messageId && message.role === 'assistant');
-    if (!assistant) throw new Error('未找到对应的 AI 回合。');
-    const linkedBatches = linkVariableBatchesToChatHistory(s.variableBatches, s.chatHistory);
-    const sourceBatch = linkedBatches.find((batch) => batch.targetMessageId === assistant.id || (batch.turnId && batch.turnId === assistant.turnId));
-    const linkedBatch = sourceBatch && sourceBatch.associationStatus !== 'ambiguous' && sourceBatch.associationStatus !== 'unlinked'
-      ? sourceBatch
-      : undefined;
-    const user = linkedBatch
-      ? findLinkedVariableBatchUser(s.chatHistory, linkedBatch)
-      : s.chatHistory.slice(0, s.chatHistory.indexOf(assistant)).reverse().find((message) => message.role === 'user');
-    const body = assistant.parsedResponse?.body?.trim() || assistant.content?.trim();
-    if (!body) throw new Error('该回合没有可解析的正文。');
-    const messageTurn = Number(assistant.gameTime);
-    const targetTurn = linkedBatch?.turn
-      ?? (Number.isFinite(messageTurn) ? Math.max(0, Math.trunc(messageTurn)) : 0);
-    const targetTurnId = linkedBatch?.turnId ?? assistant.turnId;
-    const sourceEvidenceId = `chat_history:${assistant.id}`;
-    const historicalUserInput = user?.content ?? '';
-    const config = getActiveConfig();
-    if (!config) throw new Error('未配置主 API，无法重新解析变量。');
-    const stateSnapshot = snapshotVariableState({
-      旅人: s.旅人,
-      世界: s.世界,
-      记忆: s.记忆,
-      忆庭: s.忆庭,
-      智库: s.智库,
-      手机: s.手机,
-      NPC: s.NPC,
-      新闻: s.新闻,
-      剧情: s.剧情,
-    });
-    const override = s.gameSettings.variableApi;
-    const variableConfig: API配置项 = {
-      ...config,
-      provider: override.provider || config.provider,
-      baseUrl: override.baseUrl.trim() || config.baseUrl,
-      apiKey: override.apiKey.trim() || config.apiKey,
-      model: override.model.trim() || config.model,
-      maxTokens: override.maxTokens ?? Math.max(config.maxTokens ?? 0, 3200),
-      temperature: override.temperature ?? config.temperature,
-    };
-    const modelResult = await callVariableModel(variableConfig, {
-      body,
-      variableDraft: assistant.parsedResponse?.variableDraft,
-      userInput: historicalUserInput,
-      turnCount: targetTurn,
-      mode: 'history_repair',
-      sourceEvidenceId,
-      targetTurn,
-      targetTurnId,
-      targetMessageId: assistant.id,
-      targetUserMessageId: user?.id,
-      historicalEvidence: {
-        source: 'chat_history',
-        userInput: historicalUserInput,
-        body,
-        variableDraft: assistant.parsedResponse?.variableDraft,
-      },
-      protectedCurrentPaths: [
-        '世界.当前日期',
-        '世界.当前时间',
-        '世界.开拓天数',
-        '世界.当前地点',
-        '世界.当前天气',
-        '手机.messageSeeds',
-        '手机.contacts',
-        'NPC[].最近回合',
-        'NPC[].初见回合',
-        'NPC[].累计互动次数',
-        'NPC[].归档',
-        'NPC[].归档回合',
-      ],
-      state: stateSnapshot,
-      phoneSeedsEnabled: false,
-      nsfwEnabled: s.gameSettings.enableNsfw,
-      maleNsfwArchiveEnabled: s.gameSettings.enableMaleNsfwArchive,
-      retryCount: s.gameSettings.variableApi.retryCount ?? 2,
-      promptModules: s.gameSettings.promptModules,
-    });
-    const projection = linkVariableTurn({
-      rawText: modelResult.rawText,
-      current: splitVariableRuntimeState(stateSnapshot),
-      turn: targetTurn,
-      operationSourceId: targetTurnId ?? assistant.id,
-      sourceTurnId: targetTurnId,
-      sourceMessageId: assistant.id,
-      sourceEvidenceId,
-      factSource: '历史正文',
-      bodyText: body,
-      phoneSeedsEnabled: false,
-      maxPhoneSeedsPerTurn: 0,
-      nsfwEnabled: s.gameSettings.enableNsfw,
-      maleNsfwArchiveEnabled: s.gameSettings.enableMaleNsfwArchive,
-      mode: 'history_repair',
-    });
-    return buildVariableRepairPlan({
-      analysis: projection.analysis,
-      baseState: stateSnapshot,
-      turn: targetTurn,
-      nsfwPolicy: {
-        nsfwEnabled: s.gameSettings.enableNsfw,
-        maleNsfwArchiveEnabled: s.gameSettings.enableMaleNsfwArchive,
-      },
-      mode: 'history_repair',
-      sourceEvidenceId,
-      turnId: targetTurnId,
-      targetMessageId: assistant.id,
-      targetUserMessageId: user?.id,
-      sourceBatchId: linkedBatch?.id,
-      existingBatches: linkedBatches,
-    });
-  }, [getActiveConfig]);
-
-  const commitVariableRepairPlanAction = useCallback(async (plan: VariableRepairPlan, confirmedItemIds: string[] = []) => {
-    const s = stateRef.current;
-    const currentState = snapshotVariableState({
-      旅人: s.旅人,
-      世界: s.世界,
-      记忆: s.记忆,
-      忆庭: s.忆庭,
-      智库: s.智库,
-      手机: s.手机,
-      NPC: s.NPC,
-      新闻: s.新闻,
-      剧情: s.剧情,
-    });
-    if (stableFingerprint(currentState) !== plan.baseStateFingerprint) {
-      return {
-        ok: false,
-        receipt: {
-          status: 'stale' as const,
-          code: 'STALE_PLAN' as const,
-          planId: plan.id,
-          stateFingerprintBefore: stableFingerprint(currentState),
-          stateFingerprintAfter: stableFingerprint(currentState),
-          appliedItemIds: [],
-          skippedItemIds: [],
-          conflictItemIds: plan.conflictItems.map((item) => item.id),
-          message: '预览期间变量状态已变化，请重新解析后再提交。',
-        },
-        results: [],
-      };
-    }
-    const backup = buildSavePayload(s, 'backup');
-    await saveGame(backup);
-    commitActiveSaveTreeMeta(backup);
-    const previousBatches = s.variableBatches;
-    const result = commitVariableRepairPlan({
-      plan,
-      currentState,
-      nsfwPolicy: {
-        nsfwEnabled: s.gameSettings.enableNsfw,
-        maleNsfwArchiveEnabled: s.gameSettings.enableMaleNsfwArchive,
-      },
-      confirmedItemIds,
-      existingBatches: previousBatches,
-    });
-    if (!result.ok || !result.nextState) return result;
-    const nextBatches = result.batch ? [...previousBatches, result.batch] : previousBatches;
-    try {
-      const next = result.nextState;
-      const payload = buildSavePayload(s, 'auto', {
-        旅人: next.旅人 as never,
-        世界: next.世界 as never,
-        记忆: next.记忆 as never,
-        忆庭: next.忆庭 as never,
-        智库: next.智库 as never,
-        手机: next.手机 as never,
-        NPC: next.NPC as never,
-        新闻: next.新闻 as never,
-        剧情: next.剧情 as never,
-        variableBatches: nextBatches,
-      });
-      await saveGame(payload);
-      commitActiveSaveTreeMeta(payload);
-      commitVariableState(next, currentState, {
-        set旅人: s.set旅人,
-        set世界: s.set世界,
-        set记忆: s.set记忆,
-        set忆庭: s.set忆庭,
-        set智库: s.set智库,
-        set手机: s.set手机,
-        setNPC: s.setNPC,
-        set新闻: s.set新闻,
-        set剧情: s.set剧情,
-      });
-      s.setVariableBatches(nextBatches);
-      s.setHasSave(true);
-    } catch (error) {
-      s.set旅人(currentState.旅人 as never);
-      s.set世界(currentState.世界 as never);
-      s.set记忆(currentState.记忆 as never);
-      s.set忆庭(currentState.忆庭 as never);
-      s.set智库(currentState.智库 as never);
-      s.set手机(currentState.手机 as never);
-      s.setNPC(currentState.NPC as never);
-      s.set新闻(currentState.新闻 as never);
-      s.set剧情(currentState.剧情 as never);
-      s.setVariableBatches(previousBatches);
-      s.setWorkflowHint(`变量修复最终存档失败，已恢复提交前状态；保护存档已保留。${error instanceof Error ? error.message : ''}`);
-      throw error;
-    }
-    return result;
-  }, []);
-
-  const buildVariableRepairBatchAction = useCallback(async (
-    messageIds: string[],
-    options: { signal?: AbortSignal; onProgress?: (progress: VariableHistoryRepairProgress) => void } = {},
-  ): Promise<VariableRepairPlan> => {
-    const uniqueMessageIds = [...new Set(messageIds)];
-    if (!uniqueMessageIds.length) throw new Error('没有选择需要修复的历史回合。');
-    const snapshot = stateRef.current;
-    const baseState = snapshotVariableState({
-      旅人: snapshot.旅人,
-      世界: snapshot.世界,
-      记忆: snapshot.记忆,
-      忆庭: snapshot.忆庭,
-      智库: snapshot.智库,
-      手机: snapshot.手机,
-      NPC: snapshot.NPC,
-      新闻: snapshot.新闻,
-      剧情: snapshot.剧情,
-    });
-    const baseStateFingerprint = stableFingerprint(baseState);
-    const draftId = `variable-repair-${stableFingerprint(uniqueMessageIds)}`;
-    const existingDraft = await loadSetting<VariableHistoryRepairDraft>(`variableHistoryRepair:${draftId}`);
-    const resumableDraft = existingDraft && existingDraft.stateFingerprint === baseStateFingerprint
-      && (existingDraft.status === 'paused' || existingDraft.status === 'running' || existingDraft.status === 'ready')
-      ? existingDraft
-      : undefined;
-    const plans: VariableRepairPlan[] = [...(resumableDraft?.plans ?? [])];
-    const completedMessageIds: string[] = [...(resumableDraft?.completedMessageIds ?? [])];
-    const completedSet = new Set(completedMessageIds);
-    const saveDraft = async (status: VariableHistoryRepairDraft['status'], error?: string) => {
-      await saveSetting(`variableHistoryRepair:${draftId}`, createVariableHistoryRepairDraft({
-        id: draftId,
-        stateFingerprint: baseStateFingerprint,
-        messageIds: uniqueMessageIds,
-        completedMessageIds,
-        plans,
-        status,
-        error,
-      }));
-    };
-    await saveDraft('running');
-    try {
-      for (let index = 0; index < uniqueMessageIds.length; index += 1) {
-        if (options.signal?.aborted) throw new DOMException('历史变量修复已取消。', 'AbortError');
-        const messageId = uniqueMessageIds[index];
-        if (completedSet.has(messageId)) {
-          options.onProgress?.({ total: uniqueMessageIds.length, completed: completedSet.size });
-          continue;
-        }
-        options.onProgress?.({ total: uniqueMessageIds.length, completed: index, currentMessageId: messageId });
-        const plan = await buildVariableRepairPlanAction(messageId);
-        if (plan.baseStateFingerprint !== baseStateFingerprint) {
-          throw new Error('扫描期间变量状态发生变化，请重新选择历史回合。');
-        }
-        plans.push(plan);
-        completedMessageIds.push(messageId);
-        completedSet.add(messageId);
-        await saveDraft('running');
-        options.onProgress?.({ total: uniqueMessageIds.length, completed: index + 1 });
-      }
-      const merged = mergeVariableRepairPlans(plans);
-      await saveDraft('ready');
-      return merged;
-    } catch (error) {
-      const aborted = options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError');
-      await saveDraft(aborted ? 'paused' : 'failed', error instanceof Error ? error.message : String(error));
-      throw error;
-    }
-  }, [buildVariableRepairPlanAction]);
-
-  const persistMemorySnapshot = useCallback(async (memory: 记忆系统, yiting?: 忆庭系统): Promise<void> => {
-    const s = stateRef.current;
-    // 允许同时覆盖 记忆 与 忆庭：一次 buildSavePayload 持久化两者，不制造互相覆盖的两个 auto save 节点。
-    const payload = buildSavePayload(s, 'auto', {
-      记忆: memory,
-      ...(yiting ? { 忆庭: yiting } : {}),
-    });
-    await saveGame(payload);
-    commitActiveSaveTreeMeta(payload);
-    s.setHasSave(true);
-  }, []);
-
-  /**
-   * 记忆静默压缩（手动入口与失败重试共用）：直接压缩当前记忆，不弹确认窗；
-   * AI 总结失败自动回退本地，失败草稿保留并弹重试提示。
-   */
-  /**
-   * 手机记忆提交（上层串行事务入口）：PhoneModal 只提交意图，不携带旧状态快照；
-   * 同一时刻的提交按 promise 链串行化，后一笔读取前一笔提交后的最新记忆/忆庭/NPC。
-   */
-  const phoneCommitChainRef = useRef<Promise<void>>(Promise.resolve());
-  const commitPhoneMemory = useCallback(async (intent: PhoneMemoryCommitIntent): Promise<PhoneDualWriteResult | undefined> => {
-    let result: PhoneDualWriteResult | undefined;
-    const run = async () => {
-      const s = stateRef.current;
-      result = await runPhoneMemoryCommit({
-        ...intent,
-        memory: s.记忆,
-        yiting: s.忆庭,
-        npcs: s.NPC,
-        settings: s.gameSettings.记忆系统,
-        config: getActiveConfig(),
-        gameTime: [s.世界.当前日期, s.世界.当前时间].filter(Boolean).join(' ').trim() || undefined,
-      }, {
-        getQueueTasks: () => stateRef.current.queueTasks,
-        buildSavePayload: (overrides) => buildSavePayload(stateRef.current, 'auto', overrides),
-        saveGame,
-        publish: (next) => {
-          const st = stateRef.current;
-          st.set记忆(next.memory);
-          st.set忆庭(next.yiting);
-          st.setNPC(next.npcs);
-          st.setQueueTasks(next.queueTasks);
-        },
-        onPersistFailure: (error) => stateRef.current.setWorkflowHint(error),
-      });
-    };
-    phoneCommitChainRef.current = phoneCommitChainRef.current
-      .then(run)
-      .catch((err) => {
-        console.warn('[phone-memory] 手机记忆提交失败', err instanceof Error ? err.message : String(err));
-      });
-    await phoneCommitChainRef.current;
-    return result;
-  }, [getActiveConfig]);
-
-  const getMemoryCompressionConfig = useCallback((settings: 记忆系统设置): API配置项 | null => {
-    const active = getActiveConfig();
-    if (active) return active;
-    const override = settings.记忆总结API;
-    if (!override.baseUrl.trim() || !override.apiKey.trim() || !override.model.trim()) return null;
-    const now = Date.now();
-    return {
-      id: 'memory-compression-only',
-      name: '记忆总结 API',
-      provider: override.provider || 'openai_compatible',
-      baseUrl: override.baseUrl.trim(),
-      apiKey: override.apiKey.trim(),
-      model: override.model.trim(),
-      maxTokens: override.maxTokens,
-      temperature: override.temperature,
-      retryCount: override.retryCount ?? 2,
-      createdAt: now,
-      updatedAt: now,
-    };
-  }, [getActiveConfig]);
-
-  /**
-   * 记忆静默压缩（手动入口与失败重试共用）：直接压缩当前记忆，不弹确认窗；
-   * AI 总结失败自动回退本地，失败草稿保留并弹重试提示。
-   */
-  const handleSilentMemoryCompress = useCallback(async (): Promise<void> => {
-    const s = stateRef.current;
-    const settings = s.gameSettings.记忆系统;
-    const config = getMemoryCompressionConfig(settings);
-    if (!config) {
-      s.setWorkflowHint('请先配置主 API 或记忆总结 API，再执行记忆压缩。');
-      return;
-    }
-    try {
-      const compression = await autoCompressMemorySystemWithArchivesAsync(
-        s.记忆,
-        s.turnCount,
-        settings,
-        config,
-        undefined,
-      );
-      s.set记忆(compression.memory);
-      // F6·长期纪要汇入忆庭（与主链路压缩结算共用同一入口，防止手动压缩丢失长期归档）
-      const mergedYiting = appendLongTermArchivesToYiting(compression.archives, s.忆庭);
-      if (mergedYiting !== s.忆庭) {
-        s.set忆庭(mergedYiting);
-      }
-      if (compression.failures.length > 0) {
-        s.set记忆压缩失败({ 条数: compression.failures.length });
-      }
-      s.setWorkflowHint(compression.failures.length > 0
-        ? `${compression.failures.length} 条记忆总结失败，原始材料已保留，可在记忆面板失败草稿中重试。`
-        : '记忆压缩完成。');
-    } catch (error) {
-      s.setWorkflowHint(error instanceof Error ? `记忆压缩失败：${error.message}` : '记忆压缩失败。');
-    }
-  }, [getMemoryCompressionConfig]);
-
-  const handleRetryMemoryFailureDraft = useCallback(async (draftId: string): Promise<void> => {
-    const s = stateRef.current;
-    const settings = s.gameSettings.记忆系统;
-    if (settings.启用中短长期API总结 === false) {
-      s.setWorkflowHint('中短长期 API 总结已关闭，开启后才能重新总结失败草稿。');
-      return;
-    }
-    const config = getMemoryCompressionConfig(settings);
-    if (!config) {
-      s.setWorkflowHint('请先配置主 API 或记忆总结 API，再重新总结失败草稿。');
-      return;
-    }
-
-    const memory = s.记忆;
-    const target = (memory.失败草稿 ?? []).find((draft) => draft.id === draftId);
-    if (!target || target.status === 'resolved' || target.status === 'ignored') return;
-    const retryingMemory: 记忆系统 = {
-      ...memory,
-      失败草稿: (memory.失败草稿 ?? []).map((draft) => draft.id === draftId
-        ? { ...draft, status: 'retrying', updatedAt: Date.now() }
-        : draft),
-    };
-    s.set记忆(retryingMemory);
-    s.setWorkflowHint(`正在重新总结第 ${target.sourceTurns.start}-${target.sourceTurns.end} 回合的失败草稿。`);
-
-    try {
-      const result = await retryMemoryFailureDraft(retryingMemory, draftId, settings, config);
-      s.set记忆(result.memory);
-      try {
-        await persistMemorySnapshot(result.memory);
-      } catch (persistError) {
-        s.setWorkflowHint(`记忆已在当前页面更新，但自动保存失败：${persistError instanceof Error ? persistError.message : String(persistError)}`);
-        return;
-      }
-      s.setWorkflowHint(result.draft.status === 'resolved'
-        ? '失败草稿已重新总结并精确替换原本地摘要。'
-        : `重新总结仍未成功：${result.draft.failureMessage}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '重新总结失败。';
-      const failedMemory: 记忆系统 = {
-        ...retryingMemory,
-        失败草稿: (retryingMemory.失败草稿 ?? []).map((draft) => draft.id === draftId
-          ? {
-              ...draft,
-              status: 'pending',
-              failureMessage: message,
-              attemptCount: Math.max(0, draft.attemptCount) + 1,
-              updatedAt: Date.now(),
-            }
-          : draft),
-      };
-      s.set记忆(failedMemory);
-      s.setWorkflowHint(message);
-    }
-  }, [getMemoryCompressionConfig, persistMemorySnapshot]);
-
-  const handleIgnoreMemoryFailureDraft = useCallback(async (draftId: string): Promise<void> => {
-    const s = stateRef.current;
-    const now = Date.now();
-    const memory: 记忆系统 = {
-      ...s.记忆,
-      失败草稿: (s.记忆.失败草稿 ?? []).map((draft) => draft.id === draftId
-        ? {
-            ...draft,
-            status: 'ignored',
-            sourceSnapshot: { ...draft.sourceSnapshot, payload: '' },
-            updatedAt: now,
-          }
-        : draft),
-    };
-    s.set记忆(memory);
-    try {
-      await persistMemorySnapshot(memory);
-    } catch (error) {
-      s.setWorkflowHint(`失败草稿已在当前页面忽略，但自动保存失败：${error instanceof Error ? error.message : String(error)}`);
-      return;
-    }
-    s.setWorkflowHint('失败草稿已忽略，本地 fallback 仍保留在记忆中。');
-  }, [persistMemorySnapshot]);
-
-  const handleBatchMemoryRebuild = useCallback(async (options: {
-    batchSize: number;
-    range?: MemoryRebuildRange;
-    task?: MemoryRebuildTask;
-    onProgress?: (progress: MemoryRebuildProgress) => void;
-  }): Promise<MemoryRebuildTask> => {
-    const s = stateRef.current;
-    const settings = s.gameSettings.记忆系统;
-    const config = getMemoryCompressionConfig(settings);
-    const rebuildSettings = {
-      apiEnabled: settings.启用中短长期API总结 !== false,
-      compressionThreshold: settings.即时转短期阈值,
-      prompts: {
-        short: settings.即时转短期提示词,
-        middle: settings.短期转中期提示词,
-        long: settings.中期转长期提示词 || settings.短期转长期提示词,
-      },
-    };
-    const task = options.task ?? createMemoryRebuildTask({
-        chatHistory: s.chatHistory,
-        batchSize: options.batchSize,
-        range: options.range,
-        settings: rebuildSettings,
-      });
-    if (s.loading || s.pendingVariable) {
-      task.status = 'blocked';
-      task.blockedReason = '正文或变量结算仍在运行，请等待本回合完成后再重建记忆。';
-      return task;
-    }
-    if (task.turns.length === 0) {
-      task.status = 'blocked';
-      task.blockedReason = '所选范围内没有可配对的玩家输入与正文，原记忆未改动。';
-      return task;
-    }
-    if (!config) {
-      task.status = 'blocked';
-      task.blockedReason = '请先配置主 API 或记忆总结 API。';
-      return task;
-    }
-
-    const controller = new AbortController();
-    s.abortControllerRef.current?.abort();
-    s.abortControllerRef.current = controller;
-    s.setWorkflowHint(`正在按每 ${task.batchSize} 回合一批重建记忆。`);
-
-    const completedTask = await runMemoryRebuildTask(task, {
-      settings: rebuildSettings,
-      signal: controller.signal,
-      onProgress: options.onProgress,
-      summarizer: (source, context) => summarizeMemoryBatch(
-        source,
-        settings,
-        config,
-        context.signal,
-        settings.记忆总结API.retryCount ?? 2,
-      ),
-    });
-    if (s.abortControllerRef.current === controller) s.abortControllerRef.current = null;
-
-    if (completedTask.status === 'ready') {
-      const committed = commitMemoryRebuildTask(completedTask);
-      if (committed) {
-        const now = Date.now();
-        const memory: 记忆系统 = {
-          ...committed,
-          失败草稿: (s.记忆.失败草稿 ?? []).map((draft) =>
-            draft.origin === 'batch_rebuild'
-            && draft.status !== 'resolved'
-            && draft.status !== 'ignored'
-            && draft.sourceTurns.start >= completedTask.range.start
-            && draft.sourceTurns.end <= completedTask.range.end
-              ? {
-                  ...draft,
-                  status: 'resolved',
-                  sourceSnapshot: { ...draft.sourceSnapshot, payload: '' },
-                  updatedAt: now,
-                }
-              : draft),
-        };
-        s.set记忆(memory);
-        await persistMemorySnapshot(memory);
-        s.setWorkflowHint(`记忆重建完成，已原子替换第 ${completedTask.range.start}-${completedTask.range.end} 回合对应的四层记忆。`);
-      }
-      return completedTask;
-    }
-
-    if (completedTask.status === 'paused_failed' && completedTask.failedBatch) {
-      const failed = completedTask.failedBatch;
-      const sourceSnapshot = await serializeMemoryFailureSource(failed.items);
-      const now = Date.now();
-      const duplicate = (s.记忆.失败草稿 ?? []).find((draft) =>
-        (draft.status === 'pending' || draft.status === 'retrying')
-        && draft.kind === failed.kind
-        && draft.sourceSnapshot.checksum === sourceSnapshot.checksum,
-      );
-      if (!duplicate) {
-        const draft: 记忆失败草稿 = {
-          id: `memory_rebuild_failure_${now}_${Math.random().toString(36).slice(2, 8)}`,
-          origin: 'batch_rebuild',
-          kind: failed.kind,
-          status: 'pending',
-          sourceTurns: failed.sourceTurns,
-          sourceSnapshot,
-          targetLayer: failed.kind === 'short' ? '短期记忆' : failed.kind === 'middle' ? '中期记忆' : '长期记忆',
-          fallbackSummary: failed.fallbackSummary,
-          failureCode: failed.code === 'empty_output' || failed.code === 'unconfigured' || failed.code === 'source_changed'
-            ? failed.code
-            : 'request_failed',
-          failureMessage: failed.message,
-          attemptCount: failed.attemptCount,
-          createdAt: now,
-          updatedAt: now,
-        };
-        const memory: 记忆系统 = {
-          ...s.记忆,
-          失败草稿: [...(s.记忆.失败草稿 ?? []), draft],
-        };
-        s.set记忆(memory);
-        await persistMemorySnapshot(memory);
-      } else {
-        const memory: 记忆系统 = {
-          ...s.记忆,
-          失败草稿: (s.记忆.失败草稿 ?? []).map((draft) => draft.id === duplicate.id
-            ? {
-                ...draft,
-                status: 'pending',
-                failureCode: failed.code === 'empty_output' || failed.code === 'unconfigured' || failed.code === 'source_changed'
-                  ? failed.code
-                  : 'request_failed',
-                failureMessage: failed.message,
-                attemptCount: Math.max(0, draft.attemptCount) + 1,
-                updatedAt: now,
-              }
-            : draft),
-        };
-        s.set记忆(memory);
-        await persistMemorySnapshot(memory);
-      }
-      s.setWorkflowHint(`批量重建在第 ${failed.sourceTurns.start}-${failed.sourceTurns.end} 回合暂停，原记忆未改动，失败批次已保留。`);
-    } else if (completedTask.status === 'blocked') {
-      s.setWorkflowHint(completedTask.blockedReason ?? '批量重建当前不可用。');
-    } else if (completedTask.status === 'cancelled') {
-      s.setWorkflowHint('批量重建已取消，原记忆未改动。');
-    }
-    return completedTask;
-  }, [getMemoryCompressionConfig, persistMemorySnapshot]);
-
-  // 重新开局：清掉所有运行时累积的变量切片，保留创角设定（名字 / 命途 / 世界周期 等）。
-  // 不这样做的话，老的 NPC / 新闻 / 剧情节点 / variableBatches / 全局事件
-  // 会留在状态里和新开局叠加，下次重开就是双份甚至 N 份数据。
-  const handleRestartOpening = useCallback(() => {
-    const s = stateRef.current;
-    if (s.loading) {
-      s.abortControllerRef.current?.abort();
-    }
-    s.setChatHistory([]);
-    s.set记忆(创建空记忆系统());
-    s.set忆庭(创建空忆庭系统());
-    s.set手机(创建空手机系统());
-    s.setTurnCount(1);
-    setStreamingMessage('');
-
-    const restartOpeningArchive = 归一化开局档案(s.世界.开局档案, s.世界);
-
-    // 清空所有运行时累积的独立切片，再按开局档案恢复初始关系种子
-    s.setNPC(根据开局档案创建初始NPC记录(restartOpeningArchive));
-    s.set新闻([]);
-    s.set剧情([]);
-    s.setVariableBatches([]);
-    s.setQueueTasks([]);
-    const nextStoryWeaving = alignStoryWeavingToOpeningArchive(s.剧情编织, restartOpeningArchive);
-    s.set剧情编织(nextStoryWeaving);
-    saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
-
-    // worldState：保留创角时的 currentPeriod / difficulty / storyMode / startingScenarioId / customStartPrompt。
-    // 重新开局时必须重建开局档案对应的已成立事实，否则非黑塔/自由开局会只剩字段，缺少后续注入锚点。
-    s.set世界((prev) => {
-      const openingArchive = restartOpeningArchive;
-      const openingSummary = openingArchive.整理档案;
-      const nextLocation =
-        openingSummary?.初始地点参考?.trim()
-        || prev.当前地点?.trim()
-        || openingArchive.地区名称;
-      const nextDate = openingSummary?.初始日期参考?.trim() || prev.当前日期;
-      const nextTime = openingSummary?.初始时间参考?.trim() || prev.当前时间 || '06:40';
-      return {
-        ...prev,
-        开局档案: openingArchive,
-        起航之地ID: openingArchive.章节锚点ID || prev.起航之地ID,
-        自定义开局: openingArchive.玩家介入原文 || prev.自定义开局,
-        当前地点: nextLocation,
-        已访问时段: [],
-        纪年法: prev.纪年法 || '琥珀纪年',
-        开拓天数: 1,
-        当前日期: nextDate,
-        当前时间: nextTime,
-        全局事件: 生成开局已成立事实(openingArchive, {
-          currentDate: nextDate,
-          currentTime: nextTime,
-          currentLocation: nextLocation,
-          originalProtagonist: prev.原著主角,
-        }),
-        活跃人物: [],
-        氛围变化: '',
-      };
-    });
-
-    // traveler：保留创角时的所有静态字段，把道具运行时累积重置回开局态
-    s.set旅人((prev) => ({
-      ...prev,
-      背包: [],
-    }));
-
-    s.setPendingOpeningTrigger('[系统] 开启第 0 回合');
+    devLog('save', 'new-game-initialize-start', { entry: 'restart' });
+    beginSession(s);
+    const { workspace } = createInitialWorkspace({ mode: 'restart', current: s });
+    投影新局工作区(s, workspace);
+    void saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(workspace.剧情编织));
+    await 初始化新局checkpoint(workspace, s);
+    s.activeWorkflow.setSessionEpoch((e) => e + 1);
   }, []);
 
   const getContextSnapshot = useCallback((kind?: ContextSnapshotKind) => {
     return buildContextSnapshot(stateRef.current, kind);
   }, []);
 
+  const handlePhoneMemoryCommit = useCallback(async (input: PhoneMemoryCommitInput): Promise<void> => {
+    const s = stateRef.current;
+    const trimmed = input.summary.trim();
+    if (!trimmed) return;
+    const normalizedSummary = trimmed.startsWith('【手机】') ? trimmed : `【手机】${trimmed}`;
+    const alreadyInMemory = s.记忆.即时记忆.some((item) => item.includes(trimmed))
+      || s.记忆.短期记忆.some((item) => item.includes(trimmed))
+      || s.记忆.中期记忆.some((item) => item.includes(trimmed))
+      || s.记忆.长期记忆.some((item) => item.includes(trimmed));
+    if (!input.force && alreadyInMemory) return;
+    devLog('ui', 'phone-memory-commit-start', { npcId: input.npcId ?? null, force: Boolean(input.force) });
+    const memoryApiConfig = resolveApiConfig(s.deviceSettings.apiSettings, s.deviceSettings.gameSettings, 'memoryCompression');
+    const withImmediate = addImmediateMemory(s.记忆, normalizedSummary, s.turnCount);
+    const compression = await autoCompressMemorySystemWithArchivesAsync(
+      withImmediate,
+      s.turnCount,
+      s.deviceSettings.gameSettings.记忆系统,
+      memoryApiConfig,
+    );
+    s.set记忆(compression.memory);
+    if (compression.failedDraft) {
+      devLog('ui', 'phone-memory-compress-failed', {
+        draftId: compression.failedDraft.id,
+        kind: compression.failedDraft.kind,
+      });
+    }
+    if (compression.archives.length) {
+      s.set忆庭((prevYiting) => ({
+        ...prevYiting,
+        回忆档案: [...prevYiting.回忆档案, ...compression.archives],
+      }));
+    }
+    if (input.npcId) {
+      s.setNPC((prev) =>
+        prev.map((npc) => {
+          if (npc.id !== input.npcId) return npc;
+          if (!input.force && 提取NPC同行记忆文本列表(npc).some((item) => item.includes(trimmed))) return npc;
+          const nextEntry: NPC同行记忆条目 = {
+            id: `npc_mem_phone_${s.turnCount}_${Math.random().toString(36).slice(2, 6)}`,
+            回合: s.turnCount,
+            摘要: trimmed,
+            来源: '手机',
+            关联NPCID: [npc.id],
+          };
+          const ledgerCompression = compressNpcMemoryLedger({
+            npcId: npc.id,
+            entries: [...(npc.同行记忆 ?? []), nextEntry],
+            summaries: npc.总结记忆 ?? [],
+            threshold: s.deviceSettings.gameSettings.记忆系统.NPC记忆压缩阈值,
+            prompt: s.deviceSettings.gameSettings.记忆系统.NPC记忆压缩提示词,
+            turn: s.turnCount,
+            source: '手机',
+          });
+          return {
+            ...npc,
+            同行记忆: ledgerCompression.memories,
+            总结记忆: ledgerCompression.summaries,
+            最近互动: trimmed,
+            共同经历: [...new Set([...(npc.共同经历 ?? []), trimmed])].slice(-8),
+            对玩家长期印象: npc.对玩家长期印象 || '与玩家保持手机联系，已形成可承接的私下互动。',
+            最近回合: s.turnCount,
+          };
+        }),
+      );
+    }
+    devLog('ui', 'phone-memory-commit-done', { npcId: input.npcId ?? null, archives: compression.archives.length });
+  }, []);
+
+  const handleRetryMemoryDraft = useCallback(async (draftId: string): Promise<void> => {
+    await retryMemoryDraft(stateRef.current, draftId);
+  }, []);
+
+  const handleIgnoreMemoryDraft = useCallback(async (draftId: string): Promise<void> => {
+    await ignoreMemoryDraft(stateRef.current, draftId);
+  }, []);
+
+  const handleGeneratePhoneReply = useCallback(async (
+    apiConfig: API设置,
+    context: 手机回复上下文,
+  ): Promise<string> => {
+    const s = stateRef.current;
+    try {
+      const config = buildPhoneApiConfig(s.deviceSettings.gameSettings, apiConfig);
+      if (!config) return '';
+      devLog('net', 'phone-reply-generate-start', { chatId: context.chat.id, type: context.chat.type });
+      const reply = await generatePhoneReply(
+        config,
+        context,
+        config.retryCount ?? 2,
+        s.deviceSettings.gameSettings.promptModules,
+      );
+      devLog('net', 'phone-reply-generate-done', { chatId: context.chat.id, messages: reply.messages.length });
+      return reply.messages.join('\n');
+    } catch (err) {
+      devLogError('net', 'phone-reply-generate-failed', err, { chatId: context.chat.id });
+      return '';
+    }
+  }, []);
+
+  const handleDeleteSave = useCallback(async (save: SaveListItemSummary): Promise<boolean> => {
+    let deleteTarget: 存档删除目标;
+    try {
+      deleteTarget = await resolve存档删除目标(save);
+    } catch (err) {
+      devLogError('save', 'save-delete-plan-failed', err, { id: save.id });
+      throw err;
+    }
+    const confirmMessage = deleteTarget.cascadeCount !== null && deleteTarget.cascadeCount > 1
+      ? `确定删除这个存档及其子节点？将级联删除 ${deleteTarget.cascadeCount} 个存档，此操作不可恢复。`
+      : '确定删除这个存档？此操作不可恢复。';
+    if (!confirm(confirmMessage)) return false;
+    devLog('save', 'save-delete-cascade', { id: save.id, cascadeCount: deleteTarget.cascadeCount });
+    await delete存档目标(save.id, deleteTarget, stateRef.current);
+    return true;
+  }, []);
+
+  const handleDeleteSaveTree = useCallback(async (rootId: string): Promise<void> => {
+    await deleteSaveTree(rootId);
+    clearActiveSaveTreeMetaIfMatches({ rootId }, stateRef.current);
+    devLog('save', 'save-delete-tree', { rootId });
+  }, []);
+
+  const handleClearActiveSaveTreeMeta = useCallback((target?: { rootId?: string; nodeId?: string } | null): void => {
+    clearActiveSaveTreeMetaIfMatches(target ?? null, stateRef.current);
+  }, []);
+
+  const handleGetSaveCatalogSnapshot = useCallback(async (): Promise<SaveCatalogSnapshot> => {
+    return getSaveCatalogSnapshot();
+  }, []);
+
+  const handleStartSaveCatalogRepair = useCallback(async (scope: SaveCatalogRepairScope = 'missing-only'): Promise<SaveCatalogRepairResult> => {
+    return startSaveCatalogRepair(scope);
+  }, []);
+
+  const handleSubscribeSaveCatalogRepair = useCallback(
+    (listener: (state: SaveCatalogRepairState) => void): (() => void) => {
+      return subscribeSaveCatalogRepair(listener);
+    },
+    [],
+  );
+
+  const handleRepairSaveDatabase = useCallback(async (): Promise<void> => {
+    await repairSaveDatabase();
+  }, []);
+
+  const handleDeleteLegacyBackupSaves = useCallback(async (): Promise<number> => {
+    const deleted = await deleteLegacyBackupSaves();
+    devLog('save', 'legacy-backups-deleted', { deleted });
+    return deleted;
+  }, []);
+
+  const handleGetSaveForExport = useCallback(async (id: number): Promise<存档数据 | null> => {
+    return loadSave(id);
+  }, []);
+
+  const handleGetSaveTreeForExport = useCallback(async (rootId: string): Promise<存档数据[]> => {
+    return loadSaveTree(rootId);
+  }, []);
+
+  const handlePersistImportedSave = useCallback(async (data: 存档数据): Promise<number> => {
+    return saveGame(剥离检查点队列任务(data));
+  }, []);
+
+  const handleExportSavePackage = useCallback(async (id: number): Promise<void> => {
+    const save = await handleGetSaveForExport(id);
+    if (save) await exportSavePackage(save);
+  }, [handleGetSaveForExport]);
+
+  const handleExportActiveLeafPackage = useCallback(async (): Promise<number | null> => {
+    const active = await loadActiveLeaf();
+    const leaf = active.status === 'ok' ? active.leaf : null;
+    if (!leaf) return null;
+    await exportSavePackage(leaf);
+    return leaf.id;
+  }, []);
+
+  const handleExportSaveTreePackage = useCallback(async (rootId: string): Promise<void> => {
+    const treeSaves = await handleGetSaveTreeForExport(rootId);
+    if (treeSaves.length) await exportSaveTreePackage(treeSaves);
+  }, [handleGetSaveTreeForExport]);
+
+  const handleImportSaveFileAsMany = useCallback(async (file: File): Promise<number> => {
+    const imported = await importSaveFileAsMany(file);
+    const now = Date.now();
+    for (const [index, data] of imported.entries()) {
+      await handlePersistImportedSave({ ...data, id: 0, type: 'imported', timestamp: now + index });
+    }
+    devLog('save', 'import-save-persisted', { imported: imported.length });
+    return imported.length;
+  }, [handlePersistImportedSave]);
+
+  const handleLoadSaveForCloudTransfer = useCallback(async (id: number): Promise<CloudTransferSaveBundle | null> => {
+    return loadSaveForCloudTransfer(id);
+  }, []);
+
+  const handleExtractTavernRegexScripts = useCallback((rawPreset: unknown): STRegexScript[] => {
+    return extractTavernRegexScripts(rawPreset);
+  }, []);
+
+  const handleAnalyzeTavernRegexScript = useCallback((script: STRegexScript): TavernRegexScriptSafety => {
+    return analyzeTavernRegexScript(script);
+  }, []);
+
+  const handleDryRunTavernRegexScript = useCallback((script: STRegexScript, sampleText: string): TavernRegexDryRunResult => {
+    return dryRunTavernRegexScript(script, sampleText);
+  }, []);
+
+  const handleLoadOpeningPresets = useCallback(async (): Promise<OpeningPlayerPreset[]> => {
+    const saved = await loadSetting<OpeningPlayerPreset[]>(OPENING_PLAYER_PRESETS_KEY);
+    return normalizeOpeningPresets(saved);
+  }, []);
+
+  const handleSaveOpeningPresets = useCallback(async (presets: OpeningPlayerPreset[]): Promise<OpeningPlayerPreset[]> => {
+    const normalized = normalizeOpeningPresets(presets);
+    await saveSetting(OPENING_PLAYER_PRESETS_KEY, normalized);
+    return normalized;
+  }, []);
+
+  const handleParseOpeningArchive = useCallback(async (draft: OpeningPresetDraft): Promise<开局整理档案 | null> => {
+    if (draft.openingSource === 'official_preset') return null;
+    const config = getActiveConfig();
+    if (!config) return null;
+    const { freeOpeningInput } = deriveOpeningDraftContext(draft);
+    devLog('net', 'opening-archive-parse-start', { source: draft.openingSource });
+    const parsed = await parseOpeningArchiveWithAI(
+      config,
+      {
+        regionName: freeOpeningInput.regionName,
+        chapterName: freeOpeningInput.chapterName,
+        chapterSummary: freeOpeningInput.chapterSummary,
+        playerText: freeOpeningInput.playerText,
+        defaultLocationHint: freeOpeningInput.defaultLocationHint,
+        defaultDateHint: freeOpeningInput.defaultDateHint,
+        defaultTimeHint: freeOpeningInput.defaultTimeHint,
+        priorStoryState: freeOpeningInput.priorStoryState,
+        planetSource: freeOpeningInput.planetSource,
+        mainlineEnabled: freeOpeningInput.mainlineEnabled,
+        keyNpcs: freeOpeningInput.keyNpcs,
+        sourceLabel: draft.openingSource === 'workshop' ? '创意工坊开局' : '自由开局',
+      },
+      config.retryCount ?? 2,
+    );
+    devLog('net', 'opening-archive-parse-done', { source: draft.openingSource });
+    return parsed;
+  }, [getActiveConfig]);
+
+  const handlePrepareNewGame = useCallback(async (draft: OpeningPresetDraft): Promise<boolean> => {
+    const s = stateRef.current;
+    if (!resolveMainApiConfig(s.deviceSettings.apiSettings)) {
+      alert('请先在设置中配置至少一个 API 接口，再开始旅途。');
+      return false;
+    }
+    devLog('save', 'new-game-initialize-start', { entry: 'start' });
+    const bundledStoryWeaving = s.presetLoad.story.status === 'ready' ? s.presetLoad.story.value : null;
+    const { workspace } = createInitialWorkspace({ mode: 'fresh', draft, current: s, bundledStoryWeaving });
+    投影新局工作区(s, workspace);
+    try {
+      await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(workspace.剧情编织));
+    } catch (err) {
+      devLogError('save', 'story-weaving-new-game-fallback', err, { entry: 'start' });
+    }
+    await 初始化新局checkpoint(workspace, s);
+    devLog('save', 'new-game-initialize-done', { entry: 'start' });
+    return true;
+  }, []);
+
+  const handleSaveStoryWeaving = useCallback(async (system: 剧情编织系统): Promise<void> => {
+    await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(system));
+    devLog('save', 'story-weaving-saved', { seriesCount: system.系列列表.length });
+  }, []);
+
+  const handleSaveZhikuSystem = useCallback(async (system: 智库系统): Promise<void> => {
+    const normalized = 归一化智库系统(system);
+    const total = normalized.条目.length;
+    const builtin = normalized.条目.filter((entry) => entry.builtin).length;
+    const custom = total - builtin;
+    try {
+      await saveSetting('zhikuSystem', buildPersistedZhikuSystem(normalized));
+      devLog('save', 'zhiku-system-saved', { total, builtin, custom });
+    } catch (err) {
+      devLogError('save', 'zhiku-system-save-failed', err, { total, builtin, custom });
+      throw err;
+    }
+  }, []);
+
+  // 迁移标记在加载成功之后才写：加载失败不留半状态。
+  const handleZhikuMigration = useCallback(async (current: 智库系统): Promise<智库系统> => {
+    devLog('save', 'zhiku-migration-start', {});
+    try {
+      const bundled = await loadAllBundledZhikuPresets({ cacheBust: Date.now() });
+      const savedMigrationAt = await loadSetting<number>(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY);
+      const migrationAt = savedMigrationAt ?? Date.now();
+      const next = mergeBundledZhikuSystem(bundled, 归一化智库系统(current), migrationAt);
+      if (!savedMigrationAt) {
+        await saveSetting(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, migrationAt);
+      }
+      await saveSetting('zhikuSystem', buildPersistedZhikuSystem(next));
+      const total = next.条目.length;
+      const builtin = next.条目.filter((entry) => entry.builtin).length;
+      devLog('save', 'zhiku-migration-done', { total, builtin, custom: total - builtin, migrationAt });
+      return next;
+    } catch (err) {
+      devLogError('save', 'zhiku-migration-failed', err, {});
+      throw err;
+    }
+  }, []);
+
+  const handleGenerateSkillDraft = useCallback(async (
+    apiConfig: API配置项,
+    context: 战技生成上下文,
+  ): Promise<战技生成草稿> => {
+    try {
+      devLog('net', 'skill-draft-generate-start', { slotKind: context.slotKind, slotIndex: context.slotIndex });
+      const draft = await generateSkillDraft(apiConfig, context);
+      devLog('net', 'skill-draft-generate-done', { slotKind: context.slotKind, slotIndex: context.slotIndex });
+      return draft;
+    } catch (err) {
+      devLogError('net', 'skill-draft-generate-failed', err, { slotKind: context.slotKind, slotIndex: context.slotIndex });
+      throw err;
+    }
+  }, []);
+
+  const handleGenerateTravelerTemplate = useCallback(async (
+    context: TravelerTemplateContext,
+  ): Promise<TravelerTemplateDraft> => {
+    const config = getActiveConfig();
+    if (!config) throw new Error('请先在设置中配置至少一个 API 接口。');
+    try {
+      devLog('net', 'traveler-template-generate-start', {});
+      const draft = await generateTravelerTemplate(config, context);
+      devLog('net', 'traveler-template-generate-done', {});
+      return draft;
+    } catch (err) {
+      devLogError('net', 'traveler-template-generate-failed', err, {});
+      throw err;
+    }
+  }, [getActiveConfig]);
+
+  const handleParseActionOptionsBlock = useCallback((text: string): string[] => {
+    return parseActionOptionsBlock(text);
+  }, []);
+
+  /** 为一轮正文生成插图（可多张）。`只重新生成提示词` 时只重问 LLM，不重出图。 */
+  const handleGenerateIllustrations = useCallback(async (
+    messageId: string,
+    options?: { 只重新生成提示词?: boolean; signal?: AbortSignal },
+  ) => {
+    const 消息 = stateRef.current.chatHistory.find((项) => 项.id === messageId);
+    const 正文 = 消息?.parsedResponse?.body.trim() || 消息?.content.trim() || '';
+    if (!消息 || !正文) throw new Error('未找到可配图的正文。');
+    try {
+      devLog('net', 'illustrations-generate-start', { messageId, 只重新生成提示词: options?.只重新生成提示词 === true });
+      const 结果 = await 生成消息插图(
+        stateRef.current,
+        messageId,
+        正文,
+        消息.narrativeImages,
+        options,
+      );
+      devLog('net', 'illustrations-generate-done', { messageId, 成功: 结果.成功数, 失败: 结果.失败数 });
+      return 结果;
+    } catch (err) {
+      devLogError('net', 'illustrations-generate-failed', err, { messageId });
+      throw err;
+    }
+  }, []);
+
+  /** 重出单张插图并写回消息；可带编辑后的提示词与手动尺寸。 */
+  const handleRegenerateIllustration = useCallback(async (
+    messageId: string,
+    插图: import('@/models/chat').叙事插图,
+    options?: { 新提示词正文?: string; 覆盖尺寸?: { 宽度: number; 高度: number } | null; signal?: AbortSignal },
+  ): Promise<import('@/models/chat').叙事插图> => {
+    const 回合 = Number(
+      stateRef.current.chatHistory.find((项) => 项.id === messageId)?.gameTime,
+    ) || stateRef.current.turnCount;
+    /*
+     * 点下去立刻给反馈，两件事一起做：
+     *   ① 把这张标成 generating —— 卡片换成「正在生成…」占位，那个分支不渲染按钮，
+     *      所以不可能重复点（用户反馈过「没有提示、会多次点击」）；
+     *   ② 落一条 pending 任务 —— 回合动作视图据此把整轮的按钮也置灰。
+     */
+    stateRef.current.setChatHistory(标记插图为生成中(stateRef.current.chatHistory, messageId, 插图.id));
+    pushQueueTask(stateRef.current, 'narrative_image_generate', 'pending', {
+      detail: options?.新提示词正文 !== undefined ? '正在用修改后的提示词重出这一张…' : '正在重新生成这一张…',
+      turn: 回合,
+      targetMessageId: messageId,
+      阶段: '出图中',
+    });
+    try {
+      devLog('net', 'illustration-regenerate-start', { id: 插图.id });
+      const 结果 = await 重生成消息单张插图(stateRef.current, 插图, options);
+      const 下一份历史 = stateRef.current.chatHistory.map((项) => (
+        项.id === messageId
+          ? { ...项, narrativeImages: (项.narrativeImages ?? []).map((候选) => (候选.id === 插图.id ? 结果.插图 : 候选)) }
+          : 项
+      ));
+      stateRef.current.set相册(结果.相册);
+      stateRef.current.setChatHistory(下一份历史);
+      // 单张重生同样发生在回合之外，不落盘的话重新进入就会丢。
+      const 落盘 = await 保存插图结果(stateRef.current, 下一份历史, 结果.相册, 结果.新增条目);
+      pushQueueTask(
+        stateRef.current,
+        'narrative_image_generate',
+        结果.插图.status === 'failed' ? 'failed' : 'success',
+        {
+          detail: 结果.插图.status === 'failed'
+            ? `重新生成失败：${结果.插图.error ?? '未知原因'}`
+            : `已重新生成这一张。落盘：${落盘.回读确认数}/${落盘.资产数} 张${落盘.成功 ? '（已确认）' : `（未确认：${落盘.原因 ?? '未知'}）`}`,
+          turn: 回合,
+          targetMessageId: messageId,
+        },
+      );
+      devLog('net', 'illustration-regenerate-done', { id: 插图.id, status: 结果.插图.status });
+      return 结果.插图;
+    } catch (err) {
+      // 抛错前把这张还原成失败态：否则它会永远停在「正在生成…」，
+      // 连重试按钮都回不来（卡片那个分支没有任何操作入口）。
+      const 失败原因 = err instanceof Error ? err.message : String(err);
+      stateRef.current.setChatHistory(标记插图失败(stateRef.current.chatHistory, messageId, 插图.id, 失败原因));
+      pushQueueTask(stateRef.current, 'narrative_image_generate', 'failed', {
+        detail: `重新生成失败：${失败原因}`,
+        turn: 回合,
+        targetMessageId: messageId,
+      });
+      devLogError('net', 'illustration-regenerate-failed', err, { id: 插图.id });
+      throw err;
+    }
+  }, []);
+
+  /**
+   * 只重跑本回合的插图提示词（保留已出好的图），用于「对提示词不满意重新生成」。
+   *
+   * 与 `handleGenerateIllustrations` 的区别：这里**不**重新解析正文锚点，
+   * 沿用已有插图的锚点与次序，只替换提示词文本，因此不会打乱图与正文的对应关系。
+   */
+  const handleRerollIllustrationPrompts = useCallback(async (
+    messageId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<import('@/models/chat').叙事插图[]> => {
+    const 消息 = stateRef.current.chatHistory.find((项) => 项.id === messageId);
+    const 正文 = 消息?.parsedResponse?.body.trim() || 消息?.content.trim() || '';
+    if (!消息 || !正文) throw new Error('未找到可配图的正文。');
+    const 已有 = 消息.narrativeImages ?? [];
+    if (已有.length === 0) throw new Error('本回合还没有插图，先出图再重跑提示词。');
+    // 落一条 pending：少了它，从点击到写回之间界面上**没有任何反馈**，
+    // 用户看到的就是「按下去没用」（实际反馈过）。它同时驱动卡片的运行态文案。
+    const 回合 = Number(消息.gameTime) || stateRef.current.turnCount;
+    pushQueueTask(stateRef.current, 'narrative_image_parse', 'pending', {
+      detail: '正在重跑插图提示词（保留已有图片）…',
+      turn: 回合,
+      targetMessageId: messageId,
+    });
+    try {
+      devLog('net', 'illustration-prompts-reroll-start', { messageId, 图数: 已有.length });
+      const 结果 = await 生成消息插图(
+        stateRef.current,
+        messageId,
+        正文,
+        已有,
+        { 只重新生成提示词: true, signal: options?.signal },
+      );
+      // 新提示词逐张并回旧插图：只换提示词，保留原图与锚点。
+      const 合并后 = 合并重跑提示词(已有, 结果.插图);
+      const 下一份历史 = stateRef.current.chatHistory.map((项) => (
+        项.id === messageId ? { ...项, narrativeImages: 合并后 } : 项
+      ));
+      stateRef.current.setChatHistory(下一份历史);
+      const 落盘 = await 保存插图结果(stateRef.current, 下一份历史, stateRef.current.相册, 结果.新增条目);
+      // 提示词是否真的换了，要能被确认：卡片上不再显示提示词，所以这里报出来。
+      const 变化数 = 合并后.filter((项, 序号) => 项.prompt !== 已有[序号]?.prompt).length;
+      pushQueueTask(stateRef.current, 'narrative_image_parse', 'success', {
+        detail: 变化数 > 0
+          ? `已重写 ${变化数}/${合并后.length} 张的提示词（图片保留）。`
+            + `落盘：${落盘.回读确认数}/${落盘.资产数} 张`
+          : 'LLM 这次给出的提示词与原来相同，没有变化。可再点一次重跑。',
+        rawText: 结果.原始回复,
+        turn: 回合,
+        targetMessageId: messageId,
+      });
+      devLog('net', 'illustration-prompts-reroll-done', { messageId, 图数: 合并后.length, 变化数 });
+      return 合并后;
+    } catch (err) {
+      pushQueueTask(stateRef.current, 'narrative_image_parse', 'failed', {
+        detail: `重跑插图提示词失败：${err instanceof Error ? err.message : String(err)}`,
+        turn: 回合,
+        targetMessageId: messageId,
+      });
+      devLogError('net', 'illustration-prompts-reroll-failed', err, { messageId });
+      throw err;
+    }
+  }, []);
+
   const actions = useMemo(() => ({
     handleSend,
+    handleStartOpening,
     handleAbort,
+    handleCancelTask,
+    handleResumeRecovery,
+    handleAbandonRecovery,
+    handleRetryRecovery,
+    handleUndoRecovery,
     handleNewGame,
     handleContinue,
+    handleLoadSave,
+    handleBranch,
     handleGoHome,
-    handleSave,
     handleReroll,
-    handleRegenerateNarrativeImage,
+    turnActions,
+    变量修复: {
+      计划: 变量修复计划,
+      回执: 变量修复回执,
+      提交中: 变量修复提交中,
+      提交: handle提交变量修复,
+      关闭: handle关闭变量修复,
+    },
+    变量修复中心,
     handleRetryQueueTask,
-    buildVariableRepairPlan: buildVariableRepairPlanAction,
-    buildVariableRepairBatch: buildVariableRepairBatchAction,
-    commitVariableRepairPlan: commitVariableRepairPlanAction,
-    handleRetryMemoryFailureDraft,
-    handleIgnoreMemoryFailureDraft,
-    handleSilentMemoryCompress,
-    commitPhoneMemory,
-    handleBatchMemoryRebuild,
     handleRestartOpening,
     getContextSnapshot,
+    handlePhoneMemoryCommit,
+    handleRetryMemoryDraft,
+    handleIgnoreMemoryDraft,
+    handleGeneratePhoneReply,
+    handleDeleteSave,
+    handleDeleteSaveTree,
+    handleClearActiveSaveTreeMeta,
+    handleGetSaveCatalogSnapshot,
+    handleStartSaveCatalogRepair,
+    handleSubscribeSaveCatalogRepair,
+    handleRepairSaveDatabase,
+    handleDeleteLegacyBackupSaves,
+    handleGetSaveForExport,
+    handleGetSaveTreeForExport,
+    handlePersistImportedSave,
+    handleExportSavePackage,
+    handleExportActiveLeafPackage,
+    handleExportSaveTreePackage,
+    handleImportSaveFileAsMany,
+    handleLoadSaveForCloudTransfer,
+    handleExtractTavernRegexScripts,
+    handleAnalyzeTavernRegexScript,
+    handleDryRunTavernRegexScript,
+    handleLoadOpeningPresets,
+    handleSaveOpeningPresets,
+    handleParseOpeningArchive,
+    handlePrepareNewGame,
+    handleSaveStoryWeaving,
+    handleGenerateSkillDraft,
+    handleGenerateTravelerTemplate,
+    handleParseActionOptionsBlock,
+    handleSaveZhikuSystem,
+    handleZhikuMigration,
+    handleGenerateIllustrations,
+    handleRegenerateIllustration,
+    handleRerollIllustrationPrompts,
   }), [
     handleSend,
+    handleStartOpening,
     handleAbort,
+    handleCancelTask,
+    handleResumeRecovery,
+    handleAbandonRecovery,
+    handleRetryRecovery,
+    handleUndoRecovery,
     handleNewGame,
     handleContinue,
+    handleLoadSave,
+    handleBranch,
     handleGoHome,
-    handleSave,
     handleReroll,
-    handleRegenerateNarrativeImage,
+    turnActions,
+    变量修复计划,
+    变量修复回执,
+    变量修复提交中,
+    handle提交变量修复,
+    handle关闭变量修复,
+    变量修复中心,
     handleRetryQueueTask,
-    buildVariableRepairPlanAction,
-    buildVariableRepairBatchAction,
-    commitVariableRepairPlanAction,
-    handleRetryMemoryFailureDraft,
-    handleIgnoreMemoryFailureDraft,
-    handleSilentMemoryCompress,
-    commitPhoneMemory,
-    handleBatchMemoryRebuild,
     handleRestartOpening,
     getContextSnapshot,
+    handlePhoneMemoryCommit,
+    handleRetryMemoryDraft,
+    handleIgnoreMemoryDraft,
+    handleGeneratePhoneReply,
+    handleDeleteSave,
+    handleDeleteSaveTree,
+    handleClearActiveSaveTreeMeta,
+    handleGetSaveCatalogSnapshot,
+    handleStartSaveCatalogRepair,
+    handleSubscribeSaveCatalogRepair,
+    handleRepairSaveDatabase,
+    handleDeleteLegacyBackupSaves,
+    handleGetSaveForExport,
+    handleGetSaveTreeForExport,
+    handlePersistImportedSave,
+    handleExportSavePackage,
+    handleExportActiveLeafPackage,
+    handleExportSaveTreePackage,
+    handleImportSaveFileAsMany,
+    handleLoadSaveForCloudTransfer,
+    handleExtractTavernRegexScripts,
+    handleAnalyzeTavernRegexScript,
+    handleDryRunTavernRegexScript,
+    handleLoadOpeningPresets,
+    handleSaveOpeningPresets,
+    handleParseOpeningArchive,
+    handlePrepareNewGame,
+    handleSaveStoryWeaving,
+    handleGenerateSkillDraft,
+    handleGenerateTravelerTemplate,
+    handleParseActionOptionsBlock,
+    handleSaveZhikuSystem,
+    handleZhikuMigration,
+    handleGenerateIllustrations,
+    handleRegenerateIllustration,
+    handleRerollIllustrationPrompts,
   ]);
 
   return {
     state,
     actions,
+    canRerollWithTree,
+    rerollParentStatus,
   };
 }

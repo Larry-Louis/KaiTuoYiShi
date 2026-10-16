@@ -59,16 +59,11 @@ export async function updateCloudBackupTransfer(
       next = { ...current, ...patch, transferId, createdAt: current.createdAt, updatedAt: Date.now() };
       store.put(next);
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('读取云备份临时传输失败。'));
     tx.oncomplete = () => next ? resolve(next) : reject(new Error('云备份临时传输不存在。'));
     tx.onerror = () => reject(tx.error ?? new Error('更新云备份临时传输失败。'));
     tx.onabort = () => reject(tx.error ?? new Error('更新云备份临时传输已中止。'));
   });
-}
-
-export async function getCloudBackupTransfer(transferId: string): Promise<CloudBackupTransferMeta | null> {
-  const db = await openTransferDB();
-  return requestTransaction<CloudBackupTransferMeta | null>(db, META_STORE, 'readonly', (store) => store.get(transferId), null);
 }
 
 export async function putCloudBackupTransferPart(
@@ -103,24 +98,6 @@ export async function getCloudBackupTransferPart(
   return record ? { meta: record.meta, blob: record.blob } : null;
 }
 
-export async function listCloudBackupTransferParts(
-  transferId: string,
-): Promise<Array<{ meta: CloudBackupPartMeta; blob: Blob }>> {
-  const db = await openTransferDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(PART_STORE, 'readonly');
-    const index = tx.objectStore(PART_STORE).index('transferId');
-    const request = index.getAll(transferId);
-    request.onsuccess = () => {
-      const records = (request.result as CloudBackupTransferPartRecord[])
-        .sort((left, right) => left.index - right.index)
-        .map((record) => ({ meta: record.meta, blob: record.blob }));
-      resolve(records);
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
 export async function deleteCloudBackupTransfer(transferId: string): Promise<void> {
   const db = await openTransferDB();
   await new Promise<void>((resolve, reject) => {
@@ -134,9 +111,9 @@ export async function deleteCloudBackupTransfer(transferId: string): Promise<voi
       tx.objectStore(PART_STORE).delete(cursor.primaryKey);
       cursor.continue();
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('清理云备份临时分卷失败。'));
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error('删除云备份临时传输失败。'));
   });
 }
 
@@ -148,7 +125,7 @@ export async function cleanupExpiredCloudBackupTransfers(now = Date.now()): Prom
     request.onsuccess = () => resolve((request.result as CloudBackupTransferMeta[])
       .filter((item) => now - item.updatedAt > TRANSFER_TTL_MS)
       .map((item) => item.transferId));
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('读取云备份临时传输列表失败。'));
   });
   for (const transferId of expired) await deleteCloudBackupTransfer(transferId);
   return expired.length;
@@ -176,7 +153,7 @@ async function openTransferDB(): Promise<IDBDatabase> {
     };
     request.onerror = () => {
       dbPromise = null;
-      reject(request.error);
+      reject(request.error ?? new Error('打开云备份临时数据库失败。'));
     };
     request.onblocked = () => reject(new Error('云备份临时数据库被其他页面占用。'));
   });
@@ -197,9 +174,9 @@ function requestTransaction<T = void>(
     request.onsuccess = () => {
       if (typeof request.result !== 'undefined') value = request.result as T;
     };
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('云备份临时事务请求失败。'));
     tx.oncomplete = () => resolve(value);
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error('云备份临时事务失败。'));
   });
 }
 

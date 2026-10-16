@@ -1,29 +1,5 @@
-export type SaveCatalogRepairScope = 'missing-only' | 'full-validation';
-
-export type SaveCatalogRepairPhase =
-  | 'idle'
-  | 'checking'
-  | 'waiting-for-lease'
-  | 'repairing'
-  | 'paused-for-write'
-  | 'completed'
-  | 'partial-failure';
-
-export interface SaveCatalogRepairState {
-  phase: SaveCatalogRepairPhase;
-  scope: SaveCatalogRepairScope;
-  total: number;
-  processed: number;
-  failed: number;
-  currentId?: number;
-}
-
-export interface SaveCatalogRepairResult {
-  total: number;
-  processed: number;
-  failed: number;
-  skippedForLease: boolean;
-}
+import type { SaveCatalogRepairResult, SaveCatalogRepairScope, SaveCatalogRepairState } from '@/contracts/storage';
+import { devLogError } from '@/utils/devLog';
 
 export interface SaveCatalogRepairOperations {
   collectIds(scope: SaveCatalogRepairScope): Promise<number[]>;
@@ -62,7 +38,13 @@ export function startSaveCatalogRepairTask(
   scope: SaveCatalogRepairScope,
   operations: SaveCatalogRepairOperations,
 ): Promise<SaveCatalogRepairResult> {
-  if (repairPromise) return repairPromise;
+  if (repairPromise) {
+    // 直接返回进行中的修复会把运行中的结果当作本次结果、静默吞掉请求的 scope，
+    // 必须等它结束后按请求的 scope 重跑；修复幂等可重放。
+    return repairPromise
+      .catch(() => {})
+      .then(() => startSaveCatalogRepairTask(scope, operations));
+  }
   repairPromise = runRepair(scope, operations).finally(() => {
     repairPromise = null;
   });
@@ -159,7 +141,7 @@ function updateState(patch: Partial<SaveCatalogRepairState>): void {
     try {
       listener(getSaveCatalogRepairState());
     } catch (error) {
-      console.warn('[save-catalog] repair listener failed', error);
+      devLogError('save', 'repair-listener-failed', error);
     }
   }
 }

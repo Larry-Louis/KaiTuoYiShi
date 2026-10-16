@@ -7,6 +7,16 @@
 > 本项目是非官方同人项目，仅用于学习、研究与非商业创作。
 # 本项目虽为开源项目，初心是与更多对AI扮演聊天的作者交流，创作出更好的作品。对本项目进行二创，更改都需要项目本人同意，并且原项目内容必须开源。严禁进行任何商业用途。
 
+## 许可（重要）
+
+本仓库自有代码为 **MIT**（见 [`LICENSE`](LICENSE)），但**包含源自 [st-chatu8（智绘姬）](https://github.com/damoshen123/st-chatu8) 的衍生代码**（`services/ai/imageGen/` 全组，见 [`third_party/st-chatu8/NOTICE.md`](third_party/st-chatu8/NOTICE.md)）。
+
+st-chatu8 采用 **Aladdin Free Public License v9（AFPL，非开源许可）**。AFPL §2(c)(ii) 要求衍生作品的**整体**必须以 AFPL 授权、且**免费**提供给第三方；§2(a) 禁止商业机构以任何收费方式分发。
+
+因此：**发布或分发本作品的整体时，不得收费，且整体按 AFPL 授权。** 只有纯 AFPL 无关的文件才可单独按 MIT 使用。私有运行不受限制（AFPL §2(b)：功能性运行不受本许可约束）。
+
+详见 [`third_party/st-chatu8/NOTICE.md`](third_party/st-chatu8/NOTICE.md)。
+
 ## 项目目标
 
 开拓轶事的核心目标是做一个“可持续游玩”的 AI 叙事框架。
@@ -182,7 +192,6 @@ utils/       变量执行、路径解析、背包、相册、世界书等工具�
 
 欢迎以 Issue 或 Pull Request 的形式参与改进。比较适合贡献的方向包括：
 ## 贡献说明
-
 - 修复 UI、变量解析、存档迁移和状态归一化问题。
 - 补充更清晰的英文 / 中文文档。
 - 优化提示词模块和变量系统边界。

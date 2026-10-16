@@ -1,19 +1,18 @@
-import type { 变量事实, 变量命令, 变量事实来源, 变量批次诊断 } from '@/models/variableCommand';
-import { createStableEntityId, stableFingerprint } from '@/utils/stableFingerprint';
-import { extractRoot, type VariableState } from './variableRegistry';
-import { 应用路径命令 } from './variablePath';
-import { buildVariableFactGroupId, getVariableFactEntityKey, sanitizeVariableFact, getVariableNpcIdentity } from './variableFactRecords';
-import { canonicalizeJsonValue } from './jsonValue';
+import type { 变量事实, 变量命令 } from '@/models/variableCommand';
+import type { VariableState } from './variableRegistry';
 import type { 世界状态 } from '@/models/world';
 import { 对齐世界日期与天数, 推进琥珀日期 } from '@/models/world';
-import type { NPC记录, NPC关系类型, 约定结构, 约定状态 } from '@/models/npc';
-import { 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度, 是NPC泛称姓名, 筛选活跃NPC } from '@/models/npc';
+import type { NPC记录, NPC关系类型 } from '@/models/npc';
+import { 获取NPC关系阶段, 获取NPC兼容关系, 限制NPC好感度 } from '@/models/npc';
 import { matchCanonical } from '@/data/canonicalCharacters';
 import type { 物品分类, 物品品质 } from '@/models/inventory';
 import type { 手机系统, 主动来信类型, 主动来信优先级 } from '@/models/phone';
 import { extractJsonLikeText, parseJsonWithRepair } from '@/services/ai/structuredOutputRepair';
-import { 归一化天气ID } from '@/data/weatherRules';
+import { 天气列表 } from '@/data/weatherRules';
 import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
+import { isSamePhoneSeedTarget, isPhoneSeedTextSimilar } from '@/utils/phoneSeedMatch';
+import type { VariableExecContext } from './variableExecContext';
+import { DEFAULT_EXEC_CTX } from './variableExecContext';
 
 const ITEM_CATEGORIES = new Set<物品分类>(['food', 'consumable', 'lightcone', 'weapon', 'clothing', 'accessory', 'memento', 'key']);
 const ITEM_QUALITIES = new Set<物品品质>(['蓝', '紫', '金']);
@@ -57,12 +56,6 @@ const FACT_TYPE_ALIASES: Record<string, 变量事实['type']> = {
   nsfw: 'nsfw_archive',
   nsfw_archive: 'nsfw_archive',
   nsfwArchive: 'nsfw_archive',
-  约定: 'agreement',
-  agreement: 'agreement',
-  约定状态: 'agreement_status',
-  约定状态变更: 'agreement_status',
-  agreement_status: 'agreement_status',
-  agreementStatus: 'agreement_status',
 };
 const ITEM_CATEGORY_ALIASES: Record<string, 物品分类> = {
   食物: 'food',
@@ -187,38 +180,17 @@ function npcNameFromId(id: string): string {
   return map[normalized] ?? '';
 }
 
-function 归一化NPC阶位(value: unknown): 'companion' | 'extra' | undefined {
-  const text = 读字符串(value).toLowerCase();
-  if (['companion', '伙伴', '重要伙伴', '同行'].includes(text)) return 'companion';
-  if (['extra', '路人', '普通路人', '背景'].includes(text)) return 'extra';
-  return undefined;
-}
-
-function 有NPC互动信号(fact: Extract<变量事实, { type: 'npc' }>): boolean {
-  return Boolean(
-    fact.memory || fact.recentInteraction || fact.following ||
-    typeof fact.affinityDelta === 'number' || typeof fact.affinitySet === 'number' ||
-    fact.sharedExperiences?.length || fact.openItems?.length || fact.unresolvedConflicts?.length ||
-    fact.mustRemember?.length || fact.doNotForget?.length || fact.longTermImpression,
-  );
-}
-
-function inferNpcTier(
-  fact: Extract<变量事实, { type: 'npc' }>,
-  canonical: ReturnType<typeof matchCanonical>,
-  existing?: NPC记录,
-  projectedAffinity?: number,
-  projectedInteractions?: number,
-): 'companion' | 'extra' {
-  if (existing?.手动阶位覆盖) return existing.手动阶位覆盖;
+function inferNpcTier(fact: Extract<变量事实, { type: 'npc' }>, canonical: ReturnType<typeof matchCanonical>): 'companion' | 'extra' {
   if (fact.tier) return fact.tier;
-  // 玩家明确创建的 custom NPC 保留自身阶位；不能因姓名恰好命中原著 alias 被自动晋升。
-  if (existing?.NPC来源 === 'custom') return existing.阶位;
-  if (canonical || existing?.原著角色 || fact.following) return 'companion';
-  // relation 只是旧事实/旧档兼容桥接；relationshipStage 是剧情自定义描述，二者都不能单独触发晋升。
-  if (fact.longTermImpression) return 'companion';
-  if ((projectedAffinity ?? 0) >= 20 && (projectedInteractions ?? 0) >= 2) return 'companion';
-  return existing?.阶位 ?? 'extra';
+  if (canonical) return 'companion';
+  if (fact.following) return 'companion';
+  if (fact.memory) return 'companion';
+  if (fact.recentInteraction || fact.longTermImpression || fact.relationshipStage) return 'companion';
+  if (fact.sharedExperiences?.length || fact.openItems?.length || fact.unresolvedConflicts?.length || fact.mustRemember?.length || fact.doNotForget?.length) return 'companion';
+  if (typeof fact.affinityDelta === 'number' && fact.affinityDelta !== 0) return 'companion';
+  if (typeof fact.affinitySet === 'number' && fact.affinitySet !== 0) return 'companion';
+  if (fact.relation && fact.relation !== 'stranger' && fact.relation !== 'acquaintance') return 'companion';
+  return 'extra';
 }
 
 function 读取记忆摘要(value: unknown): string {
@@ -251,7 +223,7 @@ function 归一化事实类型(value: unknown): 变量事实['type'] | '' {
 
 function 归一化物品分类(value: unknown): 物品分类 | '' {
   const text = 读字符串(value);
-  return (ITEM_CATEGORY_ALIASES[text] ?? text) as 物品分类 | '';
+  return (ITEM_CATEGORY_ALIASES[text] ?? text);
 }
 
 function 归一化物品动作(value: unknown): 'gain' | '' {
@@ -261,96 +233,17 @@ function 归一化物品动作(value: unknown): 'gain' | '' {
 
 function 归一化触发类型(value: unknown): 主动来信类型 | '' {
   const text = 读字符串(value);
-  return (PHONE_TRIGGER_ALIASES[text] ?? text) as 主动来信类型 | '';
+  return (PHONE_TRIGGER_ALIASES[text] ?? text);
 }
 
 function 归一化优先级(value: unknown): 主动来信优先级 | '' {
   const text = 读字符串(value);
-  return (PHONE_PRIORITY_ALIASES[text] ?? text) as 主动来信优先级 | '';
+  return (PHONE_PRIORITY_ALIASES[text] ?? text);
 }
 
-function 读取声明事实类型(raw: Record<string, unknown>): unknown {
-  for (const key of ['type', '类型', 'factType', 'fact_type', '事实类型']) {
-    const value = 读字符串(raw[key]);
-    if (value) return value;
-  }
-  return undefined;
-}
-
-function 展开事实对象(raw: Record<string, unknown>): Record<string, unknown> {
-  const nested = [raw.payload, raw.data, raw.数据].find(是对象);
-  if (!nested) return raw;
-
-  const { payload: _payload, data: _data, 数据: _dataCn, ...outer } = raw;
-  const declaredType = 读取声明事实类型(raw) ?? 读取声明事实类型(nested);
-  return {
-    ...nested,
-    ...outer,
-    ...(declaredType !== undefined ? { type: declaredType } : {}),
-  };
-}
-
-function 有字段(raw: Record<string, unknown>, ...keys: string[]): boolean {
-  return keys.some((key) => raw[key] !== undefined && raw[key] !== null);
-}
-
-function 推断事实类型(raw: Record<string, unknown>): 变量事实['type'] | '' {
-  // 只对字段组合足以唯一识别的旧输出做兼容推断；模糊对象不猜测。
-  if (有字段(raw, 'action', '动作') && 有字段(raw, 'category', '类别') && 有字段(raw, 'name', '名称')) {
-    return 'item';
-  }
-  if (有字段(raw, 'mode', '模式')) return 'time';
-  if (有字段(raw, 'location', '地点')) return 'location';
-  if (有字段(raw, 'weather', '天气')) return 'weather';
-
-  const hasNpcIdentity = 有字段(raw, 'npcName', 'NPC名称') || 有字段(raw, 'name', '姓名', '名称');
-  const hasNsfwField = 有字段(
-    raw,
-    'enabled', '启用', 'ageConfirm', '年龄确认', 'intimacyStage', '亲密阶段', 'boundaries', '边界',
-    'preferences', '偏好', 'sensitivePoints', '敏感点', 'taboos', '禁忌', 'femaleBodyArchive', '女性身体档案',
-    'maleBodyArchive', '男性身体档案', 'experiences', '经历', 'longTermFacts', '长期事实', 'tags', '标签', 'notes', '备注',
-  );
-  if (hasNpcIdentity && hasNsfwField) return 'nsfw_archive';
-
-  if (
-    hasNpcIdentity &&
-    有字段(raw, 'title', '标题') &&
-    有字段(raw, '新状态', 'status', '状态')
-  ) {
-    return 'agreement_status';
-  }
-  if (
-    hasNpcIdentity &&
-    有字段(raw, 'title', '标题') &&
-    有字段(raw, 'content', '内容', '约定内容')
-  ) {
-    return 'agreement';
-  }
-
-  if (有字段(raw, 'title', '标题') && 有字段(raw, 'context', '上下文')) return 'phone_seed';
-  if (有字段(raw, 'text', '事件') || (有字段(raw, '内容') && !有字段(raw, 'title', '标题', 'name', '姓名', '名称'))) {
-    return 'world_event';
-  }
-
-  if (
-    有字段(raw, 'identity', '身份', 'background', '背景', 'abilityAdd', '新增能力', '能力新增', 'knowledgeAdd', '新增专长知识', '专长知识新增')
-  ) {
-    return 'traveler_profile';
-  }
-
-  const id = 读字符串(raw.id ?? raw.NPCID ?? raw.npc_id);
-  const name = 读字符串(raw.name ?? raw.姓名 ?? raw.名称) || npcNameFromId(id);
-  if (name && (id || 有字段(raw, 'memory', '记忆', 'recentInteraction', '最近互动', 'following', '同行', 'affinityDelta', '好感变化'))) {
-    return 'npc';
-  }
-  return '';
-}
-
-function 归一化事实(rawInput: unknown): 变量事实 | null {
-  if (!是对象(rawInput)) return null;
-  const raw = 展开事实对象(rawInput);
-  const declaredType = 归一化事实类型(读取声明事实类型(raw));
-  const type = declaredType || 推断事实类型(raw);
+function 归一化事实(raw: unknown): 变量事实 | null {
+  if (!是对象(raw)) return null;
+  const type = 归一化事实类型(raw.type || raw.类型);
   if (type === 'traveler_profile') {
     const abilityAdd = 字符串数组(raw.abilityAdd ?? raw.新增能力 ?? raw.能力新增);
     const knowledgeAdd = 字符串数组(raw.knowledgeAdd ?? raw.新增专长知识 ?? raw.专长知识新增);
@@ -405,15 +298,14 @@ function 归一化事实(rawInput: unknown): 变量事实 | null {
     const id = 读字符串(raw.id);
     const name = 读字符串(raw.name || raw.姓名 || raw.名称) || npcNameFromId(id);
     if (!name) return null;
-    const tier = 归一化NPC阶位(raw.tier || raw.阶位);
+    const tier = 读字符串(raw.tier || raw.阶位);
     const relation = 读字符串(raw.relation || raw.关系);
     return {
       type: 'npc',
       id: id || undefined,
       name,
       alias: 读字符串(raw.alias || raw.别名) || undefined,
-      tier,
-      job: 读字符串(raw.job || raw.职务 || raw.职业 || raw.role || raw.occupation) || undefined,
+      tier: tier === 'companion' || tier === 'extra' ? tier : undefined,
       affinityDelta: 数字(raw.affinityDelta ?? raw.好感变化),
       affinitySet: 数字(raw.affinitySet ?? raw.好感度),
       relation: NPC_RELATIONS.has(relation as NPC关系类型) ? relation : undefined,
@@ -451,14 +343,14 @@ function 归一化事实(rawInput: unknown): 变量事实 | null {
     const category = 归一化物品分类(raw.category || raw.类别);
     const name = 读字符串(raw.name || raw.名称);
     if (action !== 'gain' || !category || !name) return null;
-    if (!ITEM_CATEGORIES.has(category as 物品分类)) return null;
+    if (!ITEM_CATEGORIES.has(category)) return null;
     const quality = 读字符串(raw.quality || raw.品质);
     const source = 读字符串(raw.source || raw.来源);
     const narrativeEffectsRaw = raw.narrativeEffects ?? raw.叙事效果;
     return {
       type: 'item',
       action: 'gain',
-      category: category as 物品分类,
+      category: category,
       name,
       description: 读字符串(raw.description || raw.描述) || undefined,
       quantity: 数字(raw.quantity ?? raw.数量),
@@ -526,39 +418,6 @@ function 归一化事实(rawInput: unknown): 变量事实 | null {
       evidence: 读字符串(raw.evidence || raw.证据) || undefined,
     };
   }
-  if (type === 'agreement') {
-    const npcId = 读字符串(raw.npcId || raw.NPCID || raw.id);
-    const npcName = 读字符串(raw.npcName || raw.name || raw.姓名 || raw.名称);
-    const title = 读字符串(raw.title || raw.标题);
-    const content = 读字符串(raw.content || raw.内容 || raw.约定内容);
-    if (!npcName || !title || !content) return null;
-    return {
-      type: 'agreement',
-      npcId: npcId || undefined,
-      npcName,
-      title,
-      content,
-      约定时间: 读字符串(raw.约定时间 || raw.agreementTime || raw.time || raw.时间) || undefined,
-      后果: 读字符串(raw.后果 || raw.consequence || raw.consequences) || undefined,
-      evidence: 读字符串(raw.evidence || raw.证据) || undefined,
-    };
-  }
-  if (type === 'agreement_status') {
-    const npcId = 读字符串(raw.npcId || raw.NPCID || raw.npc_id);
-    const npcName = 读字符串(raw.npcName || raw.name || raw.姓名 || raw.名称);
-    const title = 读字符串(raw.title || raw.标题);
-    const nextStatus = 读字符串(raw.新状态 || raw.status || raw.状态);
-    if (!npcName || !title || !['已履行', '已违约', '已作废'].includes(nextStatus)) return null;
-    return {
-      type: 'agreement_status',
-      npcId: npcId || undefined,
-      npcName,
-      agreementId: 读字符串(raw.agreementId || raw.agreement_id || raw.约定ID) || undefined,
-      title,
-      新状态: nextStatus as '已履行' | '已违约' | '已作废',
-      evidence: 读字符串(raw.evidence || raw.证据) || undefined,
-    };
-  }
   return null;
 }
 
@@ -598,58 +457,6 @@ export function parseVariableFacts(rawText: string): { facts: 变量事实[]; pa
   return { facts, parseErrors };
 }
 
-export interface VariableFactSourceOptions {
-  /** 当前调用链的默认证据来源。 */
-  factSource?: 变量事实来源;
-  /** 主模型正文，用于把混合输入中的约定归属到正文。 */
-  bodyText?: string;
-  /** 召回的历史通讯回忆，仅可把约定归属为通讯来源。 */
-  recallContext?: string;
-  /** 当前正文或历史消息的外部证据身份。 */
-  sourceEvidenceId?: string;
-}
-
-function factEvidenceCandidates(fact: 变量事实): string[] {
-  if (fact.type === 'agreement' || fact.type === 'agreement_status') {
-    return [fact.evidence, fact.title, 'content' in fact ? fact.content : '']
-      .filter((value): value is string => typeof value === 'string' && value.trim().length >= 2)
-      .map((value) => value.trim());
-  }
-  return ('evidence' in fact && typeof fact.evidence === 'string' && fact.evidence.trim())
-    ? [fact.evidence.trim()]
-    : [];
-}
-
-function factSupportedByText(fact: 变量事实, text: string | undefined): boolean {
-  const normalized = text?.trim();
-  if (!normalized) return false;
-  return factEvidenceCandidates(fact).some((candidate) => normalized.includes(candidate));
-}
-
-/**
- * 给事实补上代码拥有的证据来源。
- * 模型输出的 JSON 不直接决定来源；只有明确被 recall 支持、且正文没有同一证据时，
- * agreement/agreement_status 才会归到“通讯”，混合证据始终由正文优先。
- */
-export function assignVariableFactSources(
-  facts: readonly 变量事实[],
-  options: VariableFactSourceOptions = {},
-): 变量事实[] {
-  const defaultSource = options.factSource ?? '正文';
-  return facts.map((fact) => {
-    const withEvidence = options.sourceEvidenceId && !fact.sourceEvidenceId
-      ? { ...fact, sourceEvidenceId: options.sourceEvidenceId }
-      : fact;
-    if (withEvidence.factSource) return withEvidence;
-    if (defaultSource === '历史正文') return { ...withEvidence, factSource: '历史正文' };
-    const recallSupported = (withEvidence.type === 'agreement' || withEvidence.type === 'agreement_status')
-      && factSupportedByText(withEvidence, options.recallContext);
-    const bodySupported = factSupportedByText(withEvidence, options.bodyText);
-    if (recallSupported && !bodySupported) return { ...withEvidence, factSource: '通讯' };
-    return { ...withEvidence, factSource: defaultSource };
-  });
-}
-
 function 分钟序数(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -684,27 +491,17 @@ function npcIdFromName(name: string): string {
 }
 
 function findNpc(records: NPC记录[], id: string, name: string): NPC记录 | undefined {
-  const direct = records.find((npc) =>
-    npc.id === id ||
-    npc.姓名 === name ||
-    npc.别名 === name,
-  );
-  if (direct) return direct;
   const targetCanonical = matchCanonical(name)?.name;
   return records.find((npc) =>
-    npc.NPC来源 !== 'custom' &&
-    Boolean(targetCanonical) && matchCanonical(npc.姓名)?.name === targetCanonical,
+    npc.id === id ||
+    npc.姓名 === name ||
+    npc.别名 === name ||
+    (Boolean(targetCanonical) && matchCanonical(npc.姓名)?.name === targetCanonical),
   );
 }
 
 function isCanonicalNpcPersonalityProtected(npc: NPC记录 | undefined, name: string): boolean {
-  return Boolean(
-    npc?.NPC来源 !== 'custom' && (npc?.原著角色 || matchCanonical(npc?.姓名 ?? name) || matchCanonical(name)),
-  );
-}
-
-function 数组已有文本(value: unknown, text: string): boolean {
-  return Array.isArray(value) && value.some((item) => typeof item === 'string' && item.trim() === text.trim());
+  return Boolean(npc?.原著角色 || matchCanonical(npc?.姓名 ?? name) || matchCanonical(name));
 }
 
 function mergeUniqueTexts(...groups: Array<string[] | undefined>): string[] | undefined {
@@ -731,12 +528,9 @@ function mergePreferredText(current: unknown, incoming: unknown): string | undef
 function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实, { type: 'nsfw_archive' }>): Record<string, unknown> {
   const current = existing.NSFW档案 ?? {};
   const archive: Record<string, unknown> = {};
-  // NSFW 年龄门禁已解除：年龄确认降级为纯展示信息，不再限制档案写入。
-  // 落库改为字段级合并（existing 优先，fact 补充），不再强制塞入保守基线占位文案。
   archive.enabled = fact.enabled ?? current.enabled ?? true;
   archive.年龄确认 = fact.ageConfirm ?? current.年龄确认 ?? 'unknown';
   archive.亲密阶段 = fact.intimacyStage ?? current.亲密阶段 ?? (existing.亲密关系 ? '已建立亲密关系（私密细节未记录）' : '未建立');
-  // 边界/备注只在 fact 或 existing 有值时写入，不再写保守基线默认长文。
   if (fact.boundaries) archive.边界 = fact.boundaries;
   else if (current.边界) archive.边界 = current.边界;
   const longTermFacts = mergeUniqueTexts(current.长期事实, fact.longTermFacts);
@@ -745,12 +539,29 @@ function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实,
   if (tags?.length) archive.标签 = tags;
   const experiences = mergeUniqueTexts(current.经历, fact.experiences);
   if (experiences?.length) archive.经历 = experiences;
+  const currentFemale = current.女性身体档案 ?? {};
+  const currentMale = current.男性身体档案 ?? {};
   const femaleIncoming = fact.femaleBodyArchive ?? {};
   const maleIncoming = fact.maleBodyArchive ?? {};
-  // 这里只生成本次事实带来的 patch。NSFW 档案路径的 set 会深合并，
-  // 不把已有的另一性别身体档案重新带进命令，避免男性开关关闭时误杀阶段/女性字段更新。
-  if (Object.keys(femaleIncoming).length) archive.女性身体档案 = femaleIncoming;
-  if (Object.keys(maleIncoming).length) archive.男性身体档案 = maleIncoming;
+  if (Object.keys(femaleIncoming).length || Object.keys(currentFemale).length) {
+    const femaleArchive = {
+      胸部: mergePreferredText(currentFemale.胸部, femaleIncoming.胸部),
+      女性私处: mergePreferredText(currentFemale.女性私处, femaleIncoming.女性私处),
+      后庭: mergePreferredText(currentFemale.后庭, femaleIncoming.后庭),
+      体态: mergePreferredText(currentFemale.体态, femaleIncoming.体态),
+      体味: mergePreferredText(currentFemale.体味, femaleIncoming.体味),
+    };
+    if (pruneEmptyObject(femaleArchive)) archive.女性身体档案 = femaleArchive;
+  }
+  if (Object.keys(maleIncoming).length || Object.keys(currentMale).length) {
+    const maleArchive = {
+      男性器: mergePreferredText(currentMale.男性器, maleIncoming.男性器),
+      后庭: mergePreferredText(currentMale.后庭, maleIncoming.后庭),
+      体态: mergePreferredText(currentMale.体态, maleIncoming.体态),
+      体味: mergePreferredText(currentMale.体味, maleIncoming.体味),
+    };
+    if (pruneEmptyObject(maleArchive)) archive.男性身体档案 = maleArchive;
+  }
   if (fact.notes) archive.备注 = fact.notes;
   else if (current.备注) archive.备注 = current.备注;
   return archive;
@@ -759,7 +570,7 @@ function buildNsfwArchiveUpdate(existing: NPC记录, fact: Extract<变量事实,
 function pruneEmptyObject<T extends Record<string, unknown>>(obj: T): T | undefined {
   for (const key of Object.keys(obj)) {
     const value = obj[key];
-    if (typeof value === 'string' && !value.trim()) delete obj[key];
+    if (typeof value === 'string' && !value.trim()) Reflect.deleteProperty(obj, key);
   }
   return Object.keys(obj).length ? obj : undefined;
 }
@@ -779,29 +590,18 @@ function 是非背包信息物品(input: {
   return !PHYSICAL_INFORMATION_CARRIER_RE.test(name);
 }
 
-function resolvePhoneTargetId(
-  fact: Extract<变量事实, { type: 'phone_seed' }>,
-  npcs: NPC记录[],
-  allNpcs: NPC记录[] = npcs,
-): string | null {
+function resolvePhoneTargetId(fact: Extract<变量事实, { type: 'phone_seed' }>, npcs: NPC记录[]): string | null {
   if (fact.targetId?.trim()) return fact.targetId.trim();
   if (fact.targetName?.trim()) {
     const id = npcIdFromName(fact.targetName.trim());
     const existing = findNpc(npcs, id, fact.targetName.trim());
-    if (existing) return existing.id;
-    const archived = allNpcs.find((npc) =>
-      npc.归档 && (npc.姓名 === fact.targetName?.trim() || npc.别名 === fact.targetName?.trim()),
-    );
-    return archived?.id ?? id;
+    return existing?.id ?? id;
   }
   const related = fact.relatedNpcIds?.find((id) => id.trim());
   if (related?.trim()) return related.trim();
-  // 兜底:从 title/context/evidence 文本里匹配已知 NPC 姓名。
-  // AI 经常只写 context 不写 targetName,导致 phone_seed 被丢弃。
-  // 优先匹配已登记的 NPC,其次匹配经典角色(三月七/丹恒等)。
-  const haystack = `${fact.title ?? ''}\n${fact.context ?? ''}\n${fact.evidence ?? ''}`;
+  const haystack = `${fact.title}\n${fact.context}\n${fact.evidence ?? ''}`;
   for (const npc of npcs) {
-    const name = npc.姓名?.trim();
+    const name = npc.姓名.trim();
     if (name && name.length >= 2 && haystack.includes(name)) {
       return npc.id;
     }
@@ -810,12 +610,6 @@ function resolvePhoneTargetId(
       return npc.id;
     }
   }
-  const archivedMention = allNpcs.find((npc) => {
-    if (!npc.归档) return false;
-    return [npc.姓名, npc.别名].some((name) => Boolean(name && name.length >= 2 && haystack.includes(name)));
-  });
-  if (archivedMention) return archivedMention.id;
-  // 经典角色兜底:即使 NPC 列表里没有,也允许生成种子(后续 PhoneModal 会自动创建联系人)
   const canonicalNames = ['三月七', '丹恒', '姬子', '瓦尔特', '帕姆', '黑塔', '艾丝妲', '阿兰', '星', '穹'];
   for (const name of canonicalNames) {
     if (haystack.includes(name)) {
@@ -825,420 +619,33 @@ function resolvePhoneTargetId(
   return null;
 }
 
-function normalizePhoneSeedComparableText(text: string): string {
-  return text
-    .replace(/\s+/g, '')
-    .replace(/[，。！？!?；;、,.…~～“”"'\[\]（）()《》<>]/g, '')
-    .trim();
-}
-
-function isPhoneSeedTextSimilar(a: string, b: string): boolean {
-  const left = normalizePhoneSeedComparableText(a);
-  const right = normalizePhoneSeedComparableText(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  if (left.length >= 12 && right.includes(left)) return true;
-  if (right.length >= 12 && left.includes(right)) return true;
-  const shared = [...new Set(left)].filter((char) => right.includes(char)).length;
-  return shared / Math.max(1, Math.min(left.length, right.length)) >= 0.82;
-}
-
 function hasRecentSimilarPhoneSeed(phone: 手机系统 | undefined, input: {
   turn: number;
+  targetType: 'private' | 'group';
   targetId: string;
   relatedNpcIds: string[];
   title: string;
   context: string;
   windowTurns?: number;
 }): boolean {
-  if (!phone?.messageSeeds?.length) return false;
+  if (!phone?.messageSeeds.length) return false;
   const windowTurns = Math.max(3, input.windowTurns ?? 12);
-  const ids = new Set([input.targetId, ...input.relatedNpcIds].filter(Boolean));
+  const target = { targetType: input.targetType, targetId: input.targetId, relatedNpcIds: input.relatedNpcIds };
   const currentText = `${input.title}\n${input.context}`;
   return phone.messageSeeds.some((seed) => {
-    if (input.turn - (Number(seed.turn) || 0) > windowTurns) return false;
-    const seedIds = new Set([seed.targetId, ...seed.relatedNpcIds].filter(Boolean));
-    const sameTarget = [...ids].some((id) => seedIds.has(id) || seedIds.has(`npc_${id}`) || id === seed.targetId);
-    if (!sameTarget) return false;
+    if (input.turn - (seed.turn || 0) > windowTurns) return false;
+    if (!isSamePhoneSeedTarget(target, seed)) return false;
     return isPhoneSeedTextSimilar(currentText, `${seed.title}\n${seed.context}`);
   });
 }
 
 function hasRecentNonUrgentPhoneSeed(phone: 手机系统 | undefined, turn: number, windowTurns = 3): boolean {
-  if (!phone?.messageSeeds?.length) return false;
+  if (!phone?.messageSeeds.length) return false;
   const safeWindow = Math.max(3, Math.trunc(windowTurns) || 3);
   return phone.messageSeeds.some((seed) => {
     if (seed.priority === 'urgent' || seed.priority === 'high') return false;
-    return turn - (Number(seed.turn) || 0) < safeWindow;
+    return turn - (seed.turn || 0) < safeWindow;
   });
-}
-
-function locateAgreementIndex(
-  agreements: readonly 约定结构[],
-  fact: Extract<变量事实, { type: 'agreement_status' }>,
-): { index: number; reason?: undefined } | { index: null; reason: string } {
-  const agreementId = fact.agreementId?.trim();
-  if (agreementId) {
-    const index = agreements.findIndex((agreement) => agreement.id === agreementId);
-    return index >= 0
-      ? { index }
-      : { index: null, reason: `稳定约定 ID ${agreementId} 不存在` };
-  }
-
-  const exactMatches = agreements
-    .map((agreement, index) => ({ agreement, index }))
-    .filter(({ agreement }) => agreement.标题.trim() === fact.title.trim());
-  if (exactMatches.length === 1) return { index: exactMatches[0].index };
-  if (exactMatches.length > 1) return { index: null, reason: `标题「${fact.title}」对应多个约定，无法安全判定目标` };
-
-  const fuzzyMatches = agreements
-    .map((agreement, index) => ({ agreement, index }))
-    .filter(({ agreement }) => agreement.标题.includes(fact.title) || fact.title.includes(agreement.标题));
-  if (fuzzyMatches.length === 1) return { index: fuzzyMatches[0].index };
-  if (fuzzyMatches.length > 1) return { index: null, reason: `标题「${fact.title}」模糊匹配到多个约定，必须提供 agreementId` };
-  return { index: null, reason: `找不到标题为「${fact.title}」的约定` };
-}
-
-function factStage(fact: 变量事实): number {
-  switch (fact.type) {
-    case 'traveler_profile': return 0;
-    case 'time': return 1;
-    case 'npc': return 2;
-    case 'location':
-    case 'weather':
-    case 'world_event': return 3;
-    case 'agreement': return 4;
-    case 'agreement_status': return 5;
-    case 'nsfw_archive': return 6;
-    case 'item':
-    case 'phone_seed': return 7;
-    default: return 8;
-  }
-}
-
-function npcFactTargetIdentity(fact: 变量事实): string {
-  if (fact.type === 'npc') return getVariableNpcIdentity(fact.id, fact.name);
-  if ('npcId' in fact || 'npcName' in fact) return getVariableNpcIdentity(fact.npcId, fact.npcName);
-  return '';
-}
-
-function sameNpcFactTarget(left: 变量事实, right: 变量事实): boolean {
-  const leftIdentity = npcFactTargetIdentity(left);
-  const rightIdentity = npcFactTargetIdentity(right);
-  return Boolean(leftIdentity && rightIdentity && leftIdentity === rightIdentity);
-}
-
-function buildFactDependencies(
-  fact: 变量事实,
-  allFacts: readonly 变量事实[],
-): string[] {
-  const dependencies = new Set<string>();
-  const add = (candidate: 变量事实) => {
-    if (candidate.factGroupId && candidate.factGroupId !== fact.factGroupId) dependencies.add(candidate.factGroupId);
-  };
-
-  if (fact.type === 'agreement' || fact.type === 'agreement_status' || fact.type === 'nsfw_archive') {
-    allFacts.filter((candidate) => candidate.type === 'npc' && sameNpcFactTarget(fact, candidate)).forEach(add);
-  }
-  if (fact.type === 'agreement_status') {
-    allFacts
-      .filter((candidate) => candidate.type === 'agreement' && sameNpcFactTarget(fact, candidate))
-      .filter((candidate) => fact.agreementId
-        ? false
-        : 'title' in candidate && (
-          candidate.title === fact.title ||
-          candidate.title.includes(fact.title) ||
-          fact.title.includes(candidate.title)
-        ))
-      .forEach(add);
-  }
-  if (fact.type === 'phone_seed') {
-    allFacts.filter((candidate) => candidate.type === 'npc' && (
-      (fact.targetId && candidate.id === fact.targetId)
-      || (fact.targetName && candidate.name === fact.targetName)
-      || (fact.relatedNpcIds ?? []).some((id) => id === candidate.id)
-    )).forEach(add);
-    allFacts.filter((candidate) => candidate.type === 'time').forEach(add);
-  }
-  if (fact.type === 'item') allFacts.filter((candidate) => candidate.type === 'time').forEach(add);
-  return [...dependencies];
-}
-
-function normalizeFactIdentityText(value: string): string {
-  const text = value.trim();
-  if (!text) return '';
-  return matchCanonical(text)?.name ?? text.toLowerCase();
-}
-
-function factMergeIdentity(fact: 变量事实): string {
-  const npcIdentity = (id: string | undefined, name: string | undefined): string => getVariableNpcIdentity(id, name);
-
-  switch (fact.type) {
-    case 'traveler_profile': return 'traveler-profile';
-    case 'time': return 'world-time';
-    case 'location': return 'world-location';
-    case 'weather': return 'world-weather';
-    case 'npc': return npcIdentity(fact.id, fact.name);
-    case 'nsfw_archive': return npcIdentity(fact.npcId, fact.npcName);
-    case 'agreement': return `${npcIdentity(fact.npcId, fact.npcName)}::${normalizeFactIdentityText(fact.title)}`;
-    case 'agreement_status': return `${npcIdentity(fact.npcId, fact.npcName)}::${normalizeFactIdentityText(fact.agreementId || fact.title)}`;
-    case 'item': return `${fact.category}::${normalizeFactIdentityText(fact.name)}`;
-    case 'phone_seed': return `${normalizeFactIdentityText(fact.targetId || fact.targetName || 'unknown')}::${normalizeFactIdentityText(fact.title)}`;
-    case 'world_event': return normalizeFactIdentityText(fact.text);
-    default: return 'unknown';
-  }
-}
-
-function factMergeKey(fact: 变量事实): string {
-  // 历史修复/不同外部证据不能互相合并，否则会把旧回合事实串到同一条记录里。
-  const evidenceKey = fact.sourceEvidenceId?.trim() || '';
-  // 时间事实是有序操作：elapsed、next_day、set_time 的顺序本身就是语义，不能合成一个“最后 mode”。
-  if (fact.type === 'time') return `${fact.type}:sequence=${fact.factGroupId ?? fact.factIndex ?? stableFingerprint(fact)}`;
-  return `${fact.type}:${factMergeIdentity(fact)}${evidenceKey ? `:evidence=${evidenceKey}` : ''}`;
-}
-
-function mergeUniqueFactArray(left: unknown[], right: unknown[]): unknown[] {
-  const output: unknown[] = [];
-  const seen = new Set<string>();
-  for (const value of [...left, ...right]) {
-    if (value === undefined || value === null) continue;
-    const fingerprint = stableFingerprint(value);
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    output.push(value);
-  }
-  return output;
-}
-
-function mergeFactText(left: unknown, right: unknown): string | undefined {
-  const values = [left, right]
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const unique = [...new Set(values)];
-  return unique.length ? unique.join('；') : undefined;
-}
-
-function mergeFactSource(left?: 变量事实来源, right?: 变量事实来源): 变量事实来源 | undefined {
-  if (left === '正文' || right === '正文') return '正文';
-  if (left === '历史正文' || right === '历史正文') return '历史正文';
-  return left ?? right;
-}
-
-function mergeFactObjects(
-  left: Record<string, unknown>,
-  right: Record<string, unknown>,
-  path: string,
-  onConflict: (field: string) => void,
-): Record<string, unknown> {
-  const output: Record<string, unknown> = { ...left };
-  for (const [key, incoming] of Object.entries(right)) {
-    if (incoming === undefined || incoming === null) continue;
-    const current = output[key];
-    if (current === undefined || current === null) {
-      output[key] = incoming;
-      continue;
-    }
-    if (Array.isArray(current) && Array.isArray(incoming)) {
-      output[key] = mergeUniqueFactArray(current, incoming);
-      continue;
-    }
-    if (是对象(current) && 是对象(incoming)) {
-      output[key] = mergeFactObjects(current, incoming, `${path}.${key}`, onConflict);
-      continue;
-    }
-    if (Object.is(current, incoming)) continue;
-    onConflict(`${path}.${key}`);
-    output[key] = incoming;
-  }
-  return output;
-}
-
-interface PreparedVariableFactsResult {
-  facts: 变量事实[];
-  warnings: string[];
-  diagnostics: 变量批次诊断[];
-}
-
-function prepareVariableFacts(
-  facts: readonly 变量事实[],
-  options: {
-    factSource?: 变量事实来源;
-    bodyText?: string;
-    recallContext?: string;
-    sourceEvidenceId?: string;
-    operationSourceId: string;
-  },
-): PreparedVariableFactsResult {
-  const warnings: string[] = [];
-  const diagnostics: 变量批次诊断[] = [];
-  const sourcedFacts = assignVariableFactSources(facts, options);
-  const prepared: 变量事实[] = [];
-  sourcedFacts.forEach((rawFact, index) => {
-    try {
-      const fact = sanitizeVariableFact(rawFact);
-      const factIndex = fact.factIndex ?? index;
-      const entityKey = fact.entityKey ?? getVariableFactEntityKey(fact);
-      const factGroupId = fact.factGroupId ?? buildVariableFactGroupId(fact, factIndex, options.operationSourceId);
-      prepared.push(sanitizeVariableFact({ ...fact, factIndex, entityKey, factGroupId } as 变量事实));
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      const message = `变量事实第 ${index + 1} 条无法通过 JSON 边界：${reason}`;
-      warnings.push(message);
-      diagnostics.push({
-        code: 'VARIABLE_FACT_JSON_INVALID',
-        severity: 'error',
-        stage: 'projection',
-        message,
-        factIndex: index,
-        ...(rawFact.factSource ? { factSource: rawFact.factSource } : {}),
-        ...(rawFact.sourceEvidenceId ? { sourceEvidenceId: rawFact.sourceEvidenceId } : {}),
-      });
-    }
-  });
-
-  const groups = new Map<string, { fact: 变量事实; sourceGroupIds: string[] }>();
-  const conflictTextFields = new Set(['memory', 'recentInteraction', 'longTermImpression', 'evidence']);
-  const identityFields = new Set(['id', 'npcId', 'name', 'npcName', 'targetId', 'targetName']);
-
-  const mergeFacts = (left: 变量事实, right: 变量事实, groupKey: string): 变量事实 => {
-    const leftRecord = left as unknown as Record<string, unknown>;
-    const rightRecord = right as unknown as Record<string, unknown>;
-    const merged: Record<string, unknown> = { ...leftRecord };
-    const baseGroupId = left.factGroupId ?? right.factGroupId;
-    const reportConflict = (field: string) => {
-      const message = `同一事实组 ${groupKey} 的字段 ${field} 出现冲突，已采用后出现的有序值。`;
-      warnings.push(message);
-      diagnostics.push({
-        code: 'FACT_MERGE_CONFLICT',
-        severity: 'warning',
-        stage: 'projection',
-        message,
-        ...(baseGroupId ? { factGroupId: baseGroupId } : {}),
-        ...(right.factIndex !== undefined ? { factIndex: right.factIndex } : {}),
-        ...(right.entityKey ? { entityKey: right.entityKey } : {}),
-        ...(right.factSource ? { factSource: right.factSource } : {}),
-        ...(right.sourceEvidenceId ? { sourceEvidenceId: right.sourceEvidenceId } : {}),
-      });
-    };
-
-    for (const [field, incoming] of Object.entries(rightRecord)) {
-      if (
-        incoming === undefined || incoming === null ||
-        field === 'type' || field === 'factSource' || field === 'sourceEvidenceId' ||
-        field === 'factGroupId' || field === 'factIndex' || field === 'entityKey' ||
-        field === 'dependsOnFactGroupIds'
-      ) continue;
-      const current = merged[field];
-      if (current === undefined || current === null) {
-        merged[field] = incoming;
-        continue;
-      }
-      if (Array.isArray(current) && Array.isArray(incoming)) {
-        merged[field] = mergeUniqueFactArray(current, incoming);
-        continue;
-      }
-      if (field === 'affinityDelta' || field === 'quantity') {
-        if (typeof current === 'number' && typeof incoming === 'number') merged[field] = current + incoming;
-        else if (typeof incoming === 'number') merged[field] = incoming;
-        continue;
-      }
-      if (field === 'minutes' && left.type === 'time' && right.type === 'time' && left.mode === 'elapsed' && right.mode === 'elapsed') {
-        if (typeof current === 'number' && typeof incoming === 'number') merged[field] = current + incoming;
-        else if (typeof incoming === 'number') merged[field] = incoming;
-        continue;
-      }
-      if (field === 'mode' && left.type === 'time' && right.type === 'time') {
-        if (current === 'no_change') merged[field] = incoming;
-        else if (incoming === 'no_change') continue;
-        else if (current !== incoming) {
-          reportConflict(field);
-          merged[field] = incoming;
-        }
-        continue;
-      }
-      if (typeof current === 'object' && typeof incoming === 'object' && !Array.isArray(current) && !Array.isArray(incoming)) {
-        merged[field] = mergeFactObjects(current as Record<string, unknown>, incoming as Record<string, unknown>, field, reportConflict);
-        continue;
-      }
-      if (conflictTextFields.has(field) && typeof current === 'string' && typeof incoming === 'string') {
-        merged[field] = mergeFactText(current, incoming);
-        continue;
-      }
-      if (identityFields.has(field)) {
-        if (field === 'name' || field === 'npcName' || field === 'targetName') {
-          const currentCanonical = normalizeFactIdentityText(String(current));
-          const incomingCanonical = normalizeFactIdentityText(String(incoming));
-          if (currentCanonical === incomingCanonical) {
-            merged[field] = matchCanonical(String(current))?.name ?? current;
-            continue;
-          }
-        }
-        if (String(current).trim() === String(incoming).trim()) continue;
-        reportConflict(field);
-        continue;
-      }
-      if (Object.is(current, incoming)) continue;
-      reportConflict(field);
-      merged[field] = incoming;
-    }
-
-    const mergedDependencies = new Set<string>([
-      ...(left.dependsOnFactGroupIds ?? []),
-      ...(right.dependsOnFactGroupIds ?? []),
-    ]);
-    merged.factSource = mergeFactSource(left.factSource, right.factSource);
-    if (baseGroupId) merged.factGroupId = baseGroupId;
-    merged.factIndex = Math.min(left.factIndex ?? Number.MAX_SAFE_INTEGER, right.factIndex ?? Number.MAX_SAFE_INTEGER);
-    merged.entityKey = left.entityKey ?? right.entityKey;
-    if (mergedDependencies.size) merged.dependsOnFactGroupIds = [...mergedDependencies];
-    return merged as unknown as 变量事实;
-  };
-
-  for (const fact of prepared) {
-    const key = factMergeKey(fact);
-    const existing = groups.get(key);
-    if (!existing) {
-      groups.set(key, { fact, sourceGroupIds: fact.factGroupId ? [fact.factGroupId] : [] });
-      continue;
-    }
-    existing.fact = mergeFacts(existing.fact, fact, key);
-    if (fact.factGroupId) existing.sourceGroupIds.push(fact.factGroupId);
-  }
-
-  const groupIdMap = new Map<string, string>();
-  for (const group of groups.values()) {
-    const targetId = group.fact.factGroupId;
-    if (!targetId) continue;
-    for (const sourceId of group.sourceGroupIds) groupIdMap.set(sourceId, targetId);
-  }
-
-  const remappedFacts = [...groups.values()]
-    .map(({ fact }) => {
-      const dependencies = (fact.dependsOnFactGroupIds ?? [])
-        .map((id) => groupIdMap.get(id) ?? id)
-        .filter((id, index, list) => id && id !== fact.factGroupId && list.indexOf(id) === index);
-      return {
-        ...fact,
-        ...(dependencies.length ? { dependsOnFactGroupIds: dependencies } : { dependsOnFactGroupIds: undefined }),
-      };
-    });
-  const mergedFacts = remappedFacts
-    .map((fact) => ({
-      ...fact,
-      dependsOnFactGroupIds: fact.dependsOnFactGroupIds?.length
-        ? fact.dependsOnFactGroupIds
-        : buildFactDependencies(fact, remappedFacts),
-    }))
-    .sort((left, right) => factStage(left) - factStage(right) || (left.factIndex ?? 0) - (right.factIndex ?? 0));
-  return { facts: mergedFacts, warnings, diagnostics };
-}
-
-export interface FactsToVariableCommandsResult {
-  commands: 变量命令[];
-  notes: string[];
-  warnings: string[];
-  diagnostics: 变量批次诊断[];
 }
 
 export function factsToVariableCommands(
@@ -1248,191 +655,47 @@ export function factsToVariableCommands(
   options: {
     phoneSeedsEnabled?: boolean;
     maxPhoneSeedsPerTurn?: number;
-    /** 新批次使用稳定回合/消息身份，确保同一事实生成相同实体 ID。 */
-    operationSourceId?: string;
-    /** 事实证据来源与混合正文/通讯判定。 */
-    factSource?: 变量事实来源;
-    bodyText?: string;
-    recallContext?: string;
-    sourceEvidenceId?: string;
   } = {},
-): FactsToVariableCommandsResult {
+  ctx?: VariableExecContext,
+): { commands: 变量命令[]; notes: string[]; warnings: string[] } {
   const commands: 变量命令[] = [];
   const notes: string[] = [];
   const warnings: string[] = [];
-  let world = state.世界 as 世界状态;
-  let traveler = state.旅人;
-  let npcs = (state.NPC as NPC记录[]) ?? [];
-  let phone = state.手机 as 手机系统 | undefined;
+  const world = state.世界 as 世界状态;
+  const npcs = (state.NPC as NPC记录[] | undefined) ?? [];
+  const phone = state.手机 as 手机系统 | undefined;
   const phoneSeedsEnabled = options.phoneSeedsEnabled !== false;
   const maxPhoneSeedsPerTurn = Math.max(0, Math.trunc(options.maxPhoneSeedsPerTurn ?? 2));
-  const operationSourceId = options.operationSourceId?.trim() || `legacy_turn_${turn}`;
-  const preparedFactsResult = prepareVariableFacts(facts, {
-    factSource: options.factSource,
-    bodyText: options.bodyText,
-    recallContext: options.recallContext,
-    sourceEvidenceId: options.sourceEvidenceId,
-    operationSourceId,
-  });
-  const preparedFacts = preparedFactsResult.facts;
+  const eff = ctx ?? DEFAULT_EXEC_CTX;
   let phoneSeedsWritten = 0;
-  const interactionCountedNpcIds = new Set<string>();
-  let currentFactSource: 变量事实来源 = options.factSource ?? '正文';
-  let currentSourceEvidenceId = options.sourceEvidenceId?.trim() || '';
-  let currentFactGroupId = '';
-  let currentFactIndex: number | undefined;
-  let currentEntityKey = '';
-  let currentDependencies: string[] = [];
-  let stagedCommands: 变量命令[] = [];
-  let factGroupFailed = false;
-  let factGroupSnapshot: {
-    world: 世界状态;
-    traveler: VariableState['旅人'];
-    npcs: NPC记录[];
-    phone: 手机系统 | undefined;
-    phoneSeedsWritten: number;
-    interactionNpcIds: Set<string>;
-  } | null = null;
-  const projectionWarnings: string[] = [...preparedFactsResult.warnings];
-  const projectionDiagnostics: 变量批次诊断[] = [...preparedFactsResult.diagnostics];
 
-  const closeFactGroup = () => {
-    if (currentFactGroupId && !factGroupFailed) commands.push(...stagedCommands);
-    stagedCommands = [];
-    factGroupFailed = false;
-    factGroupSnapshot = null;
-    currentFactGroupId = '';
-    currentFactIndex = undefined;
-    currentEntityKey = '';
-    currentSourceEvidenceId = '';
-    currentDependencies = [];
-  };
+  const push = (command: 变量命令) => commands.push(command);
 
-  const failFactGroupProjection = (reason: string) => {
-    if (factGroupFailed) return;
-    factGroupFailed = true;
-    stagedCommands = [];
-    if (factGroupSnapshot) {
-      world = factGroupSnapshot.world;
-      traveler = factGroupSnapshot.traveler;
-      npcs = factGroupSnapshot.npcs;
-      phone = factGroupSnapshot.phone;
-      phoneSeedsWritten = factGroupSnapshot.phoneSeedsWritten;
-      interactionCountedNpcIds.clear();
-      factGroupSnapshot.interactionNpcIds.forEach((id) => interactionCountedNpcIds.add(id));
-    }
-    projectionWarnings.push(
-      `事实组 ${currentFactGroupId || 'unknown'} projection 失败${currentFactIndex === undefined ? '' : `（事实 ${currentFactIndex + 1}）`}：${reason}`,
-    );
-    projectionDiagnostics.push({
-      code: 'FACT_GROUP_PROJECTION_FAILED',
-      severity: 'error',
-      stage: 'projection',
-      message: reason,
-      ...(currentFactGroupId ? { factGroupId: currentFactGroupId } : {}),
-      ...(currentFactIndex !== undefined ? { factIndex: currentFactIndex } : {}),
-      ...(currentEntityKey ? { entityKey: currentEntityKey } : {}),
-      ...(currentFactSource ? { factSource: currentFactSource } : {}),
-      ...(currentSourceEvidenceId ? { sourceEvidenceId: currentSourceEvidenceId } : {}),
-    });
-  };
-
-  const push = (command: 变量命令) => {
-    if (factGroupFailed) return;
-    if (command.action !== 'delete' && command.value === undefined) {
-      failFactGroupProjection(`非 delete 命令 ${command.key} 缺少 value`);
-      return;
-    }
-    const enrichedCandidate: Record<string, unknown> = {
-      ...command,
-      factSource: command.factSource ?? currentFactSource,
-      factGroupId: command.factGroupId ?? (currentFactGroupId || undefined),
-      factIndex: command.factIndex ?? currentFactIndex,
-      entityKey: command.entityKey ?? (currentEntityKey || undefined),
-      sourceEvidenceId: command.sourceEvidenceId ?? (currentSourceEvidenceId || undefined),
-      dependsOnFactGroupIds: command.dependsOnFactGroupIds ?? (currentDependencies.length ? [...currentDependencies] : undefined),
-    };
-    // delete 的 value 只是旧版本占位，内部命令协议必须真正省略它。
-    if (command.action === 'delete') delete enrichedCandidate.value;
-    const canonicalCommand = canonicalizeJsonValue(enrichedCandidate);
-    if (!canonicalCommand.ok) {
-      failFactGroupProjection(`命令 ${command.key} 无法通过 JSON 边界：${canonicalCommand.issues.map((issue) => issue.message).join('；')}`);
-      return;
-    }
-    const enrichedCommand = canonicalCommand.value as unknown as 变量命令;
-
-    // 转换器自己的 projection 只用于后续事实解析，不是正式提交；失败时保留诊断，
-    // 让 reducer 的正式 preflight 再做一次完整校验。
-    const parsed = extractRoot(enrichedCommand.key);
-    if (!parsed) {
-      failFactGroupProjection(`无法解析命令路径 ${enrichedCommand.key}`);
-      return;
-    }
-    const rootValue = parsed.root === '世界'
-      ? world
-      : parsed.root === 'NPC'
-        ? npcs
-        : parsed.root === '手机'
-          ? phone
-          : parsed.root === '旅人'
-            ? traveler
-            : state[parsed.root];
-    const applied = 应用路径命令(rootValue, parsed.rest, enrichedCommand.action, enrichedCommand.value);
-    if (!applied.ok) {
-      failFactGroupProjection(applied.reason ?? '未知错误');
-      return;
-    }
-    stagedCommands.push(enrichedCommand);
-    if (parsed.root === '世界') world = applied.nextRootValue as 世界状态;
-    if (parsed.root === '旅人') traveler = applied.nextRootValue as VariableState['旅人'];
-    if (parsed.root === 'NPC') npcs = (applied.nextRootValue as NPC记录[]) ?? [];
-    if (parsed.root === '手机') phone = applied.nextRootValue as 手机系统 | undefined;
-  };
-
-  for (const fact of preparedFacts) {
-    closeFactGroup();
-    currentFactSource = fact.factSource ?? options.factSource ?? '正文';
-    currentSourceEvidenceId = fact.sourceEvidenceId ?? options.sourceEvidenceId?.trim() ?? '';
-    currentFactGroupId = fact.factGroupId ?? '';
-    currentFactIndex = fact.factIndex;
-    currentEntityKey = fact.entityKey ?? getVariableFactEntityKey(fact);
-    currentDependencies = fact.dependsOnFactGroupIds ?? [];
-    factGroupSnapshot = {
-      world,
-      traveler,
-      npcs,
-      phone,
-      phoneSeedsWritten,
-      interactionNpcIds: new Set(interactionCountedNpcIds),
-    };
+  for (const fact of facts) {
     if (fact.type === 'traveler_profile') {
       notes.push('已静默忽略 traveler_profile：旅人核心档案由玩家手写维护，变量系统不再修改身份、外貌、性格、背景、能力或专长知识。');
       continue;
     }
 
     if (fact.type === 'time') {
-      const current = 分钟序数(world?.当前时间);
+      const current = 分钟序数(world.当前时间);
       if (fact.mode === 'no_change') continue;
       if (fact.mode === 'elapsed') {
-        const delta = Math.max(1, Math.trunc(fact.minutes ?? 3));
-        if (current !== null) {
-          const totalMinutes = current + delta;
-          const elapsedDays = Math.floor(totalMinutes / 1440);
-          if (elapsedDays > 0) {
-            const currentDate = world?.当前日期 ?? '';
-            const nextDate = 推进琥珀日期(currentDate, elapsedDays);
-            if (nextDate && nextDate !== currentDate) {
-              const aligned = 对齐世界日期与天数(
-                Math.max(1, Math.trunc(Number(world?.开拓天数) || 1)) + elapsedDays,
-                nextDate,
-              );
-              push({ action: 'set', key: '世界.开拓天数', value: aligned.开拓天数 });
-              push({ action: 'set', key: '世界.当前日期', value: aligned.当前日期 });
-            }
-          }
-          push({ action: 'set', key: '世界.当前时间', value: 格式化分钟(totalMinutes) });
+        if (current === null) {
+          warnings.push('time(elapsed) 已忽略：当前时间不是 HH:mm，无法计算推进。');
+          continue;
         }
-        else warnings.push('time(elapsed) 已忽略：当前时间不是 HH:mm，无法计算推进。');
+        // 不再把长耗时静默截成 30 分钟：按声明时长推进，跨过整天时同步推进日期与开拓天数。
+        const delta = Math.max(1, Math.min(12 * 60, Math.trunc(fact.minutes ?? 3)));
+        const total = current + delta;
+        const dayCarry = Math.floor(total / 1440);
+        if (dayCarry > 0) {
+          const nextDate = 推进琥珀日期(world.当前日期, dayCarry);
+          const aligned = 对齐世界日期与天数(world.开拓天数 + dayCarry, nextDate);
+          push({ action: 'set', key: '世界.开拓天数', value: aligned.开拓天数 });
+          push({ action: 'set', key: '世界.当前日期', value: aligned.当前日期 });
+        }
+        push({ action: 'set', key: '世界.当前时间', value: 格式化分钟(total) });
         continue;
       }
       if (fact.mode === 'set_time') {
@@ -1441,16 +704,25 @@ export function factsToVariableCommands(
           warnings.push(`time(set_time) 已忽略：无法识别目标时间 ${fact.targetTime ?? '空'}。`);
           continue;
         }
+        // 时间是单向的：目标钟点早于当前时，只可能是跨日，直接推进一天（不再要求关键词证据、也不再静默丢弃）。
+        if (current !== null && next < current) {
+          const nextDate = 推进琥珀日期(world.当前日期);
+          const aligned = 对齐世界日期与天数(world.开拓天数 + 1, nextDate);
+          push({ action: 'set', key: '世界.开拓天数', value: aligned.开拓天数 });
+          push({ action: 'set', key: '世界.当前日期', value: aligned.当前日期 });
+          push({ action: 'set', key: '世界.当前时间', value: fact.targetTime });
+          continue;
+        }
         push({ action: 'set', key: '世界.当前时间', value: fact.targetTime });
         continue;
       }
-      if (fact.mode === 'overnight' || fact.mode === 'next_day') {
-        const nextDate = 推进琥珀日期(world?.当前日期 ?? '');
-        const aligned = 对齐世界日期与天数((world?.开拓天数 ?? 1) + 1, nextDate);
+      {
+        const nextDate = 推进琥珀日期(world.当前日期);
+        const aligned = 对齐世界日期与天数(world.开拓天数 + 1, nextDate);
         push({ action: 'set', key: '世界.开拓天数', value: aligned.开拓天数 });
         push({ action: 'set', key: '世界.当前日期', value: aligned.当前日期 });
         if (fact.targetTime) push({ action: 'set', key: '世界.当前时间', value: fact.targetTime });
-        else warnings.push(`time(${fact.mode}) 缺少 targetTime：已推进日期和天数，但当前时间保持 ${world?.当前时间 ?? '未知'}。`);
+        else warnings.push(`time(${fact.mode}) 缺少 targetTime：已推进日期和天数，但当前时间保持 ${world.当前时间}。`);
         continue;
       }
     }
@@ -1461,10 +733,9 @@ export function factsToVariableCommands(
     }
 
     if (fact.type === 'weather') {
-      // 天气中文名/复合别名 → ID
-      const weatherId = 归一化天气ID(fact.weather);
-      if (weatherId) {
-        push({ action: 'set', key: '世界.当前天气', value: weatherId });
+      const def = 天气列表.find((w) => w.name === fact.weather || w.id === fact.weather);
+      if (def) {
+        push({ action: 'set', key: '世界.当前天气', value: def.id });
       } else {
         warnings.push(`weather: 无法识别的天气名「${fact.weather}」，已忽略。`);
       }
@@ -1474,13 +745,8 @@ export function factsToVariableCommands(
     if (fact.type === 'npc') {
       const id = fact.id?.trim() || npcIdFromName(fact.name);
       const existing = findNpc(npcs, id, fact.name);
-      const canonical = matchCanonical(fact.name);
-      const interactionSignal = 有NPC互动信号(fact);
       if (!existing) {
-        if (!canonical && 是NPC泛称姓名(fact.name)) {
-          warnings.push(`NPC「${fact.name}」仅包含职业/身份泛称，未创建记录；请提供真实姓名，并把「${fact.name}」写入职务字段。`);
-          continue;
-        }
+        const canonical = matchCanonical(fact.name);
         const initialAffinity = 限制NPC好感度(fact.affinitySet ?? fact.affinityDelta ?? 0);
         push({
           action: 'push',
@@ -1489,10 +755,7 @@ export function factsToVariableCommands(
             id,
             姓名: canonical?.name ?? fact.name,
             别名: fact.alias,
-             阶位: inferNpcTier(fact, canonical, undefined, initialAffinity, interactionSignal ? 1 : 0),
-             阶位来源: fact.tier || canonical ? 'ai' : 'auto',
-             职务: fact.job,
-             累计互动次数: interactionSignal ? 1 : 0,
+            阶位: inferNpcTier(fact, canonical),
             好感度: initialAffinity,
             关系: 获取NPC兼容关系(initialAffinity),
             亲密关系: fact.intimateRelationship ?? false,
@@ -1500,23 +763,22 @@ export function factsToVariableCommands(
             初见回合: turn,
             最近回合: turn,
             对玩家称呼: fact.playerAddress,
-            性别: fact.gender ?? (canonical?.gender as import('@/models/npc').NPC性别 | undefined),
+            性别: fact.gender ?? (canonical?.gender),
             外貌: fact.appearance ?? canonical?.appearance,
             穿着: fact.clothing,
             说话方式: fact.speechStyle,
             性格: canonical?.personality ?? fact.personality,
             介绍: fact.intro ?? (canonical ? `${canonical.name}是当前剧情中出现的原著角色。` : ''),
             同行记忆: fact.memory ? [{
-              id: createStableEntityId('npc_mem', [operationSourceId, id, fact.memory]),
+              id: `npc_mem_${id}_${turn}_${eff.randomString(4)}`,
               回合: turn,
               摘要: fact.memory,
               来源: '变量',
               关联NPCID: [id],
-              时间: [world?.当前日期, world?.当前时间].filter(Boolean).join(' ').trim() || undefined,
             }] : [],
             最近互动: fact.recentInteraction ?? fact.memory,
             对玩家长期印象: fact.longTermImpression,
-            当前关系阶段: fact.relationshipStage ?? 获取NPC关系阶段(initialAffinity),
+            当前关系阶段: 获取NPC关系阶段(initialAffinity),
             共同经历: fact.sharedExperiences,
             未完成事项: fact.openItems,
             未解决冲突: fact.unresolvedConflicts,
@@ -1524,40 +786,13 @@ export function factsToVariableCommands(
             禁止遗忘: fact.doNotForget,
             备注: fact.evidence ? [fact.evidence] : [],
             原著角色: Boolean(canonical),
-            NPC来源: canonical ? 'canonical' : 'unknown',
           },
         });
       } else {
         const key = `NPC[id=${existing.id}]`;
         push({ action: 'set', key: `${key}.最近回合`, value: turn });
-        if (existing.归档) {
-          push({ action: 'set', key: `${key}.归档`, value: false });
-          push({ action: 'delete', key: `${key}.归档回合` });
-        }
-        if (interactionSignal && !interactionCountedNpcIds.has(existing.id)) {
-          interactionCountedNpcIds.add(existing.id);
-          push({ action: 'add', key: `${key}.累计互动次数`, value: 1 });
-        }
         if (typeof fact.affinitySet === 'number') push({ action: 'set', key: `${key}.好感度`, value: fact.affinitySet });
         else if (typeof fact.affinityDelta === 'number') push({ action: 'add', key: `${key}.好感度`, value: fact.affinityDelta });
-        if (fact.job) push({ action: 'set', key: `${key}.职务`, value: fact.job });
-        if (fact.relation) push({ action: 'set', key: `${key}.关系`, value: fact.relation });
-        if (existing.手动阶位覆盖) {
-          // 玩家覆盖优先于 AI/自动晋升。
-          push({ action: 'set', key: `${key}.阶位`, value: existing.手动阶位覆盖 });
-        } else if (fact.tier) {
-          push({ action: 'set', key: `${key}.阶位`, value: fact.tier });
-          push({ action: 'set', key: `${key}.阶位来源`, value: 'ai' });
-        } else {
-          const projectedAffinity = typeof fact.affinitySet === 'number'
-            ? fact.affinitySet
-            : existing.好感度 + (fact.affinityDelta ?? 0);
-          const projectedInteractions = (existing.累计互动次数 ?? 0) + (interactionSignal ? 1 : 0);
-          if (inferNpcTier(fact, canonical, existing, projectedAffinity, projectedInteractions) === 'companion' && existing.阶位 !== 'companion') {
-            push({ action: 'set', key: `${key}.阶位`, value: 'companion' });
-            push({ action: 'set', key: `${key}.阶位来源`, value: 'auto' });
-          }
-        }
         if (typeof fact.intimateRelationship === 'boolean') push({ action: 'set', key: `${key}.亲密关系`, value: fact.intimateRelationship });
         if (typeof fact.following === 'boolean') push({ action: 'set', key: `${key}.同行`, value: fact.following });
         if (fact.gender) push({ action: 'set', key: `${key}.性别`, value: fact.gender });
@@ -1575,8 +810,6 @@ export function factsToVariableCommands(
         if (fact.playerAddress) push({ action: 'set', key: `${key}.对玩家称呼`, value: fact.playerAddress });
         if (fact.recentInteraction || fact.memory) push({ action: 'set', key: `${key}.最近互动`, value: fact.recentInteraction ?? fact.memory });
         if (fact.longTermImpression) push({ action: 'set', key: `${key}.对玩家长期印象`, value: fact.longTermImpression });
-        // 关系阶段文本先写入账本；系统标准标签会在 NPC 归一化时按好感度重算，剧情自定义描述才会保留。
-        if (fact.relationshipStage) push({ action: 'set', key: `${key}.当前关系阶段`, value: fact.relationshipStage });
         pushNpcLedgerListCommands(push, key, '共同经历', fact.sharedExperiences, existing.共同经历);
         pushNpcLedgerListCommands(push, key, '未完成事项', fact.openItems, existing.未完成事项);
         pushNpcLedgerListCommands(push, key, '未解决冲突', fact.unresolvedConflicts, existing.未解决冲突);
@@ -1586,81 +819,13 @@ export function factsToVariableCommands(
           action: 'push',
           key: `${key}.同行记忆`,
           value: {
-            id: createStableEntityId('npc_mem', [operationSourceId, existing.id, fact.memory]),
+            id: `npc_mem_${existing.id}_${turn}_${eff.randomString(4)}`,
             回合: turn,
             摘要: fact.memory,
             来源: '变量',
             关联NPCID: [existing.id],
-            时间: [world?.当前日期, world?.当前时间].filter(Boolean).join(' ').trim() || undefined,
           },
         });
-      }
-      continue;
-    }
-
-    if (fact.type === 'agreement') {
-      // 阶段1约定系统·写入环：从正文或recallContext提取约定，写入NPC记录.约定[]
-      const id = fact.npcId?.trim() || npcIdFromName(fact.npcName);
-      const existing = findNpc(npcs, id, fact.npcName);
-      if (!existing) {
-        warnings.push(`agreement 已忽略：找不到 NPC ${fact.npcName}，约定只写入已入档 NPC。`);
-        continue;
-      }
-      const key = `NPC[id=${existing.id}]`;
-      const newAgreement: 约定结构 = {
-        id: createStableEntityId('agr', [operationSourceId, existing.id, fact.title, fact.content]),
-        标题: fact.title,
-        内容: fact.content,
-        约定时间: fact.约定时间,
-        当前状态: '等待中',
-        后果: fact.后果,
-        回合: turn,
-        来源: fact.factSource === '通讯' ? '通讯' : fact.factSource === '历史正文' ? '历史正文' : '正文',
-      };
-      push({ action: 'push', key: `${key}.约定`, value: newAgreement });
-      continue;
-    }
-
-    if (fact.type === 'agreement_status') {
-      // 阶段1约定系统·清理环：约定履行/违约/作废后的状态变更
-      if (fact.factSource === '通讯') {
-        warnings.push(`agreement_status 已忽略：通讯回忆只能证明既有约定，不能单独改变当前约定状态（${fact.title}）。`);
-        continue;
-      }
-      const id = fact.npcId?.trim() || npcIdFromName(fact.npcName);
-      const existing = findNpc(npcs, id, fact.npcName);
-      if (!existing) {
-        warnings.push(`agreement_status 已忽略：找不到 NPC ${fact.npcName}。`);
-        continue;
-      }
-      const existingAgreements = existing.约定 ?? [];
-      const agreementMatch = locateAgreementIndex(existingAgreements, fact);
-      if (agreementMatch.index === null) {
-        warnings.push(`agreement_status 已忽略：${existing.姓名} 的约定${agreementMatch.reason}。`);
-        continue;
-      }
-      const matchIdx = agreementMatch.index;
-      const key = `NPC[id=${existing.id}]`;
-      push({ action: 'set', key: `${key}.约定[${matchIdx}].当前状态`, value: fact.新状态 });
-
-      // 阶段1补充·方案A软上限自动清理：已完结约定超过20条时，删除最老的
-      // 已完结 = 当前状态 !== '等待中'（即已履行/已违约/已作废）
-      // 保留最近20条已完结约定 + 全部等待中约定，更老的已完结约定物理删除
-      const COMPLETED_AGREEMENT_KEEP = 20;
-      const updatedAgreements = existingAgreements.map((a, idx) =>
-        idx === matchIdx ? { ...a, 当前状态: fact.新状态 as 约定状态 } : a,
-      );
-      const completedAgreements = updatedAgreements
-        .map((a, idx) => ({ ...a, _origIdx: idx }))
-        .filter((a) => a.当前状态 !== '等待中')
-        .sort((a, b) => b.回合 - a.回合); // 按回合降序，最近在前
-      if (completedAgreements.length > COMPLETED_AGREEMENT_KEEP) {
-        const toRemoveIdxs = new Set(
-          completedAgreements.slice(COMPLETED_AGREEMENT_KEEP).map((a) => a._origIdx),
-        );
-        const keptAgreements = updatedAgreements.filter((_, idx) => !toRemoveIdxs.has(idx));
-        push({ action: 'set', key: `${key}.约定`, value: keptAgreements });
-        warnings.push(`agreement_status 自动清理：${existing.姓名} 的已完结约定超过 ${COMPLETED_AGREEMENT_KEEP} 条，已删除最老的 ${toRemoveIdxs.size} 条。`);
       }
       continue;
     }
@@ -1718,7 +883,7 @@ export function factsToVariableCommands(
           来源: fact.source ?? '剧情掉落',
           来源描述: fact.sourceDescription ?? fact.evidence,
           叙事效果: fact.narrativeEffects,
-          获得时间: `${world?.当前日期 || ''} ${world?.当前时间 || ''}`.trim(),
+          获得时间: `${world.当前日期 || ''} ${world.当前时间 || ''}`.trim(),
         },
       });
       continue;
@@ -1729,7 +894,7 @@ export function factsToVariableCommands(
       continue;
     }
 
-    if (fact.type === 'phone_seed') {
+    {
       if (!phoneSeedsEnabled || maxPhoneSeedsPerTurn <= 0) {
         warnings.push(`phone_seed 已忽略：手机主动来信种子已关闭或每回合上限为 0（${fact.title}）。`);
         continue;
@@ -1738,18 +903,9 @@ export function factsToVariableCommands(
         warnings.push(`phone_seed 已忽略：本回合来信种子已达到上限 ${maxPhoneSeedsPerTurn}（${fact.title}）。`);
         continue;
       }
-      // 归档 NPC 不参与手机来信目标解析（恢复由 NPC 事实链触发）。
-      const activeNpcs = 筛选活跃NPC(npcs);
-      const targetId = resolvePhoneTargetId(fact, activeNpcs, npcs);
+      const targetId = resolvePhoneTargetId(fact, npcs);
       if (!targetId) {
         warnings.push(`phone_seed 已忽略：缺少 targetId/targetName/relatedNpcIds，无法确定来信目标（${fact.title}）。`);
-        continue;
-      }
-      const targetIsArchived = npcs.some(
-        (npc) => (npc.id === targetId || `npc_${npc.id}` === targetId) && npc.归档 === true,
-      );
-      if (targetIsArchived) {
-        warnings.push(`phone_seed 已忽略：来信目标 ${targetId} 已归档，不接受主动来信（${fact.title}）。`);
         continue;
       }
       const priority = fact.priority ?? 'normal';
@@ -1763,6 +919,7 @@ export function factsToVariableCommands(
       ].map((id) => id.trim()).filter(Boolean)));
       if (hasRecentSimilarPhoneSeed(phone, {
         turn,
+        targetType: fact.targetType ?? 'private',
         targetId,
         relatedNpcIds,
         title: fact.title,
@@ -1775,7 +932,7 @@ export function factsToVariableCommands(
         action: 'push',
         key: '手机.messageSeeds',
         value: {
-          id: createStableEntityId('phone_seed', [operationSourceId, targetId, fact.title, fact.context]),
+          id: `phone_seed_${turn}_${eff.randomString(6)}`,
           turn,
           source: 'main_story',
           triggerType: fact.triggerType ?? 'custom',
@@ -1789,24 +946,9 @@ export function factsToVariableCommands(
           status: 'pending',
         },
       });
-      if (!factGroupFailed) phoneSeedsWritten += 1;
+      phoneSeedsWritten += 1;
     }
   }
 
-  closeFactGroup();
-  const allWarnings = [...warnings, ...projectionWarnings];
-  return {
-    commands,
-    notes,
-    warnings: allWarnings,
-    diagnostics: [
-      ...projectionDiagnostics,
-      ...warnings.map((message) => ({
-        code: 'FACT_PROJECTION_WARNING',
-        severity: 'warning' as const,
-        stage: 'projection' as const,
-        message,
-      })),
-    ],
-  };
+  return { commands, notes, warnings };
 }

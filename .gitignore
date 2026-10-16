@@ -11,20 +11,6 @@ dist/
 .tmp-story-weaving-regression/
 .wrangler/
 backups/
-storybook-static/
-
-# Storybook local config (本地开发环境,不入库)
-.storybook/
-
-# Local IDE / assistant environments (本地开发环境,不入库)
-.reasonix/
-.trae/
-.claude/
-.superpowers/
-.codex/
-.zcode/
-reasonix.toml
-kaituo-star-rail-ui/
 
 # Local environment
 .env
@@ -37,19 +23,33 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Local assistant memory / private planning notes
-AGENTS.md
-AGENTS_OLD.md
-AGENTS-OLD.md
-docs/
-docs/design/
+# IDE / tool clutter
+.claude-plugin/
+.reasonix/
+.trae/
+reasonix.toml
+kaituo-star-rail-ui/
 
-# 记忆系统优化计划文件 (本地规划用,不入库)
-记忆系统优化路线图.md
-记忆系统优化路线图_审查问题清单.md
-记忆系统运行机制.md
-记忆系统优化进度文档.md
-记忆系统优化阶段1制作报告.md
+# Local file-based save data (personal playthrough, never commit)
+save/
+
+# 测试/构建临时目录（跑 vitest、vite 时会把 TEMP/TMP 指到这里）
+.vt/
+.bt/
+
+# Local assistant memory / private planning notes
+.claude/
+.superpowers/
+AGENTS.md
+AGENTS-OLD.md
+AGENT_CHECKLISTS.md
+
+# docs/ 默认不发布，但**不能写成 `docs/`**：
+# 排除整个目录后 Git 根本不会进入它，后面的 `!` 放行规则一律失效（实测过）。
+# 正确写法是先放行目录、再排除目录内容，最后放行要发布的那一份。
+!docs/
+docs/*
+!docs/文生图-实机验证清单.md
 
 # Logs
 *.log
@@ -57,37 +57,50 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+docs/design/
 nul
 
 # Codex working files
+.codex/
 THEME_ISSUES.md
 *.bak
 
-# Working drafts / notes / 草案
-托蕾档案完善草案.md
+# opencode harness working files
+.opencode/
+opencode.json
+WATCHDOG.yml
+
+# Working drafts / notes
+*草案.md
 星际和平公司角色档案完善方案.md
-砂金档案完善草案.md
-托帕草案.md
-托帕档案完善草案.md
+记忆系统优化*.md
 本次主题重构摘要.txt
+
+# Historical agent prompts and reports stay outside the active workspace.
+/legacy_doc/
+/slice*-prompt.md
+/slice*-report*.md
+/panel_p*_plan.md
 
 # Local Claude notes
 CLAUDE.md
 
-# 临时调试脚本 / 临时测试文件 (local dev only)
-_tmp_*.js
-_tmp_*.ts
-_to_delete/
-codex-*-test.txt
-codex-edit-review-test.txt
-codex-native-edit-test.txt
+# Agent-harness workspace debris (craft-agent / orchestration)
+.pnpm-store/
+config.json
+events.jsonl
+labels/
+statuses/
+
+# Local agents skills workspace
+.agents/
+
+# Local skills lockfile
+skills-lock.json
+
+# 临时调试脚本 / 本地生成物
 启动网页本地开发.bat
-data/builtinPresets/_test_write.txt
 data/builtinPresets/_gen_*.js
-scripts/_probe*
-scripts/_fix*
-scripts/_dump*
-scripts/_preset-dump.txt
-scripts/_g*-gate-runner.mjs
+scripts/_*.mjs
 scripts/build-shuangrenchenghang-preset.mjs
 scripts/sync-codex-skills.mjs

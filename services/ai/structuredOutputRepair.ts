@@ -1,5 +1,5 @@
 export function normalizeStructuredModelText(rawText: string): string {
-  return String(rawText || '')
+  return (rawText || '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
     .replace(/```(?:json|JSON)?/g, '')
@@ -20,8 +20,9 @@ export function extractJsonLikeText(rawText: string, expected: 'object' | 'array
       .map(([open, close]) => ({ open, close, start: source.indexOf(open), end: source.lastIndexOf(close) }))
       .filter((item) => item.start >= 0 && item.end > item.start)
       .sort((a, b) => a.start - b.start);
-    const first = candidates[0];
-    if (first) return source.slice(first.start, first.end + 1);
+    for (const candidate of candidates) {
+      return source.slice(candidate.start, candidate.end + 1);
+    }
   }
   for (const [open, close] of pairs) {
     const start = source.indexOf(open);
@@ -32,7 +33,7 @@ export function extractJsonLikeText(rawText: string, expected: 'object' | 'array
 }
 
 export function repairLooseJsonText(rawText: string): string {
-  return String(rawText || '')
+  return (rawText || '')
     .replace(/,\s*([}\]])/g, '$1')
     .replace(/^\uFEFF/, '')
     .trim();
@@ -48,19 +49,4 @@ export function parseJsonWithRepair<T = unknown>(
   } catch {
     return JSON.parse(repairLooseJsonText(candidate)) as T;
   }
-}
-
-export function parseNumberedRecallLines(rawText: string): Record<string, number[]> {
-  const output: Record<string, number[]> = {};
-  const text = normalizeStructuredModelText(rawText);
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^([^:：]+)[:：]([\s\S]*)$/);
-    if (!match) continue;
-    const label = match[1].trim();
-    const numbers = Array.from(match[2].matchAll(/\d+/g))
-      .map((item) => Number(item[0]))
-      .filter((value) => Number.isInteger(value) && value > 0);
-    if (numbers.length) output[label] = numbers;
-  }
-  return output;
 }

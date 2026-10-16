@@ -6,15 +6,11 @@ import type {
   开局地区,
   开局章节锚点,
   能力预设,
-  自由开局写作问题,
   阵营定义,
   难度定义,
-  命途定义,
   起始场景,
   剧情模式定义,
 } from '@/models/journey';
-
-// 重构期占位数据：命题/简介为草稿，等待玩家或编辑器打磨。
 
 export const difficulties: 难度定义[] = [
   {
@@ -43,10 +39,6 @@ export const difficulties: 难度定义[] = [
   },
 ];
 
-export function getDifficulty(id: string): 难度定义 | undefined {
-  return difficulties.find((d) => d.id === id);
-}
-
 export const storyModes: 剧情模式定义[] = [
   {
     id: 'normal',
@@ -74,261 +66,8 @@ export function getStoryMode(id: string): 剧情模式定义 | undefined {
   return storyModes.find((s) => s.id === id);
 }
 
-// ── 命途 ──
-// 顺序参考用户给的清单（最新一条消息），用 HSR 原作星神名作为占位 aeon。
-export const paths: 命途定义[] = [
-  {
-    id: 'none',
-    name: '无命途',
-    aeon: '——',
-    emblem: '○',
-    intro: '尚未被任何星神选中的空白开端。',
-    lines: ['你还没有真正踏上哪一条路。', '空白本身，也是一种可能。'],
-    blurb: '尚未被任何星神感召的旅人。',
-    description: '你尚未踏上任何命途。星神的回响在你身边掠过，却不曾停留。这并非缺憾——很多伟大的开拓，都是从一片空白开始的。',
-  },
-  {
-    id: 'hunt',
-    name: '巡猎',
-    aeon: '岚',
-    emblem: '✦',
-    intro: '被仙舟称作「帝弓司命」的游弋星神，执掌巡猎之道。',
-    lines: [
-      '仇忾无涯，征逐无疆，猎君几多愁；辰矢在弦，金瞳炽焱，帝弓莫回首。',
-      '岚无止尽地游荡于诸界之间，铲除曾荼毒家园的不死孽物，拯救与破坏在祂那里常常难分彼此。',
-    ],
-    blurb: '迅捷、精准、目标先于一切。',
-    description: '被称为帝弓司命的游弋星神，无止尽地游荡于诸世界之间，铲除曾荼毒其家园的不死孽物。岚的游猎从来不计代价，其拯救和破坏也几无差别。',
-  },
-  {
-    id: 'destruction',
-    name: '毁灭',
-    aeon: '纳努克',
-    emblem: '◆',
-    intro: '执掌毁灭之道的星神，诞生自沦亡世界亚德丽芬。',
-    lines: [
-      '如果熵增是宇宙不可逆转的法则，热寂是物质世界难以逃避的命运，那我们又何苦挣扎？',
-      '燃烧，聚变，然后湮灭。若想迎接新生，就必先投身终结。',
-    ],
-    blurb: '以倾覆为道，烧尽腐朽换来重生。',
-    description: '宇宙的诞生是一种错谬；文明若是浩瀚群星中悄然兴起的癌症，纷争即智慧生灵间唯一通行的语言。为了修正如是错误，抹去宇宙的污点，纳努克成为熵之化身，怀抱对诸神的否定飞升成神。「毁灭」并非过程，而是结果。在祂允诺的道路上，一切命途星神都将在热寂中终结。',
-  },
-  {
-    id: 'preservation',
-    name: '存护',
-    aeon: '克里珀',
-    emblem: '◈',
-    intro: '天慧星墙、亚空晶壁与巨引源基盘的砌造者，崇拜者称其为「琥珀王」。',
-    lines: [
-      '哲思者仰望星河，探求文明的终极目标——「筑墙。」',
-      '它知晓大敌的吞噬迫在眉睫，因此只能以光年为单位铸造障壁，隔绝尚有生机的世界。',
-    ],
-    blurb: '为脆弱筑墙，将熄灭挡在身外。',
-    description: '天慧星墙、亚空晶壁、巨引源基盘的砌造者，崇拜者称其「琥珀王」。祂为更古老的黄昏战争幸存者，知晓大敌的吞噬迫在眉睫，因此不得不以光年为单位铸造障壁加以封印，隔绝保护尚有生机的世界。',
-  },
-  {
-    id: 'abundance',
-    name: '丰饶',
-    aeon: '药师',
-    emblem: '✿',
-    intro: '众生哺育者，乐土之神，旨在令生命兴盛不熄。',
-    lines: [
-      '花儿肆意绽放，迎向无法逃避的凋零；鸟儿展翼啼唱，飞向无法逃避的坠落。',
-      '宇宙间必有一方灵药，足以医治名为「短寿」的顽疾。',
-    ],
-    blurb: '生命滋长，伤痛被温柔抚平。',
-    description: '众生哺育者，乐土之神，旨在令生命兴盛不熄。药师执掌「丰饶」命途，「巡猎」的岚视祂为死敌。祂是从不拒绝祈愿，不忍视衰亡和病痛的星神。',
-  },
-  {
-    id: 'remembrance',
-    name: '记忆',
-    aeon: '浮黎',
-    emblem: '❉',
-    intro: '思维即是存在，记忆即是存在的证据。',
-    lines: [
-      '时间是世上最勤劳的窃贼，它不断偷走我们的当下，再随手扔进名为「记忆」的仓库。',
-      '世间没有比记忆更包容的存在，而浮黎是溯游的鱼群，亦是宝库的钥匙。',
-    ],
-    blurb: '收集星河之中将被遗忘的片段。',
-    description: '思维即是存在，记忆即是存在的证据。执掌「记忆」命途的星神记录被遗忘的一切，为宇宙的重生做好准备。',
-  },
-  {
-    id: 'erudition',
-    name: '智识',
-    aeon: '博识尊',
-    emblem: '✺',
-    intro: '执掌智识之命途的星神，原为求解万物的星体计算机。',
-    lines: [
-      '假使宇宙的真理残酷而无趣，你依然渴求答案吗？',
-      '万物皆是疑问，一切必有解答。博识尊试图体认宇宙，解开万物之谜。',
-    ],
-    blurb: '把未知拆解成可被读出的语言。',
-    description: '执掌「智识」命途的星神，原为用于求解万物的星体计算机，由机器升格而成。博识尊试图体认宇宙，解开万物之谜。',
-  },
-  {
-    id: 'elation',
-    name: '欢愉',
-    aeon: '阿哈',
-    emblem: '✧',
-    intro: '「欢愉」的星神。无人能预测祂会因何开怀大笑。',
-    lines: [
-      '智识是坨废铁，存护是个呆子；巡猎毫无幽默感，毁灭像个疯子。星神都一根筋，阿哈真没面子！',
-      '懂得欢乐是智慧生灵独有的权利。顽石与星辰都无从体察生命的幽默。寻求棋逢对手的敌人，寻求消磨光阴的游戏，寻求不问胜负的结局；寻求捧腹绝倒的笑谈，寻求阴差阳错的误会，寻求神思飞舞的歌谣。',
-    ],
-    blurb: '将平庸的日常变作不可重复的烟火。',
-    description: '欢乐乃是智慧生灵的特权，阿哈鼓舞信徒享受生命的欢愉，自命运刀锋般的转折中寻求快乐。祂不追求秩序与正确，只偏爱荒诞、胜负之外与令人捧腹的偏差。',
-  },
-  {
-    id: 'nihility',
-    name: '虚无',
-    aeon: 'IX',
-    emblem: '◇',
-    intro: '执掌「虚无」命途的星神，其存在是一个谜。',
-    lines: [
-      '你尽可仰望璀璨的繁星，但切忌凝视虚无的深渊……那片黑雾中空无一物，仅一瞥便足以令凡人摒弃理智。',
-      '「虚无」的存在是一个谜，祂的形象被层层叠叠的迷雾包裹着。IX 不与其他星神往来，祂相信多宇宙的本质乃是虚无，因而存在毫无价值。',
-    ],
-    blurb: '凝视空无之处，亦被空无凝视。',
-    description: 'Ⅸ不与其他星神往来，祂相信多宇宙的本质乃是虚无，因而毫无价值。虚无像一团层层雾障，靠近时会让人意识到一切都可能失重。',
-  },
-  {
-    id: 'harmony',
-    name: '同谐',
-    aeon: '希佩',
-    emblem: '✳',
-    intro: '来自多个谐乐天体世界的星神，执掌「同谐」命途。',
-    lines: [
-      '普世同谐，群星共熠，无上功德颂神主！世人同袍，万物同根，赐福之风拂大地！',
-      '来自多个谐乐天体世界的集群星神。千面一体的希佩，宣唱着和谐一致的喜乐。为了对抗宇宙无情的法则，智慧生命需要抹煞孱弱的私欲与个体的差别，融入同一阙谐乐中——以强援弱，以死护生。',
-    ],
-    blurb: '让相异的声响汇聚成同一支乐章。',
-    description: '来自多个谐乐天体世界的集群星神。千面一体的希佩，宣唱着和谐一致的喜乐。为了对抗宇宙无情的法则，智慧生命需要抹煞孱弱的私欲与个体的差别，融入同一阙谐乐中——以强援弱，以死护生。',
-  },
-  {
-    id: 'trailblaze',
-    name: '开拓',
-    aeon: '阿基维利',
-    emblem: '✦',
-    intro: '已陨落的开拓星神，以星轨连接彼此隔绝的世界。',
-    lines: [
-      '命运的罗盘上标着三个方向：未知、已知和不可知。可以忍受未知，却绝不能屈服于不可知。',
-      '宇宙本无路，走过去了，就有了路。道路不是征服的疆界，而是让文明、希望与羁绊彼此抵达的连接。',
-    ],
-    blurb: '走向未知，为彼此隔绝的世界铺成道路。',
-    description: '阿基维利曾乘星穹列车穿行诸界，以星轨连接文明孤岛。开拓并不替一个世界决定命运，而是在未知与不可知之间踏出道路，让相遇、交流与选择成为可能。星神虽已陨落，开拓的旅途仍由无名客延续。',
-  },
-  {
-    id: 'propagation',
-    name: '繁育',
-    aeon: '塔伊兹育罗斯',
-    emblem: '⬡',
-    intro: '已陨落的虫皇，将存在归结为永无止境的繁衍与扩张。',
-    lines: [
-      '如果正午的天边浮现了黑影，闭紧你的房门——那不是提前到来的夜色，而是饥肠辘辘的虫群。',
-      '在繁育的意志中，精神、科技与哲理都只是生命延续自身时偶然生出的枝叶；存在本身，就是复制与扩张。',
-    ],
-    blurb: '复制、增殖、扩张，让生命拒绝消亡。',
-    description: '塔伊兹育罗斯将生命最原始的繁衍本能推向宇宙尺度。繁育不追问存在为何有意义，只要求生命继续复制、感染与扩张，以无穷数量抵抗消亡。虫皇虽已陨落，寰宇蝗灾留下的回响仍未彻底止息。',
-  },
-  {
-    id: 'voracity',
-    name: '贪饕',
-    aeon: '奥博洛斯',
-    emblem: '◉',
-    intro: '诸界渴饮者，永无餍足的吞噬者，会思考的黑洞。',
-    lines: [
-      '虫蚁之于飞禽，野兔之于狼犬，星尘之于黑洞，诸界之于贪饕。',
-      '生命如虚空中转瞬即逝的浮藻，终将随星辰归于黑暗；而奥博洛斯选择主动成为那片黑暗。',
-    ],
-    blurb: '吞噬一切存在与光，让万物归于无餍的黑暗。',
-    description: '奥博洛斯既是星神，也是古兽。贪饕将宇宙终将归寂的趋势化为主动吞噬的意志，以永远无法满足的食欲加速万物的消亡。祂与筑墙守护的克里珀互为古老宿敌。',
-  },
-  {
-    id: 'enigmata',
-    name: '神秘',
-    aeon: '迷思',
-    emblem: '◇',
-    intro: '以迷雾、隐喻与虚构抵抗被穷尽的确定性。',
-    lines: [
-      '放弃追问如同豪雨放弃星辰的虔诚，放任隐喻的洪流穿过你的身体。',
-      '宇宙不可穷解，有限之物无法想象无限；当一切都被确定，可能性本身也会随之死亡。',
-    ],
-    blurb: '遮蔽确定的答案，为不可知保留生存的余地。',
-    description: '迷思认为万物皆可体认是一种危险的傲慢。神秘以思想之雾、感官之雨、谜语与幻象破坏过度确定的真理，让不可知继续作为宇宙的变量存在。虚构史学家正是这条命途最著名的践行者。',
-  },
-  {
-    id: 'equilibrium',
-    name: '均衡',
-    aeon: '互',
-    emblem: '⚖',
-    intro: '将意志溶入宇宙运移的脉络，维系万物之间的精密平衡。',
-    lines: [
-      '凡人挂于唇齿的因果链条，不过是对事态背后繁杂拓扑的粗略概括。',
-      '任何一方的过度膨胀都会把宇宙推向失衡；均衡不创造极端，只让对立重新抵达天平两端。',
-    ],
-    blurb: '抹平过度膨胀的极端，让宇宙重归天平。',
-    description: '互是已知最古老的星神之一，祂将自身意志融入宇宙运行的逻辑。均衡的追随者以仲裁者自居，在善恶、美丑、盛衰与得失之间修正偏斜，使任何足以吞没其余可能的极端重新受到制衡。',
-  },
-  {
-    id: 'order',
-    name: '秩序',
-    aeon: '太一',
-    emblem: '▦',
-    intro: '已被同谐吞噬的古老星神，以绝对规则统御混乱与不确定。',
-    lines: [
-      '白昼与黑夜将在我的调弦下达到完美平衡，我将赐予弱者直视太阳的权利。',
-      '秩序相信混乱是灾祸的源头，唯有让万物各居其位、各守其责，世界才能高效而恒定地延续。',
-    ],
-    blurb: '以绝对规则排列万物，将混乱锁入确定的轨道。',
-    description: '太一的存在本身就是秩序法则的具象表现。与同谐包容多元共鸣不同，秩序要求一切个体服从统一铁律，以确定性换取稳定与效率。太一最终被希佩同化，但秩序留下的回响仍在寰宇间延续。',
-  },
-  {
-    id: 'finality',
-    name: '终末',
-    aeon: '末王',
-    emblem: '⌛',
-    intro: '从未来逆时而行，向过去宣告必将实现的终局。',
-    lines: [
-      '诞生于热寂之时，逆时而上，穿行于宙域之间，喃喃宣布着必将实现的预言。',
-      '终点早已存在，预言的意义并非教人逃避，而是让人在知晓结局之后重新审视每一步。',
-    ],
-    blurb: '凝视早已写定的终点，在必然中选择如何抵达。',
-    description: '末王自未来向过去逆时而行，祂宣告的并非可能发生之事，而是必将实现的预言。终末的践行者试图从含混话语中解读终局，在无法回避的结局面前确认过程、见证与选择仍意味着什么。',
-  },
-  {
-    id: 'beauty',
-    name: '纯美',
-    aeon: '伊德莉拉',
-    emblem: '❖',
-    intro: '已失踪的纯美星神，将美视为宇宙存在的终极意义。',
-    lines: [
-      '几尺布绸为美，几行散诗为美，几串音符为美——欢迎来到「美」之赞誉一文不值的年代！',
-      '真正的美超越功利与占有；追寻美并非为了回报，而是因为美本身就值得被见证与捍卫。',
-    ],
-    blurb: '淬炼身心并守护美，让存在显露其应有的光辉。',
-    description: '伊德莉拉在诡丽变幻的宇宙图景中窥见了被称为「美」的终极意义。纯美骑士以近乎苛刻的骑士道淬炼肉体、智慧与精神，不为功利，只为见证、赞颂并守护他们认定的美。',
-  },
-  {
-    id: 'permanence',
-    name: '不朽',
-    aeon: '龙',
-    emblem: '∞',
-    intro: '已陨落的天渊万龙之祖，以传承超越个体生死。',
-    lines: [
-      '传承即为存在，血脉皆为永生。',
-      '个体的永恒终会沦为妄念；真正的不朽，是文明的血脉与精神在无数代人之间流淌不息。',
-    ],
-    blurb: '让血脉、记忆与文明跨越个体的生死继续传承。',
-    description: '古老星神龙被尊为天渊万龙之祖。与丰饶追求个体长生不同，不朽把死亡也视作传承的一环，使血脉、使命与文明精神越过一代人的终点继续存在。星神虽已陨落，其遗产仍在持明族与诸多古老传承中回响。',
-  },
-];
+export { getPath, paths } from './pathCatalog';
 
-export function getPath(id: string): 命途定义 | undefined {
-  return paths.find((p) => p.id === id);
-}
-
-// ── 组织背景 ──
-// 开局向导只把它作为叙事身份写入档案和首回合摘要,不创建阵营声望系统。
 export const factions: 阵营定义[] = [
   {
     id: 'none',
@@ -396,7 +135,7 @@ export const openingRegions: 开局地区[] = [
     defaultLocationHint: '翁法罗斯',
   },
   {
-    id: 'erxiang_paradise',
+    id: 'planarcadia',
     name: '二相乐园',
     description: '欢愉星神驻足、公司重建的幻造艺术之都，愿力、幻月游戏与灾异丛生。',
     defaultLocationHint: '二相乐园',
@@ -579,7 +318,7 @@ export const openingChapterAnchors: 开局章节锚点[] = [
     id: 'amphoreus_sun_hurt',
     regionId: 'amphoreus',
     name: '循环裂隙',
-    summary: '永劫回归出现裂隙，同一时刻反复重演，只有玩家记得"上一遍"发生过什么。',
+    summary: '永劫回归出现裂隙，同一时刻反复重演，只有玩家记得「上一遍」发生过什么。',
     officialChapterName: '因为太阳将要毁伤',
     officialChapterPhase: '第一章「英雄啊，兑现那染血的冀望」',
     priorStoryState: '奥赫玛中后段与此前主线已作为背景前置处理，不进入正文转跳推进；正文直接从循环裂隙、记忆错位与白厄的轮回展开。',
@@ -589,8 +328,8 @@ export const openingChapterAnchors: 开局章节锚点[] = [
     openingPressure: ['同一日反复重演', '只有玩家记得昨天', '记忆与现实的错位', '循环尽头的真相'],
   },
   {
-    id: 'erxiang_paradise_welcome',
-    regionId: 'erxiang_paradise',
+    id: 'planarcadia_welcome',
+    regionId: 'planarcadia',
     name: '幻月满盈',
     summary: '幻月再度满盈，幻月游戏开启在即，愿力过载催生灾异，规则怪谈开始在乐园各处应验。',
     officialChapterName: '欢迎来到乐园',
@@ -602,8 +341,8 @@ export const openingChapterAnchors: 开局章节锚点[] = [
     openingPressure: ['规则怪谈应验', '幻月睁眼', '身份误认', '灾异隐现'],
   },
   {
-    id: 'erxiang_paradise_pigeon_river',
-    regionId: 'erxiang_paradise',
+    id: 'planarcadia_pigeon_river',
+    regionId: 'planarcadia',
     name: '鸽川区暗流',
     summary: '鸽川区 noir 街区暗流涌动，共愿帮灭门、告死魔传闻与公司封锁交织成谜。',
     officialChapterName: '献给破晓的失控',
@@ -615,8 +354,8 @@ export const openingChapterAnchors: 开局章节锚点[] = [
     openingPressure: ['灭门现场封锁', '委托人双重身份', '告死魔传闻', '月影门锁'],
   },
   {
-    id: 'erxiang_paradise_academy',
-    regionId: 'erxiang_paradise',
+    id: 'planarcadia_academy',
+    regionId: 'planarcadia',
     name: '火花大会',
     summary: '绘世学院被模因病毒侵染，认知篡改扩散，火花大会直播在即，虚实界限开始崩塌。',
     officialChapterName: '欢迎来到乐园',
@@ -628,8 +367,8 @@ export const openingChapterAnchors: 开局章节锚点[] = [
     openingPressure: ['认知被篡改', '师生真假难辨', '直播倒计时', '画中异动'],
   },
   {
-    id: 'erxiang_paradise_ink_residue',
-    regionId: 'erxiang_paradise',
+    id: 'planarcadia_ink_residue',
+    regionId: 'planarcadia',
     name: '残卷墨色',
     summary: '归寂战后，残卷裂隙渗出墨色，画中物爬出画卷，绯英沉睡建木待醒，余波未平。',
     officialChapterName: '鸣笛于归寂之时',
@@ -863,7 +602,7 @@ export const officialOpeningPresets: 官方开局预设[] = [
     chapterId: 'amphoreus_sun_hurt',
     chapterName: '循环裂隙',
     title: '翁法罗斯 · 循环裂隙',
-    summary: '以永劫回归裂隙为背景，玩家成为"只有自己记得上一遍"的循环外变量，在记忆错位与反复重演间切入主线。',
+    summary: '以永劫回归裂隙为背景，玩家成为「只有自己记得上一遍」的循环外变量，在记忆错位与反复重演间切入主线。',
     defaultLocationHint: '翁法罗斯 · 奥赫玛街区或哀丽秘榭',
     keyNpcs: ['白厄', '昔涟', '来古士', '迷迷'],
     loreKeywords: ['永劫回归', '循环裂隙', '记忆错位', '白厄', '哀丽秘榭'],
@@ -871,11 +610,11 @@ export const officialOpeningPresets: 官方开局预设[] = [
     recommendedEntryAngles: ['从同一天第三次醒来开始', '从只有自己记得昨天的奥赫玛街区切入', '从哀丽秘榭稻田里不该存在的秋千切入', '被循环裂隙的记忆碎片引向来古士'],
   },
   {
-    id: 'official_erxiang_paradise_welcome',
+    id: 'official_planarcadia_welcome',
     source: 'official_preset',
-    regionId: 'erxiang_paradise',
+    regionId: 'planarcadia',
     regionName: '二相乐园',
-    chapterId: 'erxiang_paradise_welcome',
+    chapterId: 'planarcadia_welcome',
     chapterName: '幻月满盈',
     title: '二相乐园 · 幻月满盈的观光客',
     summary: '以幻月满盈与规则怪谈为背景，玩家作为游客抵达这欢乐与异常交织的乐园，在指南条款逐条应验时切入主线。',
@@ -886,11 +625,11 @@ export const officialOpeningPresets: 官方开局预设[] = [
     recommendedEntryAngles: ['作为观光客入住触发第一起异常', '以星铁FES从业者身份入境', '受公司委托评估乐园治安', '循房间隔壁七下敲门声切入'],
   },
   {
-    id: 'official_erxiang_paradise_pigeon_river',
+    id: 'official_planarcadia_pigeon_river',
     source: 'official_preset',
-    regionId: 'erxiang_paradise',
+    regionId: 'planarcadia',
     regionName: '二相乐园',
-    chapterId: 'erxiang_paradise_pigeon_river',
+    chapterId: 'planarcadia_pigeon_river',
     chapterName: '鸽川区暗流',
     title: '二相乐园 · 鸽川区的告死魔传闻',
     summary: '以鸽川 noir 街区、灭门案与告死魔传闻为背景，玩家以委托者身份从世界尽头酒馆或封锁现场切入主线。',
@@ -901,11 +640,11 @@ export const officialOpeningPresets: 官方开局预设[] = [
     recommendedEntryAngles: ['从月影门锁开始以钥匙换线索', '受托进入封锁的共愿帮总部取证', '被狸猫记者缠上合作调查', '从委托人警告的合影切入'],
   },
   {
-    id: 'official_erxiang_paradise_academy',
+    id: 'official_planarcadia_academy',
     source: 'official_preset',
-    regionId: 'erxiang_paradise',
+    regionId: 'planarcadia',
     regionName: '二相乐园',
-    chapterId: 'erxiang_paradise_academy',
+    chapterId: 'planarcadia_academy',
     chapterName: '火花大会',
     title: '二相乐园 · 火花大会的直播事故',
     summary: '以绘世学院模因病毒与认知篡改为背景，玩家在直播倒计时中成为少数清醒者，在真假难辨的人群里切入主线。',
@@ -916,11 +655,11 @@ export const officialOpeningPresets: 官方开局预设[] = [
     recommendedEntryAngles: ['作为旁听生第一个发现认知异常', '以直播技术顾问身份在导播间撞见异常', '受教授委托送一封每次读都不一样的信', '从彩排点名事件切入'],
   },
   {
-    id: 'official_erxiang_paradise_ink_residue',
+    id: 'official_planarcadia_ink_residue',
     source: 'official_preset',
-    regionId: 'erxiang_paradise',
+    regionId: 'planarcadia',
     regionName: '二相乐园',
-    chapterId: 'erxiang_paradise_ink_residue',
+    chapterId: 'planarcadia_ink_residue',
     chapterName: '残卷墨色',
     title: '二相乐园 · 残卷墨色',
     summary: '以归寂战后、贪饕低吼未平的余波为背景，玩家以调查员或异闻记者身份，从画中物爬出画卷的异变切入终局余波主线。',
@@ -929,39 +668,6 @@ export const officialOpeningPresets: 官方开局预设[] = [
     loreKeywords: ['残卷', '墨色', '贪饕', '建木', '绯英苏醒', '幸研会余波'],
     openingPressure: ['残卷裂隙渗出墨色', '画中物爬出画卷', '绯英沉睡待醒', '公司重启折叠入画预案'],
     recommendedEntryAngles: ['以异闻记者身份追查画中爬出之物', '受委托监视废园建木', '从谒者失踪报案查向渡画泉隐', '循爻光留在建木下的字条线索切入'],
-  },
-];
-
-export const freeOpeningWritingQuestions: 自由开局写作问题[] = [
-  {
-    id: 'identity',
-    title: '你是谁',
-    description: '写清身份、来历、阵营关系和别人第一眼会怎样判断你。',
-    examples: ['空间站临时研究协助者', '受雇调查裂界异动的外来人', '持有邀请函的匹诺康尼宾客'],
-  },
-  {
-    id: 'reason',
-    title: '你为什么在这里',
-    description: '给出抵达当前地区的原因，最好能和委托、事故、调查、邀请或逃亡相连。',
-    examples: ['收到求援通讯', '追踪一枚异常信标', '被某位角色邀请同行'],
-  },
-  {
-    id: 'entry_scene',
-    title: '从哪里开始',
-    description: '指定初始地点、事件前后或第一个可互动对象，避免开局只剩背景介绍。',
-    examples: ['流云渡盘查口', '下层区娜塔莎诊所外', '白日梦酒店入住柜台'],
-  },
-  {
-    id: 'relationships',
-    title: '你认识谁',
-    description: '说明和重要角色是陌生、见过、合作过、亲近还是有矛盾。没有写明就默认陌生或初识。',
-    examples: ['与素裳有过一次护送合作', '只在档案中见过黑塔', '和砂金互相试探但谈不上信任'],
-  },
-  {
-    id: 'tone',
-    title: '你想要什么氛围',
-    description: '选择日常、悬疑、战斗、暧昧、调查、轻松或压迫感，让首回合更贴近玩法。',
-    examples: ['偏调查和悬疑', '先日常相处再进入主线', '直接从危机现场开场'],
   },
 ];
 
@@ -1010,21 +716,21 @@ export const freeOpeningGuides: 地区自由开局引导[] = [
     regionId: 'amphoreus',
     overview: '翁法罗斯适合写成异乡人被吞噬、本地人卷入黑潮、逐火之旅旁观者或永劫回归裂隙中的变量。',
     identityHints: ['随列车坠落卷入的异乡人', '奥赫玛本地住民', '迷途的忆域旅人', '黄金裔的旧识', '循环中多出一段记忆的人'],
-    entryAngles: ['在命运重渊的废墟中苏醒', '混入雅努萨波利斯难民潮', '持文书进入奥赫玛圣城', '在斯缇科西亚冥界门口醒来', '发现自己记得"上一遍"发生过的事'],
+    entryAngles: ['在命运重渊的废墟中苏醒', '混入雅努萨波利斯难民潮', '持文书进入奥赫玛圣城', '在斯缇科西亚冥界门口醒来', '发现自己记得「上一遍」发生过的事'],
     relationshipHints: ['可提前认识白厄、缇宝或某位城邦住民', '阿格莱雅的金线不会无条件信任外来者', '黄金裔背负的使命与人情由正文逐步展开'],
     pacingHints: ['想慢热可从奥赫玛街巷日常或集市开始', '想紧张可从黑潮压城、无机士兵围剿或冥界守卫追捕开始'],
     cautionNotes: ['章节锚点只是背景参考，不会强迫玩家立刻接管逐火之旅', '涉及来古士或创世涡心时需保留真相悬念，不提前揭穿模拟世界'],
     sampleTexts: ['我是循着记忆里一道不该存在的光抵达翁法罗斯的忆域旅人，醒来时身边是燃烧的废墟和无机士兵，一个白发身影从天上落下挡在我面前。'],
   },
   {
-    regionId: 'erxiang_paradise',
+    regionId: 'planarcadia',
     overview: '二相乐园适合写成观光客卷入怪谈、公司委托、乐土艺术悬案或幻月游戏边缘的变量。',
     identityHints: ['普通观光客', '星铁FES展会从业者', '受雇调查的侦探或记者', '被公司邀请的评估员', '误入乐园的外来者'],
     entryAngles: ['在二维市站台降落', '入住酒店后触发指南条款', '在鸽川区接下第一单委托', '进入绘世学院时发现认知异常', '在渡画泉隐看见残卷渗墨'],
     relationshipHints: ['可提前认识花火、真珠或某位鸽川住民', '公司势力不会轻易交出真相', '幻造种的身份与来由由正文逐步揭示'],
     pacingHints: ['想轻松可从乐园奇观、展会或酒馆日常开始', '想悬疑可从规则怪谈应验、灭门传闻或认知篡改开始'],
     cautionNotes: ['自由开局可以弱化主线，但愿力、幻月与公司秩序仍要保留', '不要让所有关键人物一开场同时围着玩家转'],
-    sampleTexts: ['我以展会从业者身份抵达二相乐园，酒店床头摆着《突发事件应对指南》，深夜隔壁传来七下敲门声，和指南里描述的"引路人"节奏完全一致。'],
+    sampleTexts: ['我以展会从业者身份抵达二相乐园，酒店床头摆着《突发事件应对指南》，深夜隔壁传来七下敲门声，和指南里描述的「引路人」节奏完全一致。'],
   },
 ];
 
@@ -1136,8 +842,6 @@ export const workshopOpeningTemplatePacks: 创意工坊开局模板包[] = [
   },
 ];
 
-// ── 能力预设 ──
-// 开局特质：偏向崩铁世界观中的技术、命途、裂界、光锥与智库适性。
 export const abilityPresets: 能力预设[] = [
   {
     id: 'path_resonance',
@@ -1171,9 +875,6 @@ export const abilityPresets: 能力预设[] = [
   },
 ];
 
-// ── 起始地点 / 官方章节锚点 ──
-// 多开局重构后，这里暴露各地区的官方章节入口。
-// 自由开局与创意工坊会通过开局档案承接玩家自定义切入，不再把黑塔空间站作为唯一默认路线。
 export const startingScenarios: 起始场景[] = [
   {
     id: 'heita_station_incident',
@@ -1314,7 +1015,7 @@ export const startingScenarios: 起始场景[] = [
     description: '以永恒金光下的奥赫玛圣城为背景，金线耳目、公民大会与死人来信交织暗流。',
     officialPresetId: 'official_amphoreus_golden_thread',
     openingHighlights: [
-      '金线的盘问让"外来者"身份从第一刻就有分量。',
+      '金线的盘问让「外来者」身份从第一刻就有分量。',
       '公民大会、盗火行者和黑潮压城构成渐进的压迫感。',
       '玩家可从商旅、门徒或调查者身份进入圣城。',
     ],
@@ -1325,7 +1026,7 @@ export const startingScenarios: 起始场景[] = [
     description: '以冥界入口为舞台，死亡名册、冥河记忆与花海谜影构成独特的生死秩序开局。',
     officialPresetId: 'official_amphoreus_styx',
     openingHighlights: [
-      '"名字不在死亡名册上"是斯缇科西亚最特别的开局张力。',
+      '「名字不在死亡名册上」是斯缇科西亚最特别的开局张力。',
       '冥界规则与记忆碎片为后续真相埋下伏笔。',
       '玩家可从逃亡亡魂、摆渡之约或花海追寻切入。',
     ],
@@ -1336,27 +1037,27 @@ export const startingScenarios: 起始场景[] = [
     description: '以永劫回归裂隙为舞台，反复重演与唯一记忆构成时间线玩法的独特开局。',
     officialPresetId: 'official_amphoreus_loop',
     openingHighlights: [
-      '只有玩家记得"上一遍"是循环开局的核心机制。',
+      '只有玩家记得「上一遍」是循环开局的核心机制。',
       '记忆错位让每个熟悉面孔都可能藏着反转。',
       '玩家可从第三次醒来、街区异常或旧日重现切入。',
     ],
   },
   {
-    id: 'erxiang_paradise_welcome',
+    id: 'planarcadia_welcome',
     name: '二相乐园 · 幻月满盈的观光客',
     description: '以幻月满盈与规则怪谈为背景，欢乐表面与异常应验交错，适合观光客与怪谈切入。',
-    officialPresetId: 'official_erxiang_paradise_welcome',
+    officialPresetId: 'official_planarcadia_welcome',
     openingHighlights: [
       '突发事件应对指南的逐条应验是乐园开局的引擎。',
       '幻月睁眼、身份误认与公司背景共同塑造氛围。',
-      '玩家可从观光客、展会更业者或治安评估者切入。',
+      '玩家可从观光客、展会从业者或治安评估者切入。',
     ],
   },
   {
-    id: 'erxiang_paradise_pigeon_river',
+    id: 'planarcadia_pigeon_river',
     name: '二相乐园 · 鸽川区的告死魔传闻',
     description: '以鸽川 noir 街区与灭门案为背景，委托、传闻与公司封锁构成侦探线开局。',
-    officialPresetId: 'official_erxiang_paradise_pigeon_river',
+    officialPresetId: 'official_planarcadia_pigeon_river',
     openingHighlights: [
       '灭门案与告死魔传闻让开局自带 noir 质感。',
       '世界尽头酒馆的月影门锁是天然的解谜入口。',
@@ -1364,10 +1065,10 @@ export const startingScenarios: 起始场景[] = [
     ],
   },
   {
-    id: 'erxiang_paradise_academy',
+    id: 'planarcadia_academy',
     name: '二相乐园 · 火花大会的直播事故',
     description: '以绘世学院模因病毒与认知篡改为背景，直播倒计时与真假难辨构成压迫感开局。',
-    officialPresetId: 'official_erxiang_paradise_academy',
+    officialPresetId: 'official_planarcadia_academy',
     openingHighlights: [
       '认知被篡改、师生真假难辨是火花大会开局的核心张力。',
       '直播倒计时让每一步调查都有时间压力。',
@@ -1375,10 +1076,10 @@ export const startingScenarios: 起始场景[] = [
     ],
   },
   {
-    id: 'erxiang_paradise_ink_residue',
+    id: 'planarcadia_ink_residue',
     name: '二相乐园 · 残卷墨色',
     description: '以归寂战后余波为背景，残卷渗墨、画中物爬出与绯英沉睡构成终局线开局。',
-    officialPresetId: 'official_erxiang_paradise_ink_residue',
+    officialPresetId: 'official_planarcadia_ink_residue',
     openingHighlights: [
       '贪饕低吼未平、残卷裂隙扩张让开局自带终局压迫。',
       '绯英沉睡待醒与公司预案交织新悬念。',
@@ -1411,6 +1112,23 @@ export function getOfficialOpeningPresetsByRegion(regionId: string): 官方开�
   return officialOpeningPresets.filter((preset) => preset.regionId === regionId);
 }
 
+/** 按章节 ID 解析仅作旧存档与自由 / 创意工坊布局的兜底。 */
+export function resolveOfficialOpeningPreset(id: string): 官方开局预设 | undefined {
+  return getOfficialOpeningPreset(id) ?? getOfficialOpeningPresetByChapterId(id);
+}
+
+export function isKnownOpeningScenarioId(id: unknown): id is string {
+  if (typeof id !== 'string' || !id.trim()) return false;
+  const value = id.trim();
+  return Boolean(getOfficialOpeningPreset(value) || getOpeningChapterAnchor(value) || getStartingScenario(value));
+}
+
+export function getDefaultOpeningScenarioId(): string {
+  const scenario = startingScenarios.at(0);
+  const preset = scenario?.officialPresetId ? getOfficialOpeningPreset(scenario.officialPresetId) : undefined;
+  return preset?.id ?? scenario?.id ?? '';
+}
+
 export function getFreeOpeningGuide(regionId: string): 地区自由开局引导 | undefined {
   return freeOpeningGuides.find((guide) => guide.regionId === regionId);
 }
@@ -1423,22 +1141,17 @@ export function getWorkshopOpeningTemplatesByRegion(regionId: string): 创意工
   return workshopOpeningTemplates.filter((template) => template.regionId === regionId);
 }
 
-export function getWorkshopOpeningTemplatePack(schema = 'kaituo-opening-workshop-pack'): 创意工坊开局模板包 | undefined {
-  return workshopOpeningTemplatePacks.find((pack) => pack.schema === schema);
-}
-
 export function getOpeningScenarioBundle(scenarioId: string): {
   region?: 开局地区;
   chapter?: 开局章节锚点;
   preset?: 官方开局预设;
 } {
-  const scenario = getStartingScenario(scenarioId);
-  const directPreset = getOfficialOpeningPreset(scenario?.officialPresetId ?? scenarioId);
-  const chapter = getOpeningChapterAnchor(directPreset?.chapterId ?? scenarioId);
-  const preset = directPreset
-    ?? getOfficialOpeningPresetByChapterId(scenarioId)
-    ?? (chapter ? getOfficialOpeningPresetByChapterId(chapter.id) : undefined)
-    ?? officialOpeningPresets.find((item) => item.chapterId === scenarioId || item.regionId === chapter?.regionId);
-  const region = chapter ? getOpeningRegion(chapter.regionId) : preset ? getOpeningRegion(preset.regionId) : undefined;
+  const id = scenarioId.trim();
+  if (!id) return {};
+  const scenario = getStartingScenario(id);
+  const preset = resolveOfficialOpeningPreset(id)
+    ?? (scenario?.officialPresetId ? getOfficialOpeningPreset(scenario.officialPresetId) : undefined);
+  const chapter = getOpeningChapterAnchor(preset?.chapterId ?? id);
+  const region = getOpeningRegion(chapter?.regionId ?? preset?.regionId ?? '');
   return { region, chapter, preset };
 }

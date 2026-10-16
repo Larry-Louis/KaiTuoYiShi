@@ -1,40 +1,24 @@
 ﻿import { useMemo, useState } from 'react';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
-import { 创建默认记忆系统设置 } from '@/models/settings';
-import { fetchModels, testConnection, type ConnectionTestResult } from '@/services/ai/apiTools';
-import { saveSetting } from '@/services/dbService';
+import type { ConnectionTestConfig, ConnectionTestResult } from '@/hooks/useAiTools';
+import { resolveMainApiConfig } from '@/services/apiConfig';
+import { providerOptions } from './settingsShared';
+import { cardClip, mediumClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
 interface Props {
   settings: 游戏设置;
   onChange: (s: 游戏设置) => void;
   apiSettings: API设置;
+  onPersistSettings: (s: 游戏设置) => Promise<void>;
+  fetchModels: (config: ConnectionTestConfig) => Promise<string[]>;
+  testConnection: (config: ConnectionTestConfig) => Promise<ConnectionTestResult>;
 }
 
-const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: string; defaultModel: string }[] = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'openai', label: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { value: 'deepseek', label: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { value: 'baidu', label: '百度千帆', defaultBaseUrl: 'https://qianfan.baidubce.com/v2', defaultModel: 'ernie-4.5-turbo-128k' },
-  { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
-  { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
-  { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
-  { value: 'cline', label: 'Cline', defaultBaseUrl: 'https://api.cline.bot/api/v1', defaultModel: 'cline-pass/kimi-k3' },
-  { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
-];
 
-const cardClip = 'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
-const smallClip = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
-export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Props) {
-  const memory = settings.记忆系统 ?? 创建默认记忆系统设置();
-  // 该字段由记忆系统模型统一迁移；这里保留对旧存档的兼容读取。
-  const apiSummaryEnabled = (memory as typeof memory & { 启用中短长期API总结?: boolean }).启用中短长期API总结 !== false;
-  const mainConfig = useMemo(
-    () => apiSettings.configs.find((c) => c.id === apiSettings.activeConfigId) ?? null,
-    [apiSettings.activeConfigId, apiSettings.configs],
-  );
+export function MemorySystemSettingsTab({ settings, onChange, apiSettings, onPersistSettings, fetchModels, testConnection }: Props) {
+  const memory = settings.记忆系统;
+  const mainConfig = resolveMainApiConfig(apiSettings);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -59,8 +43,8 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
     model: memory.记忆总结API.model.trim() || mainConfig?.model || '',
     maxTokens: memory.记忆总结API.maxTokens ?? mainConfig?.maxTokens,
     temperature: memory.记忆总结API.temperature ?? mainConfig?.temperature,
-    retryCount: memory.记忆总结API.retryCount ?? mainConfig?.retryCount ?? 2,
-    enableClaudeMode: settings.enableClaudeMode === true,
+    retryCount: memory.记忆总结API.retryCount,
+    enableClaudeMode: settings.enableClaudeMode,
   };
 
   const modelChoices = useMemo(() => {
@@ -127,7 +111,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
 
   const handleSave = async () => {
     try {
-      await saveSetting('gameSettings', settings);
+      await onPersistSettings(settings);
       setSavedFlash(true);
       setSaveMessage({ kind: 'info', text: '记忆系统设置已保存。' });
       window.setTimeout(() => setSavedFlash(false), 1800);
@@ -144,7 +128,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
         style={{
           color: 'rgba(var(--tj-text-secondary), 0.78)',
           background: 'rgba(var(--tj-accent-primary), 0.05)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
           clipPath: cardClip,
         }}
       >
@@ -157,37 +141,25 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
       <Section title="系统开关">
         <ToggleField
           label="启用记忆注入"
-          desc="开启后，主剧情生成前会注入短期 / 中期 / 长期记忆；即时记忆只作为内部缓存和压缩入口。关闭后仍保留记忆入库和压缩。若下方 API 总结仍开启，达到阈值时仍会消耗 API 调用次数。"
+          desc="开启后，主剧情生成前会注入短期 / 中期 / 长期记忆；即时记忆只作为内部缓存和压缩入口。关闭后仍保留记忆入库和压缩，方便之后重新开启。"
           checked={settings.enableMemoryInjection}
           onChange={(checked) => onChange({ ...settings, enableMemoryInjection: checked })}
         />
-        <div className="mt-2">
-          <ToggleField
-            label="启用中短长期 API 总结"
-            desc="开启后，达到压缩阈值时调用记忆总结 API，生成质量更高的短期、中期和长期摘要。关闭后完全不调用记忆总结 API，改用本地摘要继续整理，不产生 API 调用次数。"
-            checked={apiSummaryEnabled}
-            onChange={(checked) =>
-              patchMemory({
-                启用中短长期API总结: checked,
-              } as Partial<typeof memory>)
-            }
-          />
-        </div>
-        <div className="mt-2">
-          <SelectField
-            label="主剧情历史模式"
-            value={memory.主剧情历史模式 ?? 'minimal'}
-            onChange={(value) =>
-              patchMemory({
-                主剧情历史模式: value as 'conservative' | 'minimal',
-              } as Partial<typeof memory>)
-            }
-            options={[
-              { value: 'minimal', label: '精简式（0 条原始历史，仅即时剧情回顾+当前输入）' },
-              { value: 'conservative', label: '保守式（最近 2 回合原始历史）' },
-            ]}
-          />
-        </div>
+        <SelectField
+          label="主剧情历史模式"
+          value={memory.主剧情历史模式}
+          onChange={(value) => patchMemory({ 主剧情历史模式: value === 'minimal' ? 'minimal' : 'conservative' })}
+          options={[
+            { value: 'conservative', label: '保守式（最近 20 条原始历史，默认）' },
+            { value: 'minimal', label: '极简式（有记忆注入时 0 条原文历史）' },
+          ]}
+        />
+        <ToggleField
+          label="启用中短长期 API 总结"
+          desc="开启后，达标的即时/短期/中期批次会调用记忆总结 API；关闭后始终使用本地摘要，不产生失败草稿。"
+          checked={memory.启用中短长期API总结}
+          onChange={(checked) => patchMemory({ 启用中短长期API总结: checked })}
+        />
       </Section>
 
       <Section title="记忆总结 API">
@@ -212,11 +184,11 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
               />
               <button
                 type="button"
-                onClick={handleFetchModels}
+                onClick={() => void handleFetchModels()}
                 className="px-3 py-1.5 text-xs font-serif tracking-wider transition-all disabled:opacity-50"
                 style={{
                   color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+                  border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
                   background: 'rgba(var(--tj-accent-primary), 0.06)',
                   clipPath: smallClip,
                 }}
@@ -272,7 +244,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
           />
           <NumberField
             label="重试"
-            value={memory.记忆总结API.retryCount ?? 2}
+            value={memory.记忆总结API.retryCount}
             onChange={(value) => patchApi({ retryCount: Math.max(0, Math.trunc(value)) })}
             hint="获取模型或压缩失败时自动重试的次数。"
             step={1}
@@ -284,11 +256,11 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={handleFetchModels}
+            onClick={() => void handleFetchModels()}
             className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
               background: 'rgba(var(--tj-accent-primary), 0.06)',
               clipPath: smallClip,
             }}
@@ -297,11 +269,11 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
           </button>
           <button
             type="button"
-            onClick={handleTestConnection}
+            onClick={() => void handleTestConnection()}
             className="px-3 py-1.5 text-sm font-serif tracking-wider transition-all disabled:opacity-50"
             style={{
               color: 'linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
               background: 'rgba(var(--tj-accent-primary), 0.06)',
               clipPath: smallClip,
             }}
@@ -322,7 +294,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             style={{
               color: message.kind === 'error' ? '#ffb7b7' : 'rgba(var(--tj-text-secondary), 0.95)',
               background: message.kind === 'error' ? 'rgba(120, 30, 30, 0.35)' : 'rgba(var(--tj-accent-primary), 0.05)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
               clipPath: smallClip,
             }}
           >
@@ -336,7 +308,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
             style={{
               color: testResult.ok ? 'rgba(220, 240, 220, 0.95)' : '#ffb7b7',
               background: testResult.ok ? 'rgba(60, 120, 70, 0.28)' : 'rgba(120, 30, 30, 0.35)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.12)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
               clipPath: smallClip,
             }}
           >
@@ -349,37 +321,28 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
       <Section title="自动压缩阈值">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <NumberField
-            label="即时消息上传条数"
+            label="即时 → 短期"
             value={memory.即时转短期阈值}
             onChange={(value) => patchMemory({ 即时转短期阈值: Math.max(1, Math.trunc(value)) })}
-            hint="对标参考项目：即时记忆滑动窗口上限（默认 10）；即时剧情回顾窗口 = 该值 - 1。即时层不调用 AI 压缩，超限时最旧条目的短期摘要自动滚入短期。"
+            hint="达到这个条数时，系统会自动把即时记忆整理进短期。"
           />
           <NumberField
             label="短期 → 中期"
             value={memory.短期转中期阈值}
-            onChange={(value) => {
-              const next = Math.max(1, Math.trunc(value));
-              patchMemory({ 短期转中期阈值: next, 短期转长期阈值: next });
-            }}
-            hint="达到这个条数时，系统会自动把短期记忆整理成阶段剧情链（默认 30）。"
+            onChange={(value) => patchMemory({ 短期转中期阈值: Math.max(1, Math.trunc(value)) })}
+            hint="达到这个条数时，系统会自动把短期记忆整理成阶段剧情链。"
           />
           <NumberField
             label="中期 → 长期"
             value={memory.中期转长期阈值}
             onChange={(value) => patchMemory({ 中期转长期阈值: Math.max(1, Math.trunc(value)) })}
-            hint="达到这个条数时，系统会自动把中期记忆沉淀为长期稳定事实（默认 50）。"
+            hint="达到这个条数时，系统会自动把中期记忆沉淀为长期稳定事实。"
           />
           <NumberField
             label="NPC 记忆"
             value={memory.NPC记忆压缩阈值}
             onChange={(value) => patchMemory({ NPC记忆压缩阈值: Math.max(1, Math.trunc(value)) })}
-            hint="伙伴的与你同行记忆达到这个条数后会自动压缩（默认 20，保留最近 5 条）。"
-          />
-          <NumberField
-            label="重要角色关键记忆条数"
-            value={memory.重要角色关键记忆条数N}
-            onChange={(value) => patchMemory({ 重要角色关键记忆条数N: Math.max(1, Math.trunc(value)) })}
-            hint="对标参考项目：原著/同行等重要角色注入主剧情时保留的最近记忆条数（默认 20）；普通 NPC 为 5 条。"
+            hint="伙伴的与你同行记忆达到这个条数后会自动压缩。"
           />
         </div>
       </Section>
@@ -402,7 +365,7 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
         <TextareaField
           label="中期转长期"
           value={memory.中期转长期提示词}
-          onChange={(value) => patchMemory({ 中期转长期提示词: value, 短期转长期提示词: value })}
+          onChange={(value) => patchMemory({ 中期转长期提示词: value })}
           rows={7}
           hint="把阶段剧情链沉淀成稳定事实，保留主线转折、关系变化、不可逆后果与长期目标。"
         />
@@ -418,16 +381,16 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
       <div className="flex flex-col items-stretch gap-2 pt-1">
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           className="w-full py-3 text-sm font-serif tracking-[0.4em] transition-all hover:opacity-90"
           style={{
             background: savedFlash
               ? 'linear-gradient(135deg, rgba(140, 220, 160, 0.95), rgba(100, 180, 130, 0.95))'
               : 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.96), rgba(var(--tj-btn-primary-end), 0.84))',
             color: 'rgb(var(--tj-on-accent))',
-            boxShadow: savedFlash
-              ? 'inset 0 0 0 1px rgba(220, 255, 230, 0.5), 0 0 18px rgba(140, 220, 160, 0.35)'
-              : 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 18px rgba(var(--tj-accent-primary), 0.22)',
+            border: savedFlash
+              ? '1px solid rgba(220, 255, 230, var(--tj-edge-tint-strong))'
+              : '1px solid rgba(var(--tj-text-primary), var(--tj-edge))',
             clipPath: cardClip,
           }}
         >
@@ -439,9 +402,9 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
 	            style={{
 	              color: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.9)' : 'rgba(160, 200, 160, 0.85)',
 	              background: saveMessage.kind === 'error' ? 'rgba(220, 120, 120, 0.06)' : 'rgba(120, 200, 140, 0.06)',
-	              boxShadow: saveMessage.kind === 'error'
-	                ? 'inset 0 0 0 1px rgba(220, 120, 120, 0.25)'
-	                : 'inset 0 0 0 1px rgba(120, 200, 140, 0.25)',
+	              border: saveMessage.kind === 'error'
+	                ? '1px solid rgba(220, 120, 120, var(--tj-edge-tint))'
+	                : '1px solid rgba(120, 200, 140, var(--tj-edge-tint))',
 	              clipPath: smallClip,
 	            }}
 	          >
@@ -469,8 +432,8 @@ function ToggleField({
       className="flex items-center justify-between px-3 py-2"
       style={{
         background: 'rgba(var(--tj-bg-secondary), 0.45)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)',
-        clipPath: 'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+        clipPath: mediumClip,
       }}
     >
       <div className="min-w-0 mr-3">
@@ -488,10 +451,10 @@ function ToggleField({
           background: checked
             ? 'linear-gradient(135deg, rgba(var(--tj-btn-primary-start), 0.95), rgba(var(--tj-btn-primary-end), 0.86))'
             : 'rgba(var(--tj-bg-secondary), 0.68)',
-          boxShadow: checked
-            ? 'inset 0 0 0 1px rgba(var(--tj-text-primary), 0.5), 0 0 10px rgba(var(--tj-accent-primary), 0.25)'
-            : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
-          clipPath: 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)',
+          border: checked
+            ? '1px solid rgba(var(--tj-text-primary), var(--tj-edge))'
+            : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
+          clipPath: smallClip,
         }}
       >
         <div
@@ -499,7 +462,7 @@ function ToggleField({
           style={{
             left: checked ? 'calc(100% - 1.375rem)' : '0.125rem',
             background: checked ? 'rgb(var(--tj-bg-primary))' : 'rgba(var(--tj-text-secondary), 0.78)',
-            clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+            clipPath: tinyClip,
           }}
         />
       </button>
@@ -513,7 +476,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         className="px-4 py-4"
         style={{
           background: 'rgba(var(--tj-accent-primary), 0.035)',
-          boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.18)',
+          border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >

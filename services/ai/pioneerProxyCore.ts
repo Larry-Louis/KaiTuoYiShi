@@ -1,14 +1,11 @@
-import { applyApiCorsHeaders } from '../../utils/corsPolicy';
+import { handleSimpleProxyRequest, readText } from './proxyCoreShared';
+
 type PioneerProxyBody = {
   baseUrl?: string;
   apiKey?: string;
   kind?: 'chat' | 'models';
   body?: unknown;
 };
-
-function readText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 export function normalizePioneerBaseUrl(baseUrl: string): string {
   let base = baseUrl.trim().replace(/\/+$/, '');
@@ -34,62 +31,23 @@ export function assertPioneerBaseUrl(baseUrl: string): string {
   return base;
 }
 
-function buildPioneerUpstreamUrl(payload: PioneerProxyBody): string {
-  const base = assertPioneerBaseUrl(readText(payload.baseUrl));
-  if (payload.kind === 'models') return `${base}/models`;
-  return `${base}/chat/completions`;
-}
+const pioneerProxyDef = {
+  缺字段提示: '缺少 Pioneer Base URL 或 API Key。',
+  构建上游地址: (payload: PioneerProxyBody): string => {
+    const base = assertPioneerBaseUrl(readText(payload.baseUrl));
+    if (payload.kind === 'models') return `${base}/models`;
+    return `${base}/chat/completions`;
+  },
+  构建上游请求: (payload: PioneerProxyBody, apiKey: string): RequestInit => ({
+    method: payload.kind === 'models' ? 'GET' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
+  }),
+};
 
-function proxyHeaders(request: Request, upstream?: Response): Headers {
-  const headers = new Headers();
-  // CORS 收敛到统一白名单（utils/corsPolicy）：同源请求不受影响
-  applyApiCorsHeaders(request, headers);
-  headers.set('cache-control', 'no-store');
-  headers.set('content-type', upstream?.headers.get('content-type') || 'application/json; charset=utf-8');
-  return headers;
-}
-
-export async function handlePioneerProxyRequest(request: Request): Promise<Response> {
-  let payload: PioneerProxyBody;
-  try {
-    payload = await request.json() as PioneerProxyBody;
-  } catch {
-    return new Response(JSON.stringify({ error: '请求体不是有效 JSON。' }), {
-      status: 400,
-      headers: proxyHeaders(request),
-    });
-  }
-
-  const baseUrl = readText(payload.baseUrl);
-  const apiKey = readText(payload.apiKey);
-  if (!baseUrl || !apiKey) {
-    return new Response(JSON.stringify({ error: '缺少 Pioneer Base URL 或 API Key。' }), {
-      status: 400,
-      headers: proxyHeaders(request),
-    });
-  }
-
-  try {
-    const upstreamUrl = buildPioneerUpstreamUrl(payload);
-    const upstream = await fetch(upstreamUrl, {
-      method: payload.kind === 'models' ? 'GET' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: payload.kind === 'models' ? undefined : JSON.stringify(payload.body ?? {}),
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: proxyHeaders(request, upstream),
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-    }), {
-      status: 502,
-      headers: proxyHeaders(request),
-    });
-  }
+export function handlePioneerProxyRequest(request: Request): Promise<Response> {
+  return handleSimpleProxyRequest(request, pioneerProxyDef);
 }

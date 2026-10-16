@@ -1,18 +1,17 @@
 import { 归一化相册系统 } from '@/models/imageGeneration';
 import type { 图片资源, 相册条目, 相册系统 } from '@/models/imageGeneration';
 import { getAlbumAssetBlob, isDataImageUrl, rememberAlbumAssetFromDataUrl } from '@/utils/albumObjectUrl';
-import { sha256BytesHex } from '@/services/storyRuntime/id';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export function normalizeContentHash(value: unknown): string | undefined {
-  const normalized = String(value ?? '').trim().toLowerCase();
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return SHA256_PATTERN.test(normalized) ? normalized : undefined;
 }
 
 export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
-  // 统一共享字节 SHA-256：LAN HTTP 无 crypto.subtle 时本地回退，输出与 Web Crypto 完全一致。
-  return sha256BytesHex(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; mimeType: string } | null {
@@ -55,7 +54,6 @@ export async function hydrateAlbumContentHashes(album: 相册系统): Promise<�
       assets.push(existing === asset.contentHash ? asset : { ...asset, contentHash: existing });
       continue;
     }
-    // Prefer Blob cache bytes for hashing when dataUrl is only an asset: ref.
     const cached = asset.id ? getAlbumAssetBlob(asset.id) : undefined;
     if (cached) {
       const contentHash = await sha256Bytes(new Uint8Array(await cached.arrayBuffer()));
@@ -131,8 +129,8 @@ export function addOrReuseAlbumImage(
 export function mergeAlbumEntryMetadata(existing: 相册条目, incoming: 相册条目): 相册条目 {
   return {
     ...existing,
-    tags: Array.from(new Set([...(existing.tags ?? []), ...(incoming.tags ?? [])])),
-    referenceTargets: Array.from(new Set([...(existing.referenceTargets ?? []), ...(incoming.referenceTargets ?? [])])),
+    tags: Array.from(new Set([...existing.tags, ...incoming.tags])),
+    referenceTargets: Array.from(new Set([...existing.referenceTargets, ...incoming.referenceTargets])),
     note: existing.note || incoming.note,
   };
 }

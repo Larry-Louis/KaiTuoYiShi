@@ -10,8 +10,6 @@ export const NEWS_CATEGORY_LABELS: Record<新闻类目, string> = {
   frontline: '前线战报',
 };
 
-export const NEWS_CATEGORY_ORDER: 新闻类目[] = ['plan', 'chronicle', 'starlog', 'frontline'];
-
 export const NEWS_STATUS_LABELS: Record<新闻状态, string> = {
   upcoming: '即将发生',
   ongoing: '进行中',
@@ -30,7 +28,7 @@ export interface 新闻条目 {
   标题: string;
   正文: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，读取旧新闻时会迁移到「组织标签」。 */
+  /** @deprecated 读取旧新闻时会迁移到「组织标签」。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   关联剧情系列ID?: string;
@@ -48,7 +46,7 @@ export interface 新闻条目补丁 {
   标题?: string;
   正文?: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，兼容旧模型输出。 */
+  /** @deprecated 兼容旧模型输出。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   关联剧情系列ID?: string;
@@ -71,7 +69,7 @@ export function 创建新闻条目(input: {
   标题: string;
   正文?: string;
   组织标签?: 组织标签ID[];
-  /** @deprecated 旧字段。独立阵营系统已删除，兼容旧存档。 */
+  /** @deprecated 兼容旧存档。 */
   阵营标签?: 组织标签ID[];
   关联系统?: string[];
   重要?: boolean;
@@ -85,7 +83,7 @@ export function 创建新闻条目(input: {
     时间戳: now,
     标题: input.标题,
     正文: input.正文 ?? '',
-    组织标签: input.组织标签 ?? input.阵营标签,
+     组织标签: input.组织标签 ?? (input as { 阵营标签?: 组织标签ID[] }).阵营标签,
     阵营标签: undefined,
     关联系统: input.关联系统,
     关联剧情系列ID: undefined,
@@ -98,7 +96,7 @@ export function 创建新闻条目(input: {
 
 export function 归一化新闻条目(item: Partial<新闻条目> & { id?: string }): 新闻条目 {
   const now = Date.now();
-  const organizationTags = item.组织标签 ?? item.阵营标签;
+  const organizationTags = item.组织标签 ?? (item as { 阵营标签?: 组织标签ID[] }).阵营标签;
   return {
     id: item.id ?? `news_${now}_${Math.random().toString(36).slice(2, 7)}`,
     类目: item.类目 ?? 'chronicle',
@@ -131,6 +129,6 @@ export function 创建新闻补丁(input: 新闻条目补丁): 新闻条目补�
 }
 
 export function getNewsIssueNumber(turnCount: number): number {
-  const turn = Math.max(0, Math.trunc(Number(turnCount) || 0));
+  const turn = Math.max(0, Math.trunc(turnCount || 0));
   return Math.max(1, Math.floor(turn / 10) + 1);
 }

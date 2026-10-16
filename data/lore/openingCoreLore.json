@@ -87,11 +87,7 @@
           "title": "C2 · 帕姆(列车长)",
           "type": "character_lore",
           "injectMode": "always",
-          "keywords": [
-            "帕姆",
-            "Pom-Pom",
-            "列车长"
-          ],
+          "keywords": ["帕姆", "Pom-Pom", "列车长"],
           "priority": 180,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -103,11 +99,7 @@
           "title": "C3 · 瓦尔特·杨",
           "type": "character_lore",
           "injectMode": "always",
-          "keywords": [
-            "瓦尔特",
-            "Welt",
-            "瓦尔特·杨"
-          ],
+          "keywords": ["瓦尔特", "Welt", "瓦尔特·杨"],
           "priority": 178,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -119,11 +111,7 @@
           "title": "C4 · 姬子",
           "type": "character_lore",
           "injectMode": "always",
-          "keywords": [
-            "姬子",
-            "Himeko",
-            "希默"
-          ],
+          "keywords": ["姬子", "Himeko", "希默"],
           "priority": 177,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -135,10 +123,7 @@
           "title": "C5 · 三月七",
           "type": "character_lore",
           "injectMode": "always",
-          "keywords": [
-            "三月七",
-            "March 7th"
-          ],
+          "keywords": ["三月七", "March 7th"],
           "priority": 170,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -150,10 +135,7 @@
           "title": "C6 · 丹恒",
           "type": "character_lore",
           "injectMode": "always",
-          "keywords": [
-            "丹恒",
-            "Dan Heng"
-          ],
+          "keywords": ["丹恒", "Dan Heng"],
           "priority": 169,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -165,9 +147,7 @@
           "title": "D1 · 天才俱乐部",
           "type": "world_lore",
           "injectMode": "always",
-          "keywords": [
-            "天才俱乐部"
-          ],
+          "keywords": ["天才俱乐部"],
           "priority": 160,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -179,11 +159,7 @@
           "title": "D2 · 公司(星际和平公司 / IPC)",
           "type": "world_lore",
           "injectMode": "always",
-          "keywords": [
-            "公司",
-            "IPC",
-            "星际和平公司"
-          ],
+          "keywords": ["公司", "IPC", "星际和平公司"],
           "priority": 158,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -195,9 +171,7 @@
           "title": "D3 · 星核猎手",
           "type": "world_lore",
           "injectMode": "always",
-          "keywords": [
-            "星核猎手"
-          ],
+          "keywords": ["星核猎手"],
           "priority": 157,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -209,10 +183,7 @@
           "title": "D4 · 巡海游侠",
           "type": "world_lore",
           "injectMode": "always",
-          "keywords": [
-            "巡海游侠",
-            "巡猎"
-          ],
+          "keywords": ["巡海游侠", "巡猎"],
           "priority": 156,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -224,11 +195,7 @@
           "title": "E1 · 黑塔空间站",
           "type": "world_lore",
           "injectMode": "always",
-          "keywords": [
-            "黑塔空间站",
-            "黑塔",
-            "空间站"
-          ],
+          "keywords": ["黑塔空间站", "黑塔", "空间站"],
           "priority": 175,
           "enabled": true,
           "createdAt": 1779580800000,
@@ -240,15 +207,7 @@
           "title": "E2 · 著名地点速记",
           "type": "world_lore",
           "injectMode": "keyword_match",
-          "keywords": [
-            "雅利洛",
-            "雅利洛-VI",
-            "罗浮",
-            "仙舟",
-            "仙舟罗浮",
-            "匹诺康尼",
-            "翁法罗斯"
-          ],
+          "keywords": ["雅利洛", "雅利洛-VI", "罗浮", "仙舟", "仙舟罗浮", "匹诺康尼", "翁法罗斯"],
           "priority": 100,
           "enabled": true,
           "createdAt": 1779580800000,

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import type { 命途定义, 命途ID } from '@/models/journey';
@@ -10,6 +10,7 @@ import {
 } from '@/models/path';
 import { paths as ALL_PATHS } from '@/data/journeyPresets';
 import { setPrimaryPath } from '@/services/pathService';
+import { badgeClip as cardClip, smallClip } from '@/components/ui/clipPaths';
 
 interface PathPanelProps {
   traveler: 角色数据结构;
@@ -17,45 +18,36 @@ interface PathPanelProps {
   onAwakenedNewPath?: (pathId: 命途ID) => void;
 }
 
-const cardClip =
-  'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
-const smallClip =
-  'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)';
 
 const panelStyle = {
   background:
     'radial-gradient(circle at 10% 0%, rgba(var(--tj-tech-cyan), 0.075), transparent 34%), linear-gradient(180deg, rgba(var(--tj-bubble), 0.96), rgba(var(--tj-surface-strong), 0.94))',
-  boxShadow:
-    'inset 0 0 0 1px rgba(var(--tj-border), 0.62), 0 14px 32px rgba(var(--tj-shadow), 0.1)',
+  border: '1px solid rgba(var(--tj-border), var(--tj-edge))',
   clipPath: cardClip,
 };
 
 export function PathPanel({ traveler, onTravelerChange }: PathPanelProps) {
-  const active = traveler.命途列表 ?? [];
+  const active = traveler.命途列表;
   const cards = useMemo(() => ALL_PATHS.filter((p) => p.id !== 'none'), []);
 
   const defaultSelected: 命途ID = useMemo(() => {
     const primary = active.find((p) => p.是否主命途);
     if (primary) return primary.id;
     if (active.length > 0) return active[0].id;
-    return cards[0]?.id ?? 'hunt';
+    return cards.at(0)?.id ?? 'hunt';
   }, [active, cards]);
 
   const [selectedId, setSelectedId] = useState<命途ID>(defaultSelected);
 
-  useEffect(() => {
-    if (!cards.some((c) => c.id === selectedId)) {
-      setSelectedId(defaultSelected);
-    }
-  }, [cards, defaultSelected, selectedId]);
+  const effectiveSelectedId = cards.some((c) => c.id === selectedId) ? selectedId : defaultSelected;
 
-  const selectedDef = cards.find((c) => c.id === selectedId) ?? cards[0];
-  const selectedRecord = active.find((a) => a.id === selectedId);
+  const selectedDef = cards.find((c) => c.id === effectiveSelectedId);
+  const selectedRecord = active.find((a) => a.id === effectiveSelectedId);
   const awakenedCount = active.length;
   const primaryRecord = active.find((p) => p.是否主命途);
   const primaryDef = cards.find((p) => p.id === primaryRecord?.id);
 
-  const handleSetPrimary = async (pathId: 命途ID) => {
+  const handleSetPrimary = (pathId: 命途ID) => {
     onTravelerChange(setPrimaryPath(traveler, pathId));
   };
 
@@ -78,7 +70,7 @@ export function PathPanel({ traveler, onTravelerChange }: PathPanelProps) {
                 key={def.id}
                 def={def}
                 record={record}
-                selected={def.id === selectedId}
+                selected={def.id === effectiveSelectedId}
                 onClick={() => setSelectedId(def.id)}
               />
             );
@@ -126,11 +118,11 @@ function PathListItem({
           : walked
             ? 'rgba(var(--tj-accent-primary), 0.055)'
             : 'rgba(var(--tj-text-secondary), 0.04)',
-        boxShadow: selected
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.62), inset 3px 0 0 linear-gradient(135deg, rgba(var(--tj-accent-primary),0.94), rgba(var(--tj-accent-secondary),0.9))'
+        border: selected
+          ? '1px solid transparent'
           : walked
-            ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.28)'
-            : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.18)',
+            ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))'
+            : '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >
@@ -288,7 +280,7 @@ function PathDetails({
             style={{
               color: 'rgb(var(--tj-text-primary))',
               background: 'rgba(var(--tj-accent-primary), 0.1)',
-              boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)',
+              border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))',
               padding: '8px 18px',
               clipPath: smallClip,
             }}
@@ -335,9 +327,9 @@ function PathArchiveHero({
         background: walked
           ? 'radial-gradient(circle at 8% 12%, rgba(var(--tj-accent-primary), 0.12), transparent 30%), radial-gradient(circle at 92% 8%, rgba(var(--tj-tech-cyan), 0.08), transparent 24%), linear-gradient(135deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)) 54%, rgb(var(--tj-bubble)))'
           : 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
-        boxShadow: walked
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.42), 0 0 30px rgba(var(--tj-accent-primary), 0.08)'
-          : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.24)',
+        border: walked
+          ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+          : '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
         clipPath: cardClip,
       }}
     >
@@ -393,8 +385,8 @@ function PathArchiveHero({
         <div
           className="flex w-full shrink-0 flex-col justify-between px-3 py-2.5 md:px-4 md:py-3 xl:w-[210px]"
           style={{
-            background: 'linear-gradient(135deg, rgb(var(--tj-surface-strong)), rgb(var(--tj-bubble)))',
-            boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.76), inset 3px 0 0 rgba(var(--tj-accent-primary),0.38)',
+            background: `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong)) 0 3px, transparent 3px), linear-gradient(135deg, rgb(var(--tj-surface-strong)), rgb(var(--tj-bubble)))`,
+            border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
             clipPath: smallClip,
           }}
         >
@@ -427,7 +419,7 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
       className="px-3 py-3 md:px-4 md:py-4"
       style={{
         background: 'linear-gradient(135deg, rgb(var(--tj-bubble)), rgb(var(--tj-surface-strong)))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.72)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
         clipPath: cardClip,
       }}
     >
@@ -443,7 +435,7 @@ function MetricTile({ label, value }: { label: string; value: string }) {
       className="px-3 py-2"
       style={{
         background: 'rgba(var(--tj-accent-primary), 0.055)',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.22)',
+        border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -479,9 +471,9 @@ function PathEmblem({
         background: active
           ? 'radial-gradient(circle, rgba(var(--tj-accent-primary), 0.16), rgba(var(--tj-accent-primary), 0.045))'
           : 'rgba(var(--tj-text-secondary), 0.05)',
-        boxShadow: selected
-          ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.58), 0 0 20px rgba(var(--tj-accent-primary), 0.18)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.24)',
+        border: selected
+          ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -497,10 +489,10 @@ function Badge({ children, tone }: { children: ReactNode; tone: 'gold' | 'muted'
       style={{
         color: tone === 'gold' ? 'rgb(var(--tj-text-primary))' : 'rgba(var(--tj-text-primary), 0.78)',
         background: tone === 'gold' ? 'rgba(var(--tj-accent-primary), 0.14)' : 'rgb(var(--tj-surface-strong))',
-        boxShadow:
+        border:
           tone === 'gold'
-            ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.42)'
-            : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.24)',
+            ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+            : '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -517,9 +509,9 @@ function InfoPill({ label, value, tone = 'gold' }: { label: string; value: strin
       style={{
         color: cyan ? 'rgba(38, 105, 116, 0.96)' : 'rgba(var(--tj-text-primary), 0.94)',
         background: cyan ? 'rgba(var(--tj-tech-cyan), 0.12)' : 'rgba(var(--tj-accent-primary), 0.09)',
-        boxShadow: cyan
-          ? 'inset 0 0 0 1px rgba(var(--tj-tech-cyan),0.22)'
-          : 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.2)',
+        border: cyan
+          ? '1px solid rgba(var(--tj-tech-cyan), var(--tj-edge-tint))'
+          : '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
     >
@@ -534,10 +526,8 @@ function TraitChip({ trait }: { trait: { 名称: string; 说明: string } }) {
     <div
       className="px-2.5 py-2 md:px-3"
       style={{
-        background:
-          'linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-tech-wash),0.82))',
-        boxShadow:
-          'inset 0 0 0 1px rgba(108, 212, 255, 0.18), inset 2px 0 0 rgba(var(--tj-accent-primary), 0.38)',
+        background: `linear-gradient(90deg, rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong)) 0 2px, transparent 2px), linear-gradient(135deg, rgb(var(--tj-bubble)), rgba(var(--tj-tech-wash),0.82))`,
+        border: '1px solid rgba(108, 212, 255, var(--tj-edge-tint))',
         clipPath: smallClip,
       }}
       title={trait.说明}
@@ -558,7 +548,7 @@ function EmptyNotice({ title, text }: { title: string; text: string }) {
       className="px-3 py-3 text-center md:px-4 md:py-5"
       style={{
         background: 'rgb(var(--tj-bubble))',
-        boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.68)',
+        border: '1px solid rgba(var(--tj-border), var(--tj-edge-strong))',
         clipPath: smallClip,
       }}
     >
@@ -600,9 +590,9 @@ function StageTimeline({ stage, progress }: { stage: 命途阶段; progress: num
               className="relative h-2 overflow-hidden"
               style={{
                 background: 'rgba(var(--tj-text-secondary), 0.14)',
-                boxShadow: isCurrent
-                  ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.45)'
-                  : 'inset 0 0 0 1px rgba(var(--tj-text-secondary), 0.18)',
+                border: isCurrent
+                  ? '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-strong))'
+                  : '1px solid rgba(var(--tj-text-secondary), var(--tj-edge-tint))',
               }}
             >
               <div
@@ -610,7 +600,7 @@ function StageTimeline({ stage, progress }: { stage: 命途阶段; progress: num
                 style={{
                   width: `${fill}%`,
                   background: isPast || isCurrent ? 'rgb(var(--tj-accent-primary))' : 'transparent',
-                  boxShadow: isCurrent ? '0 0 9px rgba(var(--tj-accent-primary), 0.55)' : undefined,
+                  border: isCurrent ? '0 0 9px rgba(var(--tj-accent-primary), 0.55)' : undefined,
                 }}
               />
             </div>

@@ -1,30 +1,25 @@
-//  ============================== Tavern Message Chain Builder ==============================
-//  核心功能：按 ST 预设的 prompt_order 构建消息链，识别内置 identifier 并注入项目内容
-//  参考实现：MoRanJiangHu-main/hooks/useGame/promptRuntime.ts 构建酒馆预设消息链函数 (L612-773)
-
-import type { STMessageRole, STPreset, STPresetPrompt, STPresetOrder, STWorldInfoEntry, TavernMessage, TavernInternalMessage, TavernPostProcessMode } from '@/models/stTypes';
+import type { STMessageRole, STPreset, STPresetOrder, STWorldInfoEntry, TavernMessage, TavernInternalMessage, TavernPostProcessMode } from '@/models/stTypes';
 import type { 提示词模块 } from '@/models/prompts';
 import type { 角色数据结构 } from '@/models/character';
 import type { 聊天消息 } from '@/models/chat';
 import type { MacroContext } from '@/utils/macroEngine';
 import { createMacroContext, processMacros } from '@/utils/macroEngine';
-import { applyTavernFormatGuard, matchesTavernCotPlaceholder, matchesTavernFormatPlaceholder } from './tavernFormatGuard';
-import { resolvePlayerSpeechMode } from '@/utils/narrativeRuntimePolicy';
+import type { 游戏设置 } from '@/models/settings';
+import type { PromptScope } from './promptAssembly';
+import { 剥掉内联插图 } from '@/utils/illustrationMarkup';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
   '当前剧情中的主要互动对象、出场 NPC、同伴、敌对角色以及由 AI 负责扮演和调度的剧情角色集合。不要把 {{char}} 理解为固定角色卡；应根据最近剧情、玩家输入、聊天历史和世界状态判断当前焦点对象。';
 const TAVERN_CHAR_FALLBACK_PROMPT =
   '你将扮演当前剧情中所有由 AI 控制的崩坏：星穹铁道同人角色、NPC、同伴、敌人和旁白，不代替玩家角色做决定。';
 
-//  ---------- 辅助类型 ----------
 export interface TavernChainParams {
-  settings: any; // 游戏设置 - 需要访问 promptModules 获取上下文片段
+  settings: 游戏设置;
   preset: STPreset;
   characterId: number | null;
   chatHistory: 聊天消息[];
   latestUserInput: string;
-  /** 工作包D：当前 scope——兼容保护读取对应 COT（main/opening/pathAwakening），不再固定主剧情 COT。 */
-  scope: 'main' | 'opening' | 'pathAwakening';
+  scope?: PromptScope;
   playerName: string;
   playerRole: 角色数据结构 | null;
   worldbookExtraTexts?: string[];
@@ -45,32 +40,26 @@ interface TavernContextPieces {
   writingStylePrompt: string;
 }
 
-//  ---------- 主函数 ----------
 export function buildTavernMessageChain(params: TavernChainParams): TavernMessage[] {
-  // 1. 取预设与选中顺序
   const selectedOrder = getSTPresetOrder(params.preset, params.characterId);
-  if (!params.preset || !selectedOrder) return [];
-  
-  // 2. 建立 identifier → prompt 索引
+  if (!selectedOrder) return [];
+
   const promptMap = new Map(
     (Array.isArray(params.preset.prompts) ? params.preset.prompts : [])
       .map((item) => [item.identifier, item] as const)
   );
 
-  // 3. 过滤启用的 slot：enabled !== false
   const enabledOrderSlots = (Array.isArray(selectedOrder.order) ? selectedOrder.order : [])
-    .filter((slot) => Boolean(slot) && slot.enabled !== false);
+    .filter((slot) => Boolean(slot) && slot.enabled);
 
-  // 4. 探测预设冲突规则
+  const scope = params.scope ?? 'main';
   const presetHasNoControl = presetContainsNoControl(params.preset, selectedOrder);
   const presetHasPlayerSpeechExpansion = presetContainsPlayerSpeechExpansion(params.preset, selectedOrder);
 
-  // 5. 构建项目上下文片段（从 settings.promptModules 中提取内置模块内容）
-  const contextPieces = buildContextPieces(params.settings, params.scope ?? 'main');
-  const cotCompatReference = buildTavernCotCompatReference(params.scope ?? 'main');
+  const contextPieces = buildContextPieces(params.settings, scope);
+  const cotCompatReference = buildTavernCotCompatReference(scope);
   const formatCompatReference = buildTavernFormatCompatReference();
 
-  // 6. 构建嫁接文本 combinedWorldbookText
   const worldbookText = params.includeNativeContextInWorldbook === false
     ? ''
     : buildWorldbookText(contextPieces, presetHasNoControl, presetHasPlayerSpeechExpansion);
@@ -86,7 +75,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     .join('\n\n')
     .trim();
 
-  // 7. 构建历史消息
   const historyMessages = buildTavernChatHistory(params.chatHistory);
   const personaProfile = buildTavernPersonaProfile(params.playerRole);
   const charRuntimeProfile = buildTavernCharRuntimeProfile(params);
@@ -100,7 +88,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     turnCount: params.chatHistory.length,
   });
 
-  // 8. 遍历启用的 slot，按 identifier 分派
   const messages: TavernInternalMessage[] = [];
   let worldbookInjected = false;
   let historyInjected = false;
@@ -111,7 +98,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     const prompt = promptMap.get(identifier);
     if (!prompt) continue;
 
-    // 特殊 identifier 处理（内置槽位 -> 运行时注入）
     if (identifier === 'worldInfoBefore' || identifier === 'worldInfoAfter') {
       if (!worldbookInjected && combinedWorldbookText) {
         messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
@@ -144,7 +130,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
       continue;
     }
 
-    // 其他普通 prompt 项：变量替换 + 按 role 推送
     const rawContent = typeof prompt.content === 'string' ? prompt.content : '';
     const resolved = replaceTavernVariables({
       content: rawContent,
@@ -163,7 +148,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     messages.push({ role, content, source: 'preset' });
   }
 
-  // 9. 兜底注入（若预设缺失关键槽位）
   if (!worldbookInjected && combinedWorldbookText) {
     messages.push({ role: 'system', content: combinedWorldbookText, source: 'worldbook' });
   }
@@ -171,8 +155,6 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     messages.push({ role: 'user', content: params.latestUserInput, source: 'latest_input' });
   }
 
-  // 10. 短兼容保护层（工作包D 9.3：原生区8 已完整存在，不再复制整套 COT/回复格式/行动选项全文）
-  //     只声明必须服从项目顶层协议标签、阻止表层格式污染；行动选项开启时提醒输出 <行动选项>。
   messages.push({
     role: 'system',
     content: [
@@ -184,61 +166,52 @@ export function buildTavernMessageChain(params: TavernChainParams): TavernMessag
     source: 'compat_guard',
   });
 
-  // 11. 后处理
-  return applyTavernPostProcess(messages, params.settings?.stPostProcessMode || '未选择');
+  return applyTavernPostProcess(messages, params.settings.stPostProcessMode || '未选择');
 }
 
-//  ---------- 辅助函数 ----------
 export function getSTPresetOrder(preset: STPreset, characterId: number | null): STPresetOrder | null {
-  if (!preset || !preset.prompt_order || preset.prompt_order.length === 0) return null;
-  
-  // 优先使用指定的 characterId
+  if (preset.prompt_order.length === 0) return null;
+
   if (characterId !== null) {
     const found = preset.prompt_order.find((order) => order.character_id === characterId);
     if (found) return found;
   }
   
-  // 回退到默认 100001（ST 通用默认）
+  // 100001 为 ST 通用默认档。
   const defaultOrder = preset.prompt_order.find((order) => order.character_id === 100001);
   if (defaultOrder) return defaultOrder;
-  
-  // 最后回退到第一项
+
   return preset.prompt_order[0];
 }
 
-function buildContextPieces(settings: any, scope: 'main' | 'opening' | 'pathAwakening' = 'main'): TavernContextPieces {
-  // 从 settings.promptModules 中查找内置模块内容
-  const modules = settings.promptModules || [];
-  
+function buildContextPieces(settings: 游戏设置, scope: PromptScope): TavernContextPieces {
+  const modules = settings.promptModules;
+
   const findModuleContent = (id: string): string => {
     const mod = modules.find((m: 提示词模块) => m.id === id);
-    return mod?.enabled !== false ? (mod?.content || '') : '';
+    return mod?.enabled !== false ? (mod?.content ?? '') : '';
   };
-  
-  // 提取关键内置模块的内容
-  const worldPrompt = findModuleContent('builtin_world_prompt') || 
-                     (settings.世界观提示词 || '');
-  // 工作包D：scope-aware 兼容保护——opening 读开局 COT（+来源附加），pathAwakening 读狭间 COT，main 读主剧情 COT
+
+  const worldPrompt = findModuleContent('builtin_world_prompt');
   const cotPrompt = scope === 'pathAwakening'
-    ? (findModuleContent('builtin_path_awakening_cot') || '')
+    ? findModuleContent('builtin_path_awakening_cot')
     : scope === 'opening'
-      ? ([
+      ? [
           findModuleContent('builtin_opening_cot'),
           findModuleContent('builtin_preset_opening_cot'),
           findModuleContent('builtin_free_opening_cot'),
-        ].filter(Boolean).join('\n\n') || '')
-      : (findModuleContent('builtin_main_plot_cot') || '');
-  const formatPrompt = findModuleContent('builtin_response_format') || '';
-  const actionOptionsPrompt = settings?.enableActionOptions === true
-    ? (findModuleContent('builtin_action_options') || '')
+        ].filter(Boolean).join('\n\n')
+      : findModuleContent('builtin_main_plot_cot');
+  const formatPrompt = findModuleContent('builtin_response_format');
+  const actionOptionsPrompt = settings.enableActionOptions
+    ? findModuleContent('builtin_action_options')
     : '';
-  const speechMode = resolvePlayerSpeechMode(settings);
-  const noControlPrompt = speechMode === 'no-control' ? findModuleContent('builtin_no_control') || '' : '';
-  const playerSpeechExpansionPrompt = speechMode === 'expansion' ? findModuleContent('builtin_player_speech_expansion') || '' : '';
-  const personaPrompt = findModuleContent('builtin_narrator_persona') || '';
-  const devModePrompt = findModuleContent('builtin_dev_mode') || '';
-  const writingStylePrompt = findModuleContent('builtin_writing_style') || '';
-  
+  const noControlPrompt = settings.enableNoControl ? '' : findModuleContent('builtin_no_control');
+  const playerSpeechExpansionPrompt = settings.enablePlayerSpeechExpansion ? findModuleContent('builtin_player_speech_expansion') : '';
+  const personaPrompt = findModuleContent('builtin_narrator_persona');
+  const devModePrompt = findModuleContent('builtin_dev_mode');
+  const writingStylePrompt = findModuleContent('builtin_writing_style');
+
   return {
     worldPrompt,
     cotPrompt,
@@ -252,7 +225,7 @@ function buildContextPieces(settings: any, scope: 'main' | 'opening' | 'pathAwak
   };
 }
 
-function buildTavernCotCompatReference(scope: 'main' | 'opening' | 'pathAwakening'): string {
+function buildTavernCotCompatReference(scope: PromptScope): string {
   const scopeLabel = scope === 'opening'
     ? '开局'
     : scope === 'pathAwakening'
@@ -314,7 +287,7 @@ function getPresetWorldInfoEntries(preset: STPreset): STWorldInfoEntry[] {
 function shouldInjectPresetWorldInfoEntry(entry: STWorldInfoEntry, haystack: string): boolean {
   const content = readString(entry.content).trim();
   if (!content) return false;
-  if (entry.enabled === false) return false;
+  if (!entry.enabled) return false;
   if (readBool(entry.constant)) return passesPresetWorldInfoProbability(entry, haystack);
 
   const primaryKeys = readStringArray(entry.key);
@@ -378,7 +351,10 @@ function readWorldInfoTitle(entry: STWorldInfoEntry): string {
 }
 
 function readString(value: unknown): string {
-  return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
+  if (typeof value === 'string') return value;
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return (value as number | boolean).toString();
 }
 
 function readStringArray(value: unknown): string[] {
@@ -402,7 +378,7 @@ function readNumber(value: unknown, fallback: number): number {
 function buildTavernChatHistory(history: 聊天消息[]): Array<{role: STMessageRole; content: string; source: 'history'}> {
   const messages: Array<{role: STMessageRole; content: string; source: 'history'}> = [];
   for (const msg of history) {
-    const role = msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system' ? msg.role : 'system';
+    const role: STMessageRole = msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'system';
     const content = buildTavernHistoryContent(msg);
     if (!content) continue;
     messages.push({
@@ -415,7 +391,7 @@ function buildTavernChatHistory(history: 聊天消息[]): Array<{role: STMessage
 }
 
 function buildTavernHistoryContent(msg: 聊天消息): string {
-  if (msg.role !== 'assistant') return typeof msg.content === 'string' ? msg.content.trim() : '';
+  if (msg.role !== 'user') return 剥掉内联插图(typeof msg.content === 'string' ? msg.content.trim() : '');
   const parsed = msg.parsedResponse;
   const body = typeof parsed?.body === 'string' ? parsed.body.trim() : '';
   const worldEvents = Array.isArray(parsed?.worldEvents) && parsed.worldEvents.length > 0
@@ -424,10 +400,12 @@ function buildTavernHistoryContent(msg: 聊天消息): string {
   const memory = typeof parsed?.memory === 'string' && parsed.memory.trim()
     ? `【记忆】\n${parsed.memory.trim()}`
     : '';
-  return [body, worldEvents, memory]
+  // 插图文法是给渲染层用的中间产物：正文模型会把它写在正文行间。
+  // 留在历史里会一路带进变量更新、记忆总结与后续续写，既费 token 又可能被模仿。
+  return 剥掉内联插图([body, worldEvents, memory]
     .filter(Boolean)
     .join('\n\n')
-    .trim() || (typeof msg.content === 'string' ? msg.content.trim() : '');
+    .trim() || (typeof msg.content === 'string' ? msg.content.trim() : ''));
 }
 
 function getLastMessageContent(history: 聊天消息[], role?: STMessageRole): string {
@@ -493,7 +471,7 @@ function extractPossibleNpcNames(texts: string[]): string[] {
       pattern.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(text)) !== null) {
-        const name = match[1]?.trim();
+        const name = match[1].trim();
         if (name && !isLikelyNonCharacterName(name)) found.add(name);
       }
     }
@@ -518,7 +496,6 @@ function replaceTavernVariables(params: {
   let resolved = params.content;
   let usedLatestInput = params.usedLatestInput;
 
-  // 用户输入类占位符
   const inputPatterns = [
     /\{\{\s*userinput\s*\}\}/gi,
     /\{\{\s*input\s*\}\}/gi,
@@ -540,20 +517,16 @@ function replaceTavernVariables(params: {
     });
   }
 
-  // 其他占位符
   if (params.playerName) {
     resolved = resolved.replace(/\{\{\s*user\s*\}\}/gi, params.playerName);
   }
   resolved = resolved.replace(/\{\{\s*char\s*\}\}/gi, params.charRuntimeProfile);
   resolved = resolved.replace(/<\s*charname\s*>/gi, params.charRuntimeProfile);
   
-  const cotMatch = resolved.match(/\{\{\s*cot\s*\}\}/i);
-  if (cotMatch) {
+  if (/\{\{\s*cot\s*\}\}/i.test(resolved)) {
     resolved = resolved.replace(/\{\{\s*cot\s*\}\}/gi, params.cotPrompt);
   }
-  
-  const formatMatch = resolved.match(/\{\{\s*(?:格式|format)\s*\}\}/i);
-  if (formatMatch) {
+  if (/\{\{\s*(?:格式|format)\s*\}\}/i.test(resolved)) {
     resolved = resolved.replace(/\{\{\s*(?:格式|format)\s*\}\}/gi, params.formatPrompt);
   }
 
@@ -571,7 +544,7 @@ function replaceTavernVariables(params: {
 function presetContainsNoControl(preset: STPreset, selectedOrder: STPresetOrder): boolean {
   const noControlKeywords = /NoControl|防止说话|防抢话|禁止代写|不得代写|不代写玩家|不替玩家|绝不控制|禁止控制玩家|不控制玩家|玩家的台词|玩家言行|代替玩家发言/iu;
   const enabledIds = new Set(selectedOrder.order
-    .filter(slot => slot.enabled !== false)
+    .filter(slot => slot.enabled)
     .map(slot => slot.identifier));
   
   return (Array.isArray(preset.prompts) ? preset.prompts : []).some(prompt => {
@@ -583,7 +556,7 @@ function presetContainsNoControl(preset: STPreset, selectedOrder: STPresetOrder)
 function presetContainsPlayerSpeechExpansion(preset: STPreset, selectedOrder: STPresetOrder): boolean {
   const speechExpansionKeywords = /抢话|嘴替|代写玩家对白|代替玩家说话|玩家对白扩写|扩写玩家|加强复述|扩写后推进|主动替玩家|user 的嘴替/iu;
   const enabledIds = new Set(selectedOrder.order
-    .filter(slot => slot.enabled !== false)
+    .filter(slot => slot.enabled)
     .map(slot => slot.identifier));
 
   return (Array.isArray(preset.prompts) ? preset.prompts : []).some(prompt => {
@@ -593,7 +566,6 @@ function presetContainsPlayerSpeechExpansion(preset: STPreset, selectedOrder: ST
 }
 
 function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernPostProcessMode): TavernMessage[] {
-  // 角色重写
   const mapped: TavernMessage[] = messages.map((item) => {
     if (mode === '严格') {
       if (item.source === 'history' || item.source === 'latest_input') {
@@ -619,16 +591,14 @@ function applyTavernPostProcess(messages: TavernInternalMessage[], mode: TavernP
         content: item.content
       };
     }
-    // 未选择或其他：保持原 role
     return item;
   });
 
-  // 相邻同角色合并 + 空内容过滤
   const merged: TavernMessage[] = [];
   mapped.forEach((item) => {
-    const trimmed = (item.content || '').trim();
+    const trimmed = item.content.trim();
     if (!trimmed) return;
-    const last = merged[merged.length - 1];
+    const last = merged.at(-1);
     if (last && last.role === item.role) {
       last.content = `${last.content}\n\n${trimmed}`.trim();
       return;

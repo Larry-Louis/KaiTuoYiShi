@@ -1,8 +1,7 @@
 import { themes } from '@/styles/themes';
 import type { 主题预设 } from '@/models/settings';
+import { cardClip, smallClip, tinyClip } from '@/components/ui/clipPaths';
 
-const cardClip =
-  'polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px)';
 
 const previewKeys = [
   '--tj-bg-primary',
@@ -48,9 +47,9 @@ export function ThemeSettingsTab({
                 background: active
                   ? `linear-gradient(135deg, rgba(${accent}, 0.16), rgba(${bg}, 0.74))`
                   : `rgba(var(--tj-bg-secondary), 0.34)`,
-                boxShadow: active
-                  ? `inset 0 0 0 1px rgba(${accent}, 0.7), 0 0 18px rgba(${accent}, 0.16)`
-                  : `inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.15)`,
+                border: active
+                  ? `1px solid rgba(${accent}, var(--tj-edge-strong))`
+                  : `1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))`,
                 clipPath: cardClip,
               }}
             >
@@ -59,9 +58,9 @@ export function ThemeSettingsTab({
                   <div
                     className="grid h-12 w-12 flex-shrink-0 grid-cols-2 overflow-hidden"
                     style={{
-                      boxShadow: `inset 0 0 0 1px rgba(${accent}, 0.42)`,
+                      border: `1px solid rgba(${accent}, var(--tj-edge-tint-strong))`,
                       clipPath:
-                        'polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)',
+                        smallClip,
                     }}
                   >
                     {previewKeys.slice(0, 4).map((key) => (
@@ -97,9 +96,9 @@ export function ThemeSettingsTab({
                         className="h-5 flex-1"
                         style={{
                           background: `rgb(${val})`,
-                          boxShadow: `inset 0 0 0 1px rgba(${accentSecondary}, 0.35)`,
+                          border: `1px solid rgba(${accentSecondary}, var(--tj-edge-tint-strong))`,
                           clipPath:
-                            'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)',
+                            tinyClip,
                         }}
                       />
                     );

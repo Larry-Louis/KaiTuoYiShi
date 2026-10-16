@@ -1,77 +1,95 @@
 import type { UseGameStateReturn } from '@/hooks/useGameState';
-import { migratePromptModules, migrateStPresetOrders } from '@/hooks/useGameState';
-import type { 存档数据, 存档类型, 游戏设置 } from '@/models/settings';
+import type { 存档数据, 存档类型 } from '@/models/settings';
 import type { 聊天消息 } from '@/models/chat';
-import { 创建空角色, 确保命途列表 } from '@/models/character';
-import type { 角色数据结构 } from '@/models/character';
+import { 归一化旅人 } from '@/models/character';
 import {
-  创建空API设置,
-  创建默认游戏设置,
-  创建默认记忆系统设置,
-  创建默认手机系统设置,
-  归一化文生图系统设置,
-  归一化剧情编织系统设置,
-  归一化记忆系统设置,
-  归一化星际和平周报设置,
-  归一化智库系统设置,
-  归一化手机系统设置,
-  归一化额外功能设置,
-  归一化视觉文本设置,
+  迁移存档运行态键,
 } from '@/models/settings';
-import { loadLatestSave, loadSave, deleteSave as dbDeleteSave, saveGame, saveSetting } from '@/services/dbService';
+import { deleteSave as dbDeleteSave, loadLatestSave, loadSave, loadSaveIdByNodeId } from '@/services/storage/saveCrud';
+import { adoptUnsealedChildLeaf, createLeafNode, deleteSaveTreeNode, forkSaveTreeLeaf, getSaveTreeNodeSubtree, isActiveLeafWritable, loadActiveLeaf, loadNewestStory, saveNewestStory } from '@/services/storage/saveTree';
+import { isUnsealedHeadSave } from '@/services/storage/saveSummary';
+import { loadSetting, saveSetting } from '@/services/storage/settings';
 import {
   buildPersistedZhikuSystem,
-  composeZhikuSystem,
+  loadAllBundledZhikuPresets,
+  mergeBundledZhikuSystem,
+  ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY,
 } from '@/data/zhikuPreset';
-import { loadBundledZhikuCatalogWithFallback } from '@/data/zhikuCatalogRepository';
-import { clearWorkflowRecoveryJournal, isWorkflowRecoveryComplete } from '@/services/workflowRecovery';
-import { normalizeMemorySystem } from './memoryUtils';
+import { 归一化记忆系统 } from '@/models/memory';
+import { isOpeningLanded } from '@/models/opening';
+import { isSettledRecoveryCoherent } from '@/models/turnRecovery';
+import {
+  EPHEMERAL_DEFAULTS,
+  normalizeEphemeralFields,
+  type EphemeralFieldIssue,
+  type NormalizedEphemeralFields,
+} from '@/models/leafLifecycle';
+import { projectRecovery, writeClearedRecovery } from './recoveryActions';
 import { 归一化世界状态, type 世界状态 } from '@/models/world';
 import { 归一化忆庭系统 } from '@/models/yiting';
 import { 归一化手机系统 } from '@/models/phone';
 import { 归一化NPC记录列表 } from '@/models/npc';
 import { 归一化相册系统 } from '@/models/imageGeneration';
 import { 归一化新闻列表 } from '@/models/news';
-import { 归一化剧情编织系统 } from '@/models/storyWeaving';
-import { restoreStoryWeavingForLoadedSave } from '@/data/storyWeavingPreset';
-import { ensureRuntimeSliceForLoadedSave } from '@/hooks/useGame/legacyRuntimeSlice';
+import { 归一化变量命令批次列表 } from '@/models/variableCommand';
+import { 归一化剧情编织系统, type 剧情编织系统 } from '@/models/storyWeaving';
+import type { 智库系统 } from '@/models/zhiku';
+import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
+import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem, loadAllBundledStoryWeavingPresets } from '@/data/storyWeavingPreset';
 import { materializeAlbumRuntimePayload, pruneAlbumAssetCache } from '@/utils/albumObjectUrl';
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { attachSaveTreeMeta, buildNextSaveTreeMeta, getSaveTreeMeta, type 存档树元信息 } from '@/utils/saveTree';
-import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
-import { linkVariableBatchesToChatHistory } from '@/utils/variableBatchIdentity';
+import { compactChatHistoryForLongSession, compactChatHistoryForSave, compactVariableBatchHistory } from '@/utils/longSessionRetention';
+import { 指向NewestStory记录, type NewestStory记录 } from '@/models/newestStory';
+import { devLog, devLogError } from '@/utils/devLog';
+import { setStreamingMessage } from '@/utils/streamingMessageStore';
+import { TURN_STATUS_IDLE } from './turnStatus';
 
 let activeSaveTreeMeta: 存档树元信息 | null = null;
 
-export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nodeId?: string } | null): void {
-  if (!activeSaveTreeMeta) return;
+interface HydrationContext {
+  save: 存档数据;
+  macroGlobalVars: Record<string, string>;
+  worldbookTriggerStates: Record<string, number>;
+  safeWorld: 世界状态;
+  safeChatHistory: 聊天消息[];
+  zhiku: 智库系统;
+  storyWeaving: 剧情编织系统;
+}
+
+export function clearActiveSaveTreeMetaIfMatches(
+  target: { rootId?: string; nodeId?: string } | null,
+  state: UseGameStateReturn,
+): void {
   if (!target?.rootId && !target?.nodeId) {
-    activeSaveTreeMeta = null;
+    if (activeSaveTreeMeta !== null) {
+      activeSaveTreeMeta = null;
+      state.setActiveTreeMeta(null);
+    }
     return;
   }
   if (
-    (target.rootId && activeSaveTreeMeta.rootId === target.rootId) ||
-    (target.nodeId && activeSaveTreeMeta.nodeId === target.nodeId)
+    activeSaveTreeMeta
+    && (
+      (target.rootId && activeSaveTreeMeta.rootId === target.rootId)
+      || (target.nodeId && activeSaveTreeMeta.nodeId === target.nodeId)
+    )
   ) {
     activeSaveTreeMeta = null;
+    state.setActiveTreeMeta(null);
   }
 }
 
-// 共享的存档负载构造函数：手动 / 自动两条路径都走这一处，未来加字段只改一处。
-// overrides 用于 sendWorkflow 里那一刻 React state 还没回写、但已有新值的字段
-// （比如刚追加的 chatHistory、压缩过的 memorySystem）。
 export function buildSavePayload(
   state: UseGameStateReturn,
   type: 存档类型,
-  overrides?: Partial<Pick<存档数据, 'turnCount' | 'chatHistory' | '记忆' | '忆庭' | '智库' | '手机' | '世界' | '旅人' | 'NPC' | '相册' | '新闻' | '剧情' | '剧情编织' | 'variableBatches' | 'queueTasks' | 'gameSettings'>>,
+  overrides?: Partial<Pick<存档数据, 'turnCount' | 'chatHistory' | '记忆' | '忆庭' | '智库' | '手机' | '世界' | '旅人' | 'NPC' | '相册' | '新闻' | '剧情' | '剧情编织' | 'variableBatches'>>,
+  nodeId?: string,
 ): 存档数据 {
-  const persistedChatHistory = compactChatHistoryForLongSession(
+  const persistedChatHistory = compactChatHistoryForSave(
     overrides?.chatHistory ?? state.chatHistory,
   );
   const timestamp = Date.now();
-  // gameSettings 允许传入本回合最终覆盖值（宏全局变量 / 世界书触发状态等运行时字段），
-  // 自动存档与 saveSetting('gameSettings') 必须使用同一个最终对象，不能继续读闭包旧 state。
-  const gameSettingsForSave = overrides?.gameSettings ?? state.gameSettings;
   const baseSave = {
     id: 0,
     type,
@@ -88,140 +106,117 @@ export function buildSavePayload(
     相册: overrides?.相册 ?? state.相册,
     新闻: overrides?.新闻 ?? state.新闻,
     剧情: overrides?.剧情 ?? state.剧情,
-    剧情编织: 归一化剧情编织系统(overrides?.剧情编织 ?? state.剧情编织),
+    // 存档只带持久化投影（canon 原著正文从内置预设水合），避免完整系统（可达十几 MB）灌进每条存档。
+    剧情编织: buildPersistedStoryWeavingSystem(overrides?.剧情编织 ?? state.剧情编织),
     variableBatches: compactVariableBatchHistory(overrides?.variableBatches ?? state.variableBatches),
-    queueTasks: overrides?.queueTasks ?? state.queueTasks,
-    gameSettings: buildSaveGameSettingsSnapshot({
-      ...gameSettingsForSave,
-      新闻系统: 归一化星际和平周报设置(gameSettingsForSave.新闻系统),
-      手机系统: 归一化手机系统设置(gameSettingsForSave.手机系统 ?? 创建默认手机系统设置()),
-      智库系统: 归一化智库系统设置(gameSettingsForSave.智库系统),
-      剧情编织系统: 归一化剧情编织系统设置(gameSettingsForSave.剧情编织系统),
-      文生图系统: 归一化文生图系统设置(gameSettingsForSave.文生图系统),
-      记忆系统: 归一化记忆系统设置(gameSettingsForSave.记忆系统 ?? 创建默认记忆系统设置()),
-      额外功能: 归一化额外功能设置(gameSettingsForSave.额外功能),
-      visualTextSettings: 归一化视觉文本设置(gameSettingsForSave.visualTextSettings),
-    }),
-    apiSettings: 创建空API设置(),
-    theme: state.currentTheme,
+    // 重建根叶子须带上队列，否则整树删除后重建会丢 queueTasks。
+    queueTasks: state.queueTasks,
+    // 运行态键须迁至存档顶层，否则读侧迁移会取到陈旧副本。
+    macroGlobalVars: state.macroGlobalVars,
+    worldbookTriggerStates: state.worldbookTriggerStates,
+    turnPhase: state.turnPhase ?? null,
+    recoveryContext: state.activeWorkflow.recovery ?? null,
   };
   const parentSave = activeSaveTreeMeta
-    ? ({ id: 0, type, timestamp, 旅人: baseSave.旅人, 世界: baseSave.世界, chatHistory: [], 记忆: baseSave.记忆, gameSettings: baseSave.gameSettings, apiSettings: baseSave.apiSettings, theme: baseSave.theme, saveTree: activeSaveTreeMeta } as unknown as 存档数据)
+    ? ({ id: 0, type, timestamp, 旅人: baseSave.旅人, 世界: baseSave.世界, chatHistory: [], 记忆: baseSave.记忆, saveTree: activeSaveTreeMeta } as unknown as 存档数据)
     : null;
+  // 与父节点同 id 时必须回退 createId，否则会重复节点 ID。
+  const parentNodeId = activeSaveTreeMeta?.nodeId ?? null;
+  const effectiveNodeId = nodeId && nodeId !== parentNodeId ? nodeId : undefined;
   const withTree = attachSaveTreeMeta(baseSave as 存档数据, buildNextSaveTreeMeta({
     previous: parentSave,
     type,
     timestamp,
+    ...(effectiveNodeId ? { nodeId: effectiveNodeId } : {}),
   }));
   return compactDuplicatedSaveImages(withTree);
 }
 
-export function commitActiveSaveTreeMeta(save: 存档数据): void {
+export function commitActiveSaveTreeMeta(save: 存档数据, state: UseGameStateReturn): void {
   activeSaveTreeMeta = getSaveTreeMeta(save);
+  state.setActiveTreeMeta(activeSaveTreeMeta);
 }
 
-function buildSaveGameSettingsSnapshot(settings: 游戏设置): 游戏设置 {
-  const defaults = 创建默认游戏设置();
-  return {
-    ...settings,
-    enableClaudeMode: defaults.enableClaudeMode,
-    deepSeekMainMode: defaults.deepSeekMainMode,
-    backgroundTaskMode: settings.backgroundTaskMode ?? defaults.backgroundTaskMode,
-    visualTextSettings: 归一化视觉文本设置(settings.visualTextSettings),
-    enableCacheDiagnostics: defaults.enableCacheDiagnostics,
-    variableApi: defaults.variableApi,
-    新闻系统: {
-      ...settings.新闻系统,
-      api: defaults.新闻系统.api,
-    },
-    手机系统: {
-      ...settings.手机系统,
-      api: defaults.手机系统.api,
-    },
-    智库系统: {
-      ...settings.智库系统,
-      api: defaults.智库系统.api,
-    },
-    剧情编织系统: {
-      ...settings.剧情编织系统,
-      api: defaults.剧情编织系统.api,
-    },
-    文生图系统: {
-      ...settings.文生图系统,
-      普通接口: defaults.文生图系统.普通接口,
-      场景接口: defaults.文生图系统.场景接口,
-      useSeparateSceneApi: defaults.文生图系统.useSeparateSceneApi,
-      NSFW接口: defaults.文生图系统.NSFW接口,
-      词组转化器API: defaults.文生图系统.词组转化器API,
-      正文生图: {
-        ...settings.文生图系统.正文生图,
-        parserApi: defaults.文生图系统.正文生图.parserApi,
-        imageApi: defaults.文生图系统.正文生图.imageApi,
-      },
-    },
-    记忆系统: {
-      ...settings.记忆系统,
-      记忆总结API: defaults.记忆系统.记忆总结API,
-      忆庭召回API: defaults.记忆系统.忆庭召回API,
-      忆庭精炼API: defaults.记忆系统.忆庭精炼API,
-    },
-  };
+export function assertCheckpointPayloadNoQueueTasks(payload: 存档数据, label: string): void {
+  const value = (payload as { queueTasks?: unknown }).queueTasks;
+  if (value === undefined) return;
+  devLogError('save', 'checkpoint-queueTasks-guard', `[D4] queueTasks 泄漏进检查点载荷（${label}），封版写入中止`, {
+    label,
+    queueTasksCount: Array.isArray(value) ? value.length : 'non-array',
+  });
+  throw new Error(`[D4] queueTasks 不得进入检查点载荷：${label}`);
 }
 
-function preserveLocalApiGameSettings(nextFromSave: 游戏设置, localSettings: 游戏设置): 游戏设置 {
-  const local = {
-    新闻系统: 归一化星际和平周报设置(localSettings.新闻系统),
-    手机系统: 归一化手机系统设置(localSettings.手机系统 ?? 创建默认手机系统设置()),
-    智库系统: 归一化智库系统设置(localSettings.智库系统),
-    剧情编织系统: 归一化剧情编织系统设置(localSettings.剧情编织系统),
-    文生图系统: 归一化文生图系统设置(localSettings.文生图系统),
-    记忆系统: 归一化记忆系统设置(localSettings.记忆系统 ?? 创建默认记忆系统设置()),
-  };
+export function beginSession(state: UseGameStateReturn): void {
+  const aw = state.activeWorkflow;
+  aw.abortControllerRef.current?.abort();
+  aw.abortControllerRef.current = null;
+  aw.rerollContextRef.current = null;
+  resetWorkflowProjection(state);
+  devLog('recover', 'begin-session-teardown', {});
+}
 
-  return {
-    ...nextFromSave,
-    enableClaudeMode: localSettings.enableClaudeMode === true,
-    deepSeekMainMode: localSettings.deepSeekMainMode ?? 创建默认游戏设置().deepSeekMainMode,
-    backgroundTaskMode: localSettings.backgroundTaskMode ?? 创建默认游戏设置().backgroundTaskMode,
-    enableCacheDiagnostics: localSettings.enableCacheDiagnostics ?? 创建默认游戏设置().enableCacheDiagnostics,
-    visualTextSettings: 归一化视觉文本设置(nextFromSave.visualTextSettings),
-    variableApi: localSettings.variableApi,
-    新闻系统: {
-      ...nextFromSave.新闻系统,
-      api: local.新闻系统.api,
-    },
-    手机系统: {
-      ...nextFromSave.手机系统,
-      api: local.手机系统.api,
-    },
-    智库系统: {
-      ...nextFromSave.智库系统,
-      api: local.智库系统.api,
-    },
-    剧情编织系统: {
-      ...nextFromSave.剧情编织系统,
-      api: local.剧情编织系统.api,
-    },
-    文生图系统: {
-      ...nextFromSave.文生图系统,
-      普通接口: local.文生图系统.普通接口,
-      场景接口: local.文生图系统.场景接口,
-      useSeparateSceneApi: local.文生图系统.useSeparateSceneApi,
-      NSFW接口: local.文生图系统.NSFW接口,
-      词组转化器API: local.文生图系统.词组转化器API,
-      正文生图: {
-        ...nextFromSave.文生图系统.正文生图,
-        parserApi: local.文生图系统.正文生图.parserApi,
-        imageApi: local.文生图系统.正文生图.imageApi,
-      },
-    },
-    记忆系统: {
-      ...nextFromSave.记忆系统,
-      记忆总结API: local.记忆系统.记忆总结API,
-      忆庭召回API: local.记忆系统.忆庭召回API,
-      忆庭精炼API: local.记忆系统.忆庭精炼API,
-    },
-  };
+export function resetWorkflowProjection(
+  state: UseGameStateReturn,
+  opts?: { keepTurnStatus?: boolean },
+): void {
+  const aw = state.activeWorkflow;
+  const keepTurnStatus = opts?.keepTurnStatus === true;
+  aw.setLoading(false);
+  if (!keepTurnStatus) aw.setTurnStatus(TURN_STATUS_IDLE);
+  aw.setPendingVariable(false);
+  aw.setLiveRecallSummary('');
+  aw.setLiveRecallFullContent('');
+  setStreamingMessage('');
+}
+
+export async function enterSession(
+  state: UseGameStateReturn,
+  save: 存档数据,
+): Promise<void> {
+  beginSession(state);
+  // 读工作区叶子只水合，否则会增殖叶子并写指针。
+  const treeMeta = (save as { saveTree?: 存档树元信息 | null }).saveTree;
+  const rootId = treeMeta?.rootId ?? null;
+  const targetNodeId = treeMeta?.nodeId ?? null;
+  const newest = await loadNewestStory();
+  if (rootId && targetNodeId && isUnsealedHeadSave(save)) {
+    if (newest.headNodeId !== targetNodeId) {
+      await saveNewestStory(指向NewestStory记录(newest, targetNodeId));
+    }
+    hydrate(await prepareHydration(save), state);
+    devLog('save', 'tree-hydrate-leaf', {
+      saveId: save.id,
+      rootId,
+      headNodeId: targetNodeId,
+      isCurrentHead: newest.headNodeId === targetNodeId,
+    });
+  } else if (rootId && targetNodeId) {
+    const fork = await forkSaveTreeLeaf({
+      rootId,
+      targetNodeId,
+    });
+    // 须用分叉出的新叶子水合：用原检查点会让 UI 误判为不可 reroll。
+    const newLeafSaveId = fork.headNodeId ? await loadSaveIdByNodeId(fork.headNodeId) : null;
+    const newLeaf = newLeafSaveId ? await loadSave(newLeafSaveId) : null;
+    if (!newLeaf) {
+      devLogError('save', 'tree-fork-hydrate-leaf-missing', new Error(`分叉叶子数据缺失：${fork.headNodeId ?? 'unknown'}`));
+      throw new Error('分叉叶子数据缺失，读档失败，请重试。');
+    }
+    hydrate(await prepareHydration(newLeaf), state);
+    devLog('save', 'tree-fork-read', {
+      saveId: newLeaf.id,
+      rootId,
+      targetNodeId,
+      headNodeId: fork.headNodeId,
+    });
+  } else {
+    hydrate(await prepareHydration(save), state);
+  }
+  // 须保持单调递增：App 用它作 key 重挂载 InputArea 以归零会话本地状态。
+  const nextEpoch = state.activeWorkflow.sessionEpoch + 1;
+  state.activeWorkflow.setSessionEpoch(nextEpoch);
+  devLog('recover', 'session-epoch-increment', { epoch: nextEpoch, entry: 'enter-session' });
 }
 
 export async function handleLoadLatest(
@@ -229,7 +224,19 @@ export async function handleLoadLatest(
 ): Promise<boolean> {
   const save = await loadLatestSave();
   if (!save) return false;
-  await applySaveToState(save, state);
+  await enterSession(state, save);
+  return true;
+}
+
+async function loadSaveIntoSession(
+  id: number,
+  state: UseGameStateReturn,
+  logEvent?: string,
+): Promise<boolean> {
+  const save = await loadSave(id);
+  if (!save) return false;
+  if (logEvent) devLog('save', logEvent, { id });
+  await enterSession(state, save);
   return true;
 }
 
@@ -237,154 +244,258 @@ export async function handleLoadById(
   id: number,
   state: UseGameStateReturn,
 ): Promise<boolean> {
-  const save = await loadSave(id);
-  if (!save) return false;
-  await applySaveToState(save, state);
-  return true;
+  return loadSaveIntoSession(id, state);
 }
 
-export async function handleManualSave(state: UseGameStateReturn): Promise<number> {
-  const payload = buildSavePayload(state, 'manual');
-  const id = await saveGame(payload);
-  commitActiveSaveTreeMeta(payload);
-  return id;
-}
-
-export async function handleDeleteSave(id: number): Promise<void> {
-  const save = await loadSave(id);
-  await dbDeleteSave(id);
-  clearActiveSaveTreeMetaIfMatches((save as { saveTree?: 存档树元信息 } | null)?.saveTree);
-}
-
-/**
- * 老存档读档迁移：旧档没有 世界.剧情运行时（V3 运行时切片），读档时按旧游标生成初始切片，
- * 让老档立即获得当前焦点与排期世界事件——世界演变/事实物化/新闻联动从读档后即刻工作。
- * - 只做"旧游标 → focus + 排期事件"的只读翻译：不推进剧情、不改游标、不补造旧回合事实
- *   （遵守 r2-central「读档不得推进/重新判断剧情」回归锁定）；
- * - 复用与首回合完全相同的投影/合并/dueAt 逻辑（buildStoryWeavingRuntimeProjection +
- *   mergeProjectionEvents，按 eventInstanceId 去重，后续回合不会重复添加）；
- * - 已有切片的存档（新档/已迁移档）直接通过；无剧情进度的存档跳过（首回合正常流程会自建）。
- */
-async function applySaveToState(
-  save: 存档数据,
+export async function handleBranchFromSave(
+  id: number,
   state: UseGameStateReturn,
-): Promise<void> {
-  activeSaveTreeMeta = getSaveTreeMeta(save);
-  const safeChatHistory = compactChatHistoryForLongSession(normalizeSaveChatHistory(save.chatHistory));
-  const safeWorld = 归一化世界状态(save.世界);
-  const safeTraveler = normalizeSavedTraveler(save.旅人, safeWorld.当前日期);
-  const safeGameSettings = normalizeSavedGameSettings(save.gameSettings);
-  // 旧档保留合法游标和运行时状态；读档不按地点跳段，不读取旧聊天，不重新判断或推进剧情，也不补造旧回合事实。
-  // 后续普通回合若明确建立了更后阶段，只由联合裁决器一次推进一格。
-  const nextStoryWeaving = restoreStoryWeavingForLoadedSave(
-    save.剧情编织,
-    state.剧情编织,
-    safeWorld.开局档案,
-  );
-  // 老存档运行时迁移：读档只恢复保存状态（不推进剧情、不补造事实），
-  // 旧档没有 世界.剧情运行时 时仅按旧游标生成初始运行时切片（已有切片不覆盖）。
-  const safeWorldWithRuntime = ensureRuntimeSliceForLoadedSave(safeWorld, nextStoryWeaving);
+): Promise<boolean> {
+  return loadSaveIntoSession(id, state, 'branch-from-save');
+}
 
-  if (state.interruptedWorkflow) {
-    if (isWorkflowRecoveryComplete(state.interruptedWorkflow, safeChatHistory)) {
-      await clearWorkflowRecoveryJournal(state.interruptedWorkflow.workflowId);
-      state.setInterruptedWorkflow(null);
-      if (state.workflowHint.startsWith('上次生成被浏览器中断')) state.setWorkflowHint('');
-    } else {
-      state.setWorkflowHint('上次生成被浏览器中断，输入已恢复；请检查存档后重新发送。');
+export async function bootRestoreFromNewest(state: UseGameStateReturn): Promise<boolean> {
+  try {
+    const active = await loadActiveLeaf();
+    if (active.status !== 'ok') {
+      // sealed-conflict 时不得把检查点当工作区水合，须同无工作区一样回退。
+      devLog('recover', 'boot-restore-fallback', {
+        reason: active.status === 'sealed-conflict'
+          ? 'head-sealed-conflict'
+          : (active.newest.headNodeId ? 'head-missing' : 'no-head'),
+        headNodeId: active.newest.headNodeId,
+      });
+      return false;
+    }
+    const { newest, leaf } = active;
+
+    devLog('recover', 'boot-restore-start', { headNodeId: newest.headNodeId, saveId: leaf.id });
+    hydrate(await prepareHydration(leaf), state);
+    await disarmObsoleteEphemeralFields(newest, leaf);
+    devLog('recover', 'boot-restore-complete', { headNodeId: newest.headNodeId, saveId: leaf.id });
+    return true;
+  } catch (error) {
+    state.setView('home');
+    devLogError('recover', 'boot-restore-failed', error);
+    return false;
+  }
+}
+
+export async function ensureHeadLeafWritable(state: UseGameStateReturn): Promise<NewestStory记录> {
+  const newest = await loadNewestStory();
+  if (newest.headNodeId && await isActiveLeafWritable(newest.headNodeId)) {
+    return newest;
+  }
+  if (newest.headNodeId) {
+    const saveId = await loadSaveIdByNodeId(newest.headNodeId);
+    const target = saveId ? await loadSave(saveId) : null;
+    const tree = (target as { saveTree?: 存档树元信息 | null } | null)?.saveTree;
+    if (target && tree?.rootId && tree.nodeId) {
+      // 崩溃窗口：封版后写指针前崩溃会留下未采纳的子叶子，须先采纳（分叉会把 queueTasks 重置为空）。
+      const adopted = await adoptUnsealedChildLeaf(tree.nodeId);
+      if (adopted) {
+        devLog('recover', 'head-leaf-adopted-child', {
+          fromNodeId: newest.headNodeId,
+          childNodeId: adopted.headNodeId,
+        });
+        return adopted;
+      }
+      await forkSaveTreeLeaf({ rootId: tree.rootId, targetNodeId: tree.nodeId });
+      devLog('recover', 'head-leaf-forked', { fromNodeId: newest.headNodeId });
+      return loadNewestStory();
     }
   }
+  const payload = buildSavePayload(state, 'auto');
+  const tree = getSaveTreeMeta(payload);
+  await createLeafNode(payload);
+  activeSaveTreeMeta = tree;
+  state.setActiveTreeMeta(tree);
+  const next = 指向NewestStory记录(newest, tree.nodeId);
+  await saveNewestStory(next);
+  devLog('recover', 'head-leaf-rebuilt', { headNodeId: tree.nodeId });
+  return next;
+}
+
+export async function handleDeleteSave(id: number, state: UseGameStateReturn): Promise<void> {
+  const save = await loadSave(id);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- 无树/过渡期路径，树内删除走 deleteSaveTreeNode
+  await dbDeleteSave(id);
+  clearActiveSaveTreeMetaIfMatches((save as { saveTree?: 存档树元信息 } | null)?.saveTree ?? null, state);
+}
+
+/** legacy 无树恢复点返回 null。 */
+export interface 存档删除目标 {
+  tree: { rootId: string; nodeId: string } | null;
+  cascadeCount: number | null;
+}
+
+export async function resolve存档删除目标(
+  target?: { saveTree?: 存档树元信息 | null } | null,
+): Promise<存档删除目标> {
+  const treeNode = target?.saveTree;
+  if (!treeNode || !treeNode.rootId || !treeNode.nodeId) {
+    return { tree: null, cascadeCount: null };
+  }
+  const subtree = await getSaveTreeNodeSubtree(treeNode.rootId, treeNode.nodeId);
+  return { tree: { rootId: treeNode.rootId, nodeId: treeNode.nodeId }, cascadeCount: subtree.length };
+}
+
+export async function delete存档目标(id: number, target: 存档删除目标, state: UseGameStateReturn): Promise<void> {
+  if (target.tree) {
+    await deleteSaveTreeNode(target.tree);
+    clearActiveSaveTreeMetaIfMatches(target.tree, state);
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 无树 legacy 恢复点
+    await dbDeleteSave(id);
+    clearActiveSaveTreeMetaIfMatches(null, state);
+  }
+}
+
+export async function prepareHydration(save: 存档数据): Promise<HydrationContext> {
+  const { save: migratedSave, macroGlobalVars, worldbookTriggerStates } = 迁移存档运行态键(save);
+  const safeChatHistory = compactChatHistoryForLongSession(normalizeSaveChatHistory(migratedSave.chatHistory));
+  const safeWorld = 归一化世界状态(migratedSave.世界);
+
+  const savedZhikuMigrationAt = await loadSetting<number>(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY);
+  const zhikuMigrationAt = savedZhikuMigrationAt ?? Date.now();
+  if (!savedZhikuMigrationAt) {
+    await saveSetting(ZHIKU_CHARACTER_REBUILD_MIGRATION_KEY, zhikuMigrationAt);
+  }
+  const zhiku = mergeBundledZhikuSystem(await loadAllBundledZhikuPresets(), migratedSave.智库, zhikuMigrationAt);
+  await saveSetting('zhikuSystem', buildPersistedZhikuSystem(zhiku));
+
+  const storyWeaving = alignStoryWeavingToOpeningArchive(
+    hydratePersistedStoryWeavingSystem(
+      归一化剧情编织系统(migratedSave.剧情编织),
+      await loadAllBundledStoryWeavingPresets().catch(() => 归一化剧情编织系统(undefined)),
+    ),
+    safeWorld.开局档案,
+  );
+  const recentUser = [...safeChatHistory].reverse().find((message) => message.role === 'user');
+  const recentAssistant = [...safeChatHistory].reverse().find((message) => message.role === 'assistant');
+  const storyRepair = autoAlignCanonStoryProgress({
+    storyWeaving,
+    turnCount: migratedSave.turnCount ?? (safeChatHistory.length + 1),
+    userInput: recentUser?.content ?? '',
+    body: recentAssistant?.parsedResponse?.body ?? recentAssistant?.content ?? '',
+    currentLocation: safeWorld.当前地点,
+  });
+  const repairedStoryWeaving = storyRepair.system;
+  await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(repairedStoryWeaving));
+
+  return {
+    save: migratedSave,
+    macroGlobalVars,
+    worldbookTriggerStates,
+    safeWorld,
+    safeChatHistory,
+    zhiku,
+    storyWeaving: repairedStoryWeaving,
+  };
+}
+
+export function evaluateEphemeralFieldsForHydration(
+  save: Pick<存档数据, 'turnCount' | 'turnPhase' | 'recoveryContext'>,
+  chatHistory: readonly { role: string; id?: string }[],
+): {
+  fields: NormalizedEphemeralFields;
+  issues: EphemeralFieldIssue[];
+  obsolete: boolean;
+} {
+  const { fields, issues } = normalizeEphemeralFields(save);
+  const turnCount = save.turnCount ?? (chatHistory.length + 1);
+  const obsolete = issues.length > 0 || !isLeafRecoveryCoherent(fields, turnCount, chatHistory);
+  return {
+    fields: obsolete ? { ...EPHEMERAL_DEFAULTS } : fields,
+    issues,
+    obsolete,
+  };
+}
+
+function isLeafRecoveryCoherent(
+  fields: NormalizedEphemeralFields,
+  turnCount: number,
+  chatHistory: readonly { role: string; id?: string }[],
+): boolean {
+  const { turnPhase, recoveryContext } = fields;
+  if (turnPhase === null) return recoveryContext === null;
+  if (turnPhase === 'awaitingLanding') {
+    if (isOpeningLanded(turnCount, chatHistory)) return false;
+    if (!recoveryContext) {
+      // 全新开局时历史必须为空，否则是缺上下文的残缺现场。
+      return !chatHistory.some((message) => message.role === 'user' || message.role === 'assistant');
+    }
+    return chatHistory.some((message) => message.role === 'user' && message.id === recoveryContext.userMessageId);
+  }
+  if (!recoveryContext) return false;
+  return isSettledRecoveryCoherent(recoveryContext, chatHistory);
+}
+
+/** 写回清除而非只清内存投影，否则刷新后不一致的恢复态会复活。 */
+async function disarmObsoleteEphemeralFields(newest: NewestStory记录, leaf: 存档数据): Promise<void> {
+  if (!newest.headNodeId) return;
+  if ((leaf.turnPhase ?? null) === null && (leaf.recoveryContext ?? null) === null) return;
+  const evaluation = evaluateEphemeralFieldsForHydration(leaf, leaf.chatHistory);
+  if (!evaluation.obsolete) return;
+  await writeClearedRecovery(newest.headNodeId);
+  devLog('recover', 'leaf-recovery-disarmed', {
+    headNodeId: newest.headNodeId,
+    reason: evaluation.issues.length > 0 ? 'invalid-value' : 'phase-history-mismatch',
+  });
+}
+
+export function hydrate(
+  context: HydrationContext,
+  state: UseGameStateReturn,
+): void {
+  const { save: 迁移后存档, macroGlobalVars, worldbookTriggerStates, safeWorld, safeChatHistory } = context;
+  // activeTreeMeta 须同步进 state：canRerollWithTree 依赖 state 而非此模块级缓存。
+  activeSaveTreeMeta = getSaveTreeMeta(迁移后存档);
+  state.setActiveTreeMeta(activeSaveTreeMeta);
+  const safeTraveler = 归一化旅人(迁移后存档.旅人, safeWorld.当前日期);
 
   state.set旅人(safeTraveler);
-  state.set世界(safeWorldWithRuntime);
+  state.set世界(safeWorld);
   state.setChatHistory(safeChatHistory);
-  // 输入框受控化后：读档/切档必须清空草稿，避免残留上一局/上一档的未发送文本
-  state.setInputText('');
-  state.set记忆(normalizeMemorySystem(save.记忆));   // 老存档缺 longTermMemories 时兜底
-  const legacyArchives = (save.记忆 as unknown as { 回忆档案?: unknown[] })?.回忆档案 ?? [];
+  const safeMemory = 归一化记忆系统(迁移后存档.记忆);
+  if (safeMemory.issues.length) devLog('save', 'memory-normalization-issues', { issues: safeMemory.issues });
+  state.set记忆(safeMemory.value);
+  const legacyArchives = (迁移后存档.记忆 as unknown as { 回忆档案?: unknown[] }).回忆档案 ?? [];
   state.set忆庭(
     归一化忆庭系统(
-      save.忆庭 ?? ({ 回忆档案: legacyArchives } as Partial<import('@/models/yiting').忆庭系统>),
+      迁移后存档.忆庭 ?? ({ 回忆档案: legacyArchives } as Partial<import('@/models/yiting').忆庭系统>),
     ),
   );
-  const catalogResult = await loadBundledZhikuCatalogWithFallback();
-  if (catalogResult.source === 'cache') {
-    console.warn('[zhiku] 读档时新目录加载失败，已使用最后一份完整目录:', catalogResult.loadError);
-  }
-  const nextZhiku = composeZhikuSystem(catalogResult.system, save.智库);
-  state.set智库(nextZhiku);
-  await saveSetting('zhikuSystem', buildPersistedZhikuSystem(nextZhiku));
-  state.set手机(归一化手机系统(save.手机));
-  state.setNPC(归一化NPC记录列表(save.NPC, save.turnCount));   // 旧存档/AI 半成品对象统一兜底，并执行一次路人整理
-  const nextAlbum = materializeAlbumRuntimePayload(归一化相册系统(save.相册));
+  state.set智库(context.zhiku);
+  state.set手机(归一化手机系统(迁移后存档.手机));
+  state.setNPC(归一化NPC记录列表(迁移后存档.NPC));   // 旧存档/AI 半成品对象统一兜底
+  const nextAlbum = materializeAlbumRuntimePayload(归一化相册系统(迁移后存档.相册));
   state.set相册(nextAlbum);
   pruneAlbumAssetCache(nextAlbum.assets.map((asset) => asset.id));
-  state.set新闻(归一化新闻列表(save.新闻));                     // 旧存档没有该字段，兜底空数组
-  state.set剧情(save.剧情 ?? []);           // 旧存档没有该字段，兜底空数组
-  state.set剧情编织(nextStoryWeaving);
-  state.setVariableBatches(linkVariableBatchesToChatHistory(
-    compactVariableBatchHistory(save.variableBatches ?? []),
-    safeChatHistory,
-  ));
-  state.setQueueTasks(save.queueTasks ?? []); // 旧存档没有该字段，兜底空数组
-  // 兼容旧存档：promptModules 是后加的（需补齐 builtin + 迁移 customPrompt）。
-  // API 配置属于本机设置，不跟随存档读取；否则旧档/导入档会把当前可用 API 覆盖成空值。
-  const defaults = 创建默认游戏设置();
-  const nextGameSettingsFromSave: 游戏设置 = {
-    ...defaults,
-    ...safeGameSettings,
-    新闻系统: 归一化星际和平周报设置(safeGameSettings.新闻系统),
-    手机系统: 归一化手机系统设置(safeGameSettings.手机系统),
-    智库系统: 归一化智库系统设置(safeGameSettings.智库系统),
-    剧情编织系统: 归一化剧情编织系统设置(safeGameSettings.剧情编织系统),
-    文生图系统: 归一化文生图系统设置(safeGameSettings.文生图系统),
-    记忆系统: 归一化记忆系统设置(safeGameSettings.记忆系统),
-    额外功能: 归一化额外功能设置(safeGameSettings.额外功能),
-    backgroundTaskMode: safeGameSettings.backgroundTaskMode ?? defaults.backgroundTaskMode,
-    enableMaleNsfwArchive: safeGameSettings.enableMaleNsfwArchive ?? defaults.enableMaleNsfwArchive,
-    visualTextSettings: 归一化视觉文本设置(safeGameSettings.visualTextSettings),
-    promptModules: migratePromptModules(safeGameSettings),
-    // 方案 A 三层 order 区间迁移：预设库里的 ST 模块也要 +50 偏移
-    stPresets: migrateStPresetOrders(safeGameSettings.stPresets),
-    promptModuleOrderVersion: 1,
-  };
-  state.setGameSettings(preserveLocalApiGameSettings(nextGameSettingsFromSave, state.gameSettings));
+  state.set新闻(归一化新闻列表(迁移后存档.新闻));                     // 旧存档没有该字段，兜底空数组
+  state.set剧情(迁移后存档.剧情 ?? []);           // 旧存档没有该字段，兜底空数组
+  state.set剧情编织(context.storyWeaving);
+  const normalizedBatches = 归一化变量命令批次列表(迁移后存档.variableBatches);
+  for (const issue of normalizedBatches.issues) {
+    devLogError('recover', 'variable-batch-invalid', `[V0] 变量批次 ${issue}`, { issue });
+  }
+  state.setVariableBatches(compactVariableBatchHistory(normalizedBatches.batches));
+  state.setQueueTasks(迁移后存档.queueTasks ?? []); // 旧存档没有该字段，兜底空数组
+  state.setMacroGlobalVars(macroGlobalVars);
+  state.setWorldbookTriggerStates(worldbookTriggerStates);
+  const ephemeral = evaluateEphemeralFieldsForHydration(迁移后存档, safeChatHistory);
+  for (const issue of ephemeral.issues) {
+    devLogError('recover', 'ephemeral-field-invalid', `[K3] 瞬态字段 ${issue.field} 非法，已显式清除`, {
+      field: issue.field,
+      reason: issue.reason,
+    });
+  }
+  projectRecovery(state, ephemeral.fields.turnPhase, ephemeral.fields.recoveryContext);
   state.setHasSave(true);
   state.setView('game');
-  state.setTurnCount(save.turnCount ?? (safeChatHistory.length + 1));
+  state.setTurnCount(迁移后存档.turnCount ?? (safeChatHistory.length + 1));
 }
 
 function normalizeSaveChatHistory(value: unknown): 聊天消息[] {
   return Array.isArray(value) ? (value as 聊天消息[]) : [];
-}
-
-function normalizeSavedTraveler(value: unknown, awakenedAt = ''): 角色数据结构 {
-  const base = 创建空角色();
-  const raw = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Partial<角色数据结构>
-    : {};
-  return 确保命途列表({
-    ...base,
-    ...raw,
-    姓名: typeof raw.姓名 === 'string' ? raw.姓名 : base.姓名,
-    别名: typeof raw.别名 === 'string' ? raw.别名 : base.别名,
-    性别: typeof raw.性别 === 'string' ? raw.性别 : base.性别,
-    年龄: Number.isFinite(Number(raw.年龄)) ? Number(raw.年龄) : base.年龄,
-    专长知识: Array.isArray(raw.专长知识) ? raw.专长知识.filter((item): item is string => typeof item === 'string') : base.专长知识,
-    图像档案: raw.图像档案 && typeof raw.图像档案 === 'object' ? raw.图像档案 : base.图像档案,
-    属性: raw.属性 ?? base.属性,
-    命途列表: Array.isArray(raw.命途列表) ? raw.命途列表 : base.命途列表,
-    能力: Array.isArray(raw.能力) ? raw.能力.filter((item): item is string => typeof item === 'string') : base.能力,
-    背包: Array.isArray(raw.背包) ? raw.背包 : base.背包,
-    战技列表: Array.isArray(raw.战技列表) ? raw.战技列表 : base.战技列表,
-  }, awakenedAt);
-}
-
-function normalizeSavedGameSettings(value: unknown): 游戏设置 {
-  const defaults = 创建默认游戏设置();
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults;
-  return {
-    ...defaults,
-    ...(value as Partial<游戏设置>),
-  };
 }

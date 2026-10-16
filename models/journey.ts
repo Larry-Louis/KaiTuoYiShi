@@ -1,7 +1,3 @@
-// 「踏上旅途」向导相关的类型与默认值。
-// 命途/能力的具体内容见 [data/journeyPresets.ts]。
-
-// ── 难度 ──
 export type 难度ID = 'easy' | 'normal' | 'hard' | 'extreme';
 
 export interface 难度定义 {
@@ -11,7 +7,6 @@ export interface 难度定义 {
   description: string;
 }
 
-// ── 剧情模式偏向 ──
 export type 剧情模式 = 'normal' | 'harem' | 'romance_alt' | 'deep_single';
 export type 开局来源 = 'official_preset' | 'free' | 'workshop';
 export type 自由开局地点来源 = 'existing' | 'custom';
@@ -22,7 +17,6 @@ export interface 剧情模式定义 {
   description: string;
 }
 
-// ── 命途 ──
 export type 命途ID =
   | 'none'
   | 'hunt'
@@ -55,8 +49,6 @@ export interface 命途定义 {
   description: string;
 }
 
-// ── 世界观组织 / 玩家开局背景 ──
-// 这里只记录叙事身份,不维护阵营声望或加入状态变量。
 export type 组织标签ID =
   | 'none'
   | 'genius_society'
@@ -72,14 +64,12 @@ export interface 阵营定义 {
   openingHint: string;
 }
 
-// ── 能力预设 ──
 export interface 能力预设 {
   id: string;
   name: string;
   description: string;
 }
 
-// ── 起始地点/场景 ──
 export interface 起始场景 {
   id: string;
   name: string;
@@ -100,11 +90,8 @@ export interface 开局章节锚点 {
   regionId: string;
   name: string;
   summary: string;
-  /** 原作开拓任务章节名，用于 UI 标注和提示词锚定。 */
   officialChapterName?: string;
-  /** 在该原作章节内的相对阶段，例如“前段”“中后段”“决战前”。 */
   officialChapterPhase?: string;
-  /** 选择该锚点时，之前章节如何处理：只作既成背景，不进入正文推进队列。 */
   priorStoryState?: string;
   referenceDate?: string;
   referenceTime?: string;
@@ -186,7 +173,6 @@ export interface 创意工坊开局模板包 {
   templates: 创意工坊开局模板[];
 }
 
-// ── 角色属性 ──
 export interface 六维属性 {
   力量: number;
   智慧: number;
