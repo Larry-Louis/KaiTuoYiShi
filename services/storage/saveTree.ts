@@ -153,7 +153,9 @@ export async function compressAutoSaveWindow(rootId: string): Promise<number> {
     chain.push(item);
     cursor = item.saveTree?.parentNodeId ?? null;
   }
-  const drop = chain.slice(AUTO_WINDOW_DELTAS + 1);
+  // 链上也该丢弃的部分（滚动窗口）；它同时是「重定父」的边界依据。
+  const 链上截断 = chain.slice(AUTO_WINDOW_DELTAS + 1);
+  const drop = [...链上截断];
   // 除当前链外，其它「整棵都是自动档」的树也一并清除（同步分叉留下的噪声树；含手动/导入的树一律不动）。
   const 当前根 = chain[0]?.saveTree?.rootId ?? null;
   const 按根 = new Map<string, SaveListItemSummary[]>();
@@ -164,16 +166,47 @@ export async function compressAutoSaveWindow(rootId: string): Promise<number> {
     组.push(item);
     按根.set(根, 组);
   }
+  // 同一根下、但**不在 head 链上**的自动节点：父链断裂留下的孤儿链（重载/对账后很常见）。
+  // 它们从 head 根本不可达。旧实现只按 rootId 分组清“其它树”，这些共用同一个 rootId
+  // 的断裂链会被当成“当前链”放过 —— 每条链各留 7 个，一夜下来堆成一两百个节点。
+  // 只当整个根都不含手动档时才清（与“手动档一律不动”一致）。
+  //
+  // 唯一不能碰的是**未封版**节点：它要么是正在写的头，要么是崩溃窗口里待采纳的子叶。
+  // 已验证的保留条件：未封版 **且父节点在 head 链上** —— 那才是重载分叉留下的待采纳子叶；
+  // 父链已经断了的未封版孤儿头属于噪声，可以清。增量基底由 deleteManagedSaveItems
+  // 兜底降级为不可见基底，不会误删。
+  if (当前根) {
+    const 本根 = 按根.get(当前根) ?? [];
+    if (本根.every((项) => 项.type === 'auto')) {
+      for (const item of 本根) {
+        const nodeId = item.saveTree?.nodeId;
+        if (!nodeId || seenNodeIds.has(nodeId)) continue;
+        if (item.unsealedHead === true) {
+          const parent = item.saveTree?.parentNodeId ?? null;
+          if (parent && seenNodeIds.has(parent)) continue;
+        }
+        drop.push(item);
+      }
+    }
+  }
   for (const [根, 组] of 按根) {
     if (根 === 当前根) continue;
     if (组.every((项) => 项.type === 'auto')) drop.push(...组);
   }
   if (!drop.length) return 0;
-  const keepOldest = chain[AUTO_WINDOW_DELTAS];
-  const nextParentNodeId = drop[drop.length - 1]?.saveTree?.parentNodeId ?? null;
+  // 重定父的边界**只能由链上的截断点决定**：额外清除的节点（同根孤儿链、其它树）与保留链
+  // 没有父子关系，拿它们的 parent 当边界会把链根接到链尾 —— 实测会绕成环，整棵存档树读不出来。
+  // 链下标可能越界（链比窗口短时）。这里用显式守卫而不是可选链：该索引在类型上被视为非空，
+  // 可选链会被 lint 判为多余，但运行时确实可能越界。
+  const keepOldest = chain[AUTO_WINDOW_DELTAS] as SaveListItemSummary | undefined;
+  const 链上新父 = 链上截断[链上截断.length - 1] as SaveListItemSummary | undefined;
+  const nextParentNodeId = 链上新父 ? (链上新父.saveTree?.parentNodeId ?? null) : null;
   const db = await openDB();
   await deleteManagedSaveItems(db, drop);
-  await reparentSaveNode(db, keepOldest, nextParentNodeId);
+  // 只有链上确实截断过，才存在「保留链的新链根」；否则 keepOldest 为空，不能重定父。
+  if (链上截断.length && keepOldest && keepOldest.saveTree?.nodeId) {
+    await reparentSaveNode(db, keepOldest, nextParentNodeId);
+  }
   devLog('save', 'auto-window-compressed', {
     rootId: trimmed,
     dropped: drop.length,
