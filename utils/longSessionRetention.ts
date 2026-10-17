@@ -153,15 +153,38 @@ function 只留正文(parsed: 聊天消息['parsedResponse']): 聊天消息['par
 export function compactChatHistoryForSave(
   value: readonly 聊天消息[] | null | undefined,
 ): 聊天消息[] {
-  return compactChatHistoryForLongSession(value).map((message) => ({
-    ...message,
-    debugContext: undefined,
-    inputTokens: undefined,
-    outputTokens: undefined,
-    tokenUsage: undefined,
-    responseDurationSec: undefined,
-    parsedResponse: 只留正文(message.parsedResponse),
-  }));
+  const compacted = compactChatHistoryForLongSession(value);
+  let lastAssistantIndex = -1;
+  for (let index = compacted.length - 1; index >= 0; index -= 1) {
+    if (compacted[index].role === 'assistant') {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+
+  return compacted.map((message, index) => {
+    const keepContinuationState = index === lastAssistantIndex;
+    const parsed = message.parsedResponse;
+    const baseParsed = parsed ? 只留正文(parsed) : undefined;
+    return {
+      ...message,
+      debugContext: undefined,
+      inputTokens: undefined,
+      outputTokens: undefined,
+      tokenUsage: undefined,
+      responseDurationSec: undefined,
+      // 最后一条 assistant 是读档后继续游玩的落点：行动选项和原始文本要留着，
+      // 否则刷新/读档后输入区没有可点选项，「原始消息」也只剩正文。
+      parsedResponse: baseParsed
+        ? {
+            ...baseParsed,
+            ...(keepContinuationState
+              ? { actionOptions: parsed?.actionOptions ?? [], rawText: parsed?.rawText ?? '' }
+              : {}),
+          }
+        : parsed,
+    };
+  });
 }
 
 function collectDetailedAssistantIndices(messages: readonly 聊天消息[]): Set<number> {
