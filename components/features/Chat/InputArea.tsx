@@ -246,16 +246,19 @@ export const InputArea = memo(function InputArea({
 
       {showOptions && (
         <div
-          className="mb-2 flex gap-1.5 overflow-x-auto kaituo-options-scroll"
-          style={{ scrollbarWidth: 'thin' }}
+          className="mb-2 grid gap-1.5"
+          style={{
+            // 按容器宽度自动决定列数：窄屏两列，宽屏可铺满一行；选项数量不再被截断。
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr))',
+          }}
         >
-          {visibleActionOptions.slice(0, 6).map((opt, idx) => (
+          {visibleActionOptions.map((opt, idx) => (
             <button
               key={`${idx}-${opt}`}
               type="button"
               onClick={() => handlePickOption(opt)}
               title="点击加入输入框，可继续微调"
-              className="group relative px-3 py-1.5 text-xs leading-tight transition-all hover:bg-[rgba(var(--tj-accent-primary),0.16)] whitespace-nowrap shrink-0"
+              className="group relative min-w-0 break-words px-3 py-1.5 text-left text-xs leading-tight transition-all hover:bg-[rgba(var(--tj-accent-primary),0.16)]"
               style={{
                 color: 'rgba(var(--tj-accent-primary), 0.92)',
                 background: 'rgba(var(--tj-accent-primary), 0.06)',
