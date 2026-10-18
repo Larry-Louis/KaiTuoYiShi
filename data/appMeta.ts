@@ -9,5 +9,5 @@ export interface AppCredits {
 
 export const APP_CREDITS: AppCredits = {
   author: '牢凌',
-  contributors: ['11MOMO', 'Penna Mch'],
+  contributors: ['11MOMO', 'Penna Mch', '喵子', '歌者'],
 };
