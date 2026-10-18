@@ -35,7 +35,17 @@ const 剧情编织采样参数 = (f: API覆盖字段): Partial<API配置项> => 
   temperature: f.temperature ?? 0.25,
 });
 
-const 词组转化器覆盖 = (s: 游戏设置): API覆盖字段 => s.文生图系统.词组转化器API;
+/** LLM只存了 provider/baseUrl/apiKey/model，其余字段回退主 API。 */
+const LLM覆盖 = (s: 游戏设置): API覆盖字段 => {
+  const api = s.文生图系统.LLM.API;
+  return {
+    provider: api.provider as API覆盖字段['provider'],
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    retryCount: s.文生图系统.LLM.重试次数,
+  };
+};
 
 const API_SLOTS: Record<ApiSlotId, ApiSlotSpec> = {
   main: { override: () => null },
@@ -64,16 +74,16 @@ const API_SLOTS: Record<ApiSlotId, ApiSlotSpec> = {
     stamp: 剧情编织采样参数,
   },
   imagePromptTokenizer: {
-    override: 词组转化器覆盖,
+    override: LLM覆盖,
     stamp: (f) => ({
       id: '__image_prompt_tokenizer__',
-      name: '文生图词组转化器',
+      name: '文生图LLM',
       maxTokens: Math.min(f.maxTokens ?? 1600, 2400),
       temperature: f.temperature ?? 0.45,
     }),
   },
   characterAnchorExtract: {
-    override: 词组转化器覆盖,
+    override: LLM覆盖,
     stamp: (f, override, main) => ({
       id: '__character_anchor_extract__',
       name: '角色视觉锚点提取',

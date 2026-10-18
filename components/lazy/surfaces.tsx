@@ -15,7 +15,7 @@ export const PlotPanel = lazyWithRetry(() => import('@/components/features/GameS
 export const YitingPanel = lazyWithRetry(() => import('@/components/features/GameSystems/YitingPanel').then((module) => ({ default: module.YitingPanel })), '忆庭');
 export const ZhikuSystemPanel = lazyWithRetry(() => import('@/components/features/Zhiku/ZhikuSystemPanel').then((module) => ({ default: module.ZhikuSystemPanel })), '智库');
 export const MemoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/MemoryPanel').then((module) => ({ default: module.MemoryPanel })), '记忆');
-export const AlbumPanel = lazyWithRetry(() => import('@/components/features/GameSystems/AlbumPanel').then((module) => ({ default: module.AlbumPanel })), '相册');
+export const ImageWorkbenchPanel = lazyWithRetry(() => import('@/components/features/ImageGeneration/ImageWorkbenchPanel').then((module) => ({ default: module.ImageWorkbenchPanel })), '视觉资产');
 export const SkillPanel = lazyWithRetry(() => import('@/components/features/GameSystems/SkillPanel').then((module) => ({ default: module.SkillPanel })), '战技');
 export const InventoryPanel = lazyWithRetry(() => import('@/components/features/GameSystems/InventoryPanel').then((module) => ({ default: module.InventoryPanel })), '物品');
 export const NewsPanel = lazyWithRetry(() => import('@/components/features/GameSystems/NewsPanel').then((module) => ({ default: module.NewsPanel })), '新闻');
@@ -59,7 +59,7 @@ const GAME_SURFACES: readonly SurfaceWarmup[] = [
   { id: 'yiting', load: YitingPanel.preload },
   { id: 'zhikuPanel', load: ZhikuSystemPanel.preload },
   { id: 'memory', load: MemoryPanel.preload },
-  { id: 'album', load: AlbumPanel.preload },
+  { id: 'album', load: ImageWorkbenchPanel.preload },
   { id: 'skill', load: SkillPanel.preload },
   { id: 'inventory', load: InventoryPanel.preload },
   { id: 'news', load: NewsPanel.preload },

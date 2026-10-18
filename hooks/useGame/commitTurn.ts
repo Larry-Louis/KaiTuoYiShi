@@ -1,6 +1,8 @@
 import type { 存档数据 } from '@/models/settings';
+import type { 聊天消息 } from '@/models/chat';
 import type { UseGameStateReturn } from '@/hooks/useGameState';
 import { loadSave, loadSaveIdByNodeId, saveGame } from '@/services/storage/saveCrud';
+import { writeTurnTranscript } from '@/services/storage/diskPersistence';
 import { createLeafNode, saveNewestStory, sealLeafRow } from '@/services/storage/saveTree';
 import { 创建空NewestStory记录, 指向NewestStory记录, 登记待采纳子叶, type NewestStory记录, type 工作区字段集 } from '@/models/newestStory';
 import { commitActiveSaveTreeMeta, ensureHeadLeafWritable, assertCheckpointPayloadNoQueueTasks } from './saveLoadWorkflow';
@@ -140,4 +142,23 @@ export async function commitTurn(
   });
 
   commitActiveSaveTreeMeta(nextLeafPayload, state);
+
+  // 正文另存一份人可读的磁盘记录：与存档同一提交点触发，但失败绝不影响回合。
+  const transcriptBody = extractLatestAssistantBody(sealedPayload.chatHistory);
+  if (transcriptBody) {
+    void writeTurnTranscript({
+      turn: sealedPayload.turnCount ?? sealedPayload.chatHistory.length + 1,
+      traveler: sealedPayload.旅人.姓名,
+      body: transcriptBody,
+    });
+  }
+}
+
+function extractLatestAssistantBody(chatHistory: readonly 聊天消息[]): string {
+  for (let index = chatHistory.length - 1; index >= 0; index -= 1) {
+    const message = chatHistory[index];
+    if (message.role !== 'assistant') continue;
+    return (message.parsedResponse?.body || message.content || '').trim();
+  }
+  return '';
 }

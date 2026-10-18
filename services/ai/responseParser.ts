@@ -193,7 +193,8 @@ export function parseActionOptionsBlock(optionsBlock: string): string[] {
     .flatMap(splitCandidateLine)
     .filter((option) => !isInvalidActionOption(option));
 
-  return Array.from(new Set(parsed)).slice(0, 6);
+  // 解析层不截断：AI 给几条就保留几条，前端按实际数量自适应铺开。
+  return Array.from(new Set(parsed));
 }
 
 export function parseResponse(rawText: string, options?: { repair?: boolean }): 解析后回复 {

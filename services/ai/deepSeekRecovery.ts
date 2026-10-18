@@ -11,6 +11,16 @@ export interface DeepSeekAttemptDiagnostics {
   sawVisibleContent: boolean;
   finishReason?: string;
   selectedModel: string;
+  /**
+   * 接口原始响应的键结构摘要（不装原始正文）。
+   *
+   * 用途：空回时唯一能回答「内容到底在哪」的东西。实测 Gemini 3f 返回空文本且
+   * `finishReason=stop`，此时必须知道响应里有没有 `tool_calls`、`reasoning_content`
+   * 之类的字段，才能判断是模型真没答，还是我们没去对的地方取。
+   */
+  响应结构?: string;
+  /** 本次请求要求的最大输出，用于判断「代理是否因为值过大而拒收」。 */
+  请求最大输出?: number;
 }
 
 export interface DeepSeekAttemptOptions {

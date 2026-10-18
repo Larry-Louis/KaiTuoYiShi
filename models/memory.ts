@@ -183,11 +183,33 @@ export function 应用记忆草稿摘要(
   };
 }
 
+/**
+ * 单层兜底硬顶：默认阈值（10/30/50）已通过压缩链让各层保持有界，此上限只防压缩长期失效时的无限堆积。
+ */
+export const 记忆层硬顶 = 120;
+
+function 折叠首行摘要(项: string[], 上限: number): string {
+  const 摘要 = 项
+    .map((item) => item.split('\n')[0]?.trim() ?? '')
+    .filter(Boolean)
+    .join('；');
+  return 摘要.length > 上限 ? `${摘要.slice(0, 上限)}…` : 摘要;
+}
+
+/** 超顶时把最旧的多余项本地折叠成一条，不调 API，保证单层长度有界。 */
+export function 封顶记忆层(层: string[], 硬顶: number = 记忆层硬顶): string[] {
+  if (层.length <= 硬顶) return 层;
+  const 折叠数 = 层.length - 硬顶 + 1;
+  const 折叠项 = 层.slice(0, 折叠数);
+  const 折叠条 = `【历史折叠·${折叠项.length}条】${折叠首行摘要(折叠项, 400)}`;
+  return [折叠条, ...层.slice(折叠数)];
+}
+
 export function 移动记忆层(memory: 记忆系统, kind: 记忆压缩层级, remaining: string[], summary: string): 记忆系统 {
   const { 来源, 目标 } = 记忆压缩层级表[kind];
   const next: 记忆系统 = { ...memory };
   next[来源] = remaining;
-  next[目标] = [...memory[目标], summary];
+  next[目标] = 封顶记忆层([...memory[目标], summary]);
   return next;
 }
 

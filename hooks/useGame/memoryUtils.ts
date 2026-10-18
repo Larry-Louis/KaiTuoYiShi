@@ -164,6 +164,40 @@ export function addImmediateMemory(system: 记忆系统, memory: string, _turn: 
   return { ...system, 即时记忆: trimmed };
 }
 
+interface 压缩回忆配置 {
+  idPrefix: string;
+  名称: (回合标签: string) => string;
+  类型: NonNullable<回忆条目['类型']>;
+}
+
+const 压缩回忆配置表: Record<'short' | 'middle' | 'long', 压缩回忆配置> = {
+  short: { idPrefix: 'recall_', 名称: (回合) => `【回忆${回合}】`, 类型: '短期压缩' },
+  middle: { idPrefix: 'recall_middle_', 名称: (回合) => `【中期纪要 ${回合}】`, 类型: '中期压缩' },
+  long: { idPrefix: 'recall_long_', 名称: (回合) => `【精炼纪要 ${回合}】`, 类型: '长期压缩' },
+};
+
+/** 三层压缩共用同一构造：短/中/长只差 id 前缀、名称与类型。 */
+function 创建压缩回忆条目(
+  kind: 'short' | 'middle' | 'long',
+  items: string[],
+  turn: number,
+  summaryOverride?: string,
+): 回忆条目 {
+  const 配置 = 压缩回忆配置表[kind];
+  const 回合标签 = String(Math.max(1, turn)).padStart(3, '0');
+  return {
+    id: `${配置.idPrefix}${Date.now()}`,
+    名称: 配置.名称(回合标签),
+    类型: 配置.类型,
+    摘要: summaryOverride?.trim() || buildArchiveSummary(items, turn, kind),
+    原文: items.join('\n'),
+    检索关键词: buildKeywords(items),
+    来源回合: [turn],
+    回合: turn,
+    时间戳: new Date().toISOString(),
+  };
+}
+
 export function checkCompressionThreshold(system: 记忆系统, threshold = 25): boolean {
   return system.即时记忆.length >= Math.max(1, Math.trunc(threshold));
 }
@@ -172,20 +206,6 @@ export function compressToShortTerm(system: 记忆系统, turn: number, batchSiz
   const size = Math.max(1, Math.trunc(batchSize));
   const summary = buildArchiveSummary(system.即时记忆.slice(0, size), turn, 'short');
   return 移动记忆层(system, 'short', system.即时记忆.slice(size), summary);
-}
-
-export function createShortTermArchiveEntry(rawMemories: string[], turn: number, summaryOverride?: string): 回忆条目 {
-  return {
-    id: `recall_${Date.now()}`,
-    名称: `【回忆${String(Math.max(1, turn)).padStart(3, '0')}】`,
-    类型: '短期压缩',
-    摘要: summaryOverride?.trim() || buildArchiveSummary(rawMemories, turn, 'short'),
-    原文: rawMemories.join('\n'),
-    检索关键词: buildKeywords(rawMemories),
-    来源回合: [turn],
-    回合: turn,
-    时间戳: new Date().toISOString(),
-  };
 }
 
 export function checkMiddleTermThreshold(system: 记忆系统, threshold = 20): boolean {
@@ -198,20 +218,6 @@ export function compressToMiddleTerm(system: 记忆系统, turn: number, batchSi
   return 移动记忆层(system, 'middle', system.短期记忆.slice(size), summary);
 }
 
-export function createMiddleTermArchiveEntry(shortMemories: string[], turn: number, summaryOverride?: string): 回忆条目 {
-  return {
-    id: `recall_middle_${Date.now()}`,
-    名称: `【中期纪要 ${String(Math.max(1, turn)).padStart(3, '0')}】`,
-    类型: '中期压缩',
-    摘要: summaryOverride?.trim() || buildArchiveSummary(shortMemories, turn, 'middle'),
-    原文: shortMemories.join('\n'),
-    检索关键词: buildKeywords(shortMemories),
-    来源回合: [turn],
-    回合: turn,
-    时间戳: new Date().toISOString(),
-  };
-}
-
 export function checkLongTermThreshold(system: 记忆系统, threshold = 10): boolean {
   return system.中期记忆.length >= Math.max(1, Math.trunc(threshold));
 }
@@ -220,20 +226,6 @@ export function compressToLongTerm(system: 记忆系统, turn: number, batchSize
   const size = Math.max(1, Math.trunc(batchSize));
   const summary = buildArchiveSummary(system.中期记忆.slice(0, size), turn, 'long');
   return 移动记忆层(system, 'long', system.中期记忆.slice(size), summary);
-}
-
-export function createLongTermArchiveEntry(shortMemories: string[], turn: number, summaryOverride?: string): 回忆条目 {
-  return {
-    id: `recall_long_${Date.now()}`,
-    名称: `【精炼纪要 ${String(Math.max(1, turn)).padStart(3, '0')}】`,
-    类型: '长期压缩',
-    摘要: summaryOverride?.trim() || buildArchiveSummary(shortMemories, turn, 'long'),
-    原文: shortMemories.join('\n'),
-    检索关键词: buildKeywords(shortMemories),
-    来源回合: [turn],
-    回合: turn,
-    时间戳: new Date().toISOString(),
-  };
 }
 
 export function buildTurnRecallSummary(input: {
@@ -261,11 +253,39 @@ export function buildTurnRecallSummary(input: {
   return `【回合${turnLabel} 纪要】\n${dedupeLines(lines).slice(0, 6).join('\n')}`;
 }
 
+/** 忆庭档案兜底硬顶：正常节奏每约 10 回合一条，此上限只防超长存档无限增长。 */
+export const 回忆档案硬顶 = 400;
+
+/**
+ * 超顶时把最旧的条目合并成一条历史归档：保留摘要与关键词、丢弃原文层，
+ * 既封住档案长度，又不让被折叠的历史彻底消失。
+ */
+function 封顶回忆档案(档案: 回忆条目[]): 回忆条目[] {
+  if (档案.length <= 回忆档案硬顶) return 档案;
+  const 折叠数 = 档案.length - 回忆档案硬顶 + 1;
+  const 折叠项 = 档案.slice(0, 折叠数);
+  const 首回合 = 折叠项[0]?.回合 ?? 1;
+  const 末回合 = 折叠项[折叠项.length - 1]?.回合 ?? 首回合;
+  const 合并: 回忆条目 = {
+    id: `recall_fold_${首回合}_${末回合}`,
+    名称: `【历史归档·${折叠项.length}条】`,
+    类型: '长期压缩',
+    摘要: 折叠项.map((item) => item.摘要.trim()).filter(Boolean).join('；').slice(0, 1200),
+    原文: '',
+    检索关键词: Array.from(new Set(折叠项.flatMap((item) => item.检索关键词 ?? []))).slice(0, 24),
+    来源回合: [首回合, 末回合],
+    回合: 末回合,
+    时间戳: new Date().toISOString(),
+    分类: '正文',
+  };
+  return [合并, ...档案.slice(折叠数)];
+}
+
 export function upsertRecallEntry(system: { 回忆档案: 回忆条目[] }, entry: 回忆条目): { 回忆档案: 回忆条目[] } {
   const next = system.回忆档案.filter(
     (item) => !(item.回合 === entry.回合 && item.类型 === '精炼纪要' && item.名称?.startsWith('【回合纪要')),
   );
-  return { 回忆档案: [...next, entry] };
+  return { 回忆档案: 封顶回忆档案([...next, entry]) };
 }
 
 export interface MemoryCompressionOutcome {
@@ -291,9 +311,9 @@ export async function autoCompressMemorySystemWithArchivesAsync(
   signal?: AbortSignal,
 ): Promise<MemoryCompressionOutcome> {
   const stages: MemoryCompressionStage[] = [
-    { kind: 'short', threshold: settings.即时转短期阈值, buildArchive: createShortTermArchiveEntry },
-    { kind: 'middle', threshold: settings.短期转中期阈值, buildArchive: createMiddleTermArchiveEntry },
-    { kind: 'long', threshold: settings.中期转长期阈值, buildArchive: createLongTermArchiveEntry },
+    { kind: 'short', threshold: settings.即时转短期阈值, buildArchive: (items, turn, summary) => 创建压缩回忆条目('short', items, turn, summary) },
+    { kind: 'middle', threshold: settings.短期转中期阈值, buildArchive: (items, turn, summary) => 创建压缩回忆条目('middle', items, turn, summary) },
+    { kind: 'long', threshold: settings.中期转长期阈值, buildArchive: (items, turn, summary) => 创建压缩回忆条目('long', items, turn, summary) },
   ];
   let next = system;
   const archives: 回忆条目[] = [];

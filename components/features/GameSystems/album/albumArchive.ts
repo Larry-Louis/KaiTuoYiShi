@@ -1,6 +1,19 @@
 import { 读取图片参考目标, 归一化相册系统, isCharacterLibrarySlot, normalizeStringArray, slotLabel } from '@/models/imageGeneration';
-import type { 图片槽位, 图片资源, 图片生成任务, 相册条目, 相册系统 } from '@/models/imageGeneration';
-import type { AlbumImportTarget } from './foundation';
+import type { 图片槽位, 图片资源, 图片生成任务, 相册条目, 相册系统, 图片目标类型 } from '@/models/imageGeneration';
+
+/**
+ * 相册导入后的挂载目标。
+ *
+ * [FACT] 本类型原先与旧文生图规则中心共处一个 `foundation.ts`。规则中心已随旧
+ * 生成层整体退役，但归档仍需要「导入后挂到谁身上」这一个描述，故就地保留。
+ */
+export interface AlbumImportTarget {
+  scope: 'character' | 'scene';
+  targetType: 图片目标类型;
+  targetId?: string;
+  sceneKind?: 'scene' | 'snapshot' | 'phone';
+}
+
 import {
   assetContentKey,
   bytesToDataUrl,

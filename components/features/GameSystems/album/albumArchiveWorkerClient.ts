@@ -1,11 +1,11 @@
 import type { 图片资源, 相册系统 } from '@/models/imageGeneration';
-import type { AlbumImportTarget } from './foundation';
 import {
   completeAlbumImport,
   loadAlbumAssetBytes,
   type AlbumExportResult,
   type AlbumImportMode,
   type AlbumImportResult,
+  type AlbumImportTarget,
   type ParsedAlbum,
 } from './albumArchive';
 import { bytesToDataUrl, normalizeContentHash } from './albumContent';

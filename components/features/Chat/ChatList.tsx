@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState, memo } from 'react';
-import type { 聊天消息 } from '@/models/chat';
+import type { 聊天消息, 叙事插图 } from '@/models/chat';
 import type { NPC记录 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
 import type { VisualTextSettings } from '@/models/settings';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { useStreamingMessage } from '@/utils/streamingMessageStore';
+import { 发布实时事件, 是主机端 } from '@/services/localSave/liveSync';
 import type { TurnActionsApi, 回合动作上下文 } from '@/hooks/useGame/turnActionRuntime';
 import { TurnItem } from './TurnItem';
 import { mediumClip } from '@/components/ui/clipPaths';
+import type { 插图重生选项 } from './illustrationActions';
 
 interface ChatListProps {
   messages: 聊天消息[];
@@ -17,12 +19,18 @@ interface ChatListProps {
   turnActions?: TurnActionsApi;
   turnActionContext?: 回合动作上下文;
   narrativeImageManualEnabled?: boolean;
+  /** AVG 式逐句推进设置。 */
+  逐句推进?: { 启用: boolean; 立即全显: boolean };
+  /** 正文插图的显示方式（默认显示 / 默认展开）。 */
+  插图显示?: { 默认显示: boolean; 默认展开: boolean };
   npcRecords?: NPC记录[];
   traveler?: 角色数据结构;
   album?: 相册系统;
   showInnerVoice?: boolean;
   visualTextSettings?: VisualTextSettings;
   devMode?: boolean;
+  onIllustrationRegenerate?: (messageId: string, 插图: 叙事插图, 选项?: 插图重生选项) => void;
+  onIllustrationRerollPrompts?: (messageId: string) => void;
 }
 
 interface NeighborMeta {
@@ -50,12 +58,18 @@ interface ChatHistoryListProps {
   turnActions?: TurnActionsApi;
   turnActionContext?: 回合动作上下文;
   narrativeImageManualEnabled?: boolean;
+  /** AVG 式逐句推进设置。 */
+  逐句推进?: { 启用: boolean; 立即全显: boolean };
+  /** 正文插图的显示方式（默认显示 / 默认展开）。 */
+  插图显示?: { 默认显示: boolean; 默认展开: boolean };
   npcRecords?: NPC记录[];
   traveler?: 角色数据结构;
   album?: 相册系统;
   showInnerVoice?: boolean;
   visualTextSettings?: VisualTextSettings;
   devMode?: boolean;
+  onIllustrationRegenerate?: (messageId: string, 插图: 叙事插图, 选项?: 插图重生选项) => void;
+  onIllustrationRerollPrompts?: (messageId: string) => void;
 }
 
 const ChatHistoryList = memo(function ChatHistoryList({
@@ -65,12 +79,16 @@ const ChatHistoryList = memo(function ChatHistoryList({
   turnActions,
   turnActionContext,
   narrativeImageManualEnabled = false,
+  插图显示,
+  逐句推进,
   npcRecords,
   traveler,
   album,
   showInnerVoice = true,
   visualTextSettings,
   devMode = false,
+  onIllustrationRegenerate,
+  onIllustrationRerollPrompts,
 }: ChatHistoryListProps) {
   return (
     <>
@@ -91,6 +109,8 @@ const ChatHistoryList = memo(function ChatHistoryList({
               ? (id) => { void turnActions.执行(msg, id, turnActionContext); }
               : undefined}
             narrativeImageManualEnabled={narrativeImageManualEnabled}
+            插图显示={插图显示}
+        逐句推进={逐句推进}
             npcRecords={npcRecords}
             traveler={traveler}
             album={album}
@@ -99,6 +119,8 @@ const ChatHistoryList = memo(function ChatHistoryList({
             previousUserInput={meta.previousUserInput}
             visualTextSettings={visualTextSettings}
             devMode={devMode}
+            onIllustrationRegenerate={onIllustrationRegenerate}
+            onIllustrationRerollPrompts={onIllustrationRerollPrompts}
           />
         );
       })}
@@ -137,8 +159,21 @@ function buildNeighborMeta(messages: 聊天消息[]): NeighborMeta[] {
   return meta;
 }
 
-export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions, turnActionContext, narrativeImageManualEnabled = false, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, devMode = false }: ChatListProps) {
+export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions, turnActionContext, narrativeImageManualEnabled = false, 插图显示, 逐句推进, npcRecords, traveler, album, showInnerVoice = true, visualTextSettings, devMode = false, onIllustrationRegenerate, onIllustrationRerollPrompts }: ChatListProps) {
   const streamingMessage = useStreamingMessage();
+  // 只有「主机」才广播过程状态；遥控端（手机）只是显示，绝不转发。
+  // 结束（turn-done）不在这里发：它由 stage12_save 在回合真正封版后发，
+  // 好让其它端拿到的是变量结算完的完整回合。
+  useEffect(() => {
+    if (!是主机端()) return;
+    if (streamingMessage) {
+      void 发布实时事件({ kind: 'stream', source: 'host', text: streamingMessage });
+      return;
+    }
+    if (loading) {
+      void 发布实时事件({ kind: 'typing', source: 'host' });
+    }
+  }, [streamingMessage, loading]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
   const nearBottomRef = useRef(true);
@@ -307,12 +342,16 @@ export function ChatList({ messages, loading, scrollRef, onEditBody, turnActions
         turnActions={turnActions}
         turnActionContext={turnActionContext}
         narrativeImageManualEnabled={narrativeImageManualEnabled}
+        插图显示={插图显示}
+        逐句推进={逐句推进}
         npcRecords={npcRecords}
         traveler={traveler}
         album={album}
         showInnerVoice={showInnerVoice}
         visualTextSettings={visualTextSettings}
         devMode={devMode}
+        onIllustrationRegenerate={onIllustrationRegenerate}
+        onIllustrationRerollPrompts={onIllustrationRerollPrompts}
       />
 
       {streamingMessage && (

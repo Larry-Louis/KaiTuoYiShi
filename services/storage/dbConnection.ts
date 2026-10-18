@@ -15,6 +15,7 @@ import {
   stripSaveAssetPayloadForStorage,
 } from '@/utils/saveAssetStorage';
 import { createCatalogRecordFromSummary } from '@/services/storage/saveCatalog';
+import { wrapDatabaseIfMirroring } from '@/services/storage/idbWriteMirror';
 import { buildSaveSummary, type SaveWithTree, type StoredSaveMeta } from './saveSummary';
 import { isPlainRecord, normalizeNodeId, normalizeSaveId, toError } from '@/utils/storageUtils';
 
@@ -26,7 +27,7 @@ export const SAVE_ASSETS_STORE = 'saveAssets';
 export const SAVE_NODE_DELTAS_STORE = 'saveNodeDeltas';
 export const SETTINGS_STORE = 'settings';
 export const NEWEST_STORY_STORE = 'newestStory';
-export const MAX_DELTA_NODES_PER_CHECKPOINT = 6;
+export const MAX_DELTA_NODES_PER_CHECKPOINT = 5;
 export const SAVE_CATALOG_REPAIR_LEASE_KEY = 'internal.saveCatalogRepairLease.v2';
 export const SAVE_CATALOG_REPAIR_LEASE_MS = 60_000;
 export const SAVE_CATALOG_REPAIR_OWNER = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -58,7 +59,8 @@ export function openDB(): Promise<IDBDatabase> {
         connection.close();
         dbPromise = null;
       };
-      resolve(db);
+      // 本地落盘未启用时原样返回连接；启用时返回带写穿透镜像的代理。
+      resolve(wrapDatabaseIfMirroring(db));
     };
     const fail = (error: unknown) => {
       if (settled) return;

@@ -121,7 +121,7 @@ export function PhoneSystemSettingsTab({ settings, onChange, apiSettings, onPers
 
       <ToggleRow
         label="自动生成主动来信种子"
-        desc="开启后，变量模型可根据主剧情事件写入来信种子；玩家打开手机时会自动生成一条最高优先级来信。"
+        desc="开启后，NPC 会依据主剧情事件主动给你发消息；关闭后不再有主动来信，但你仍可随时主动给角色发消息。"
         checked={phone.autoGenerateSeeds}
         onChange={(v) => patch({ autoGenerateSeeds: v })}
       />

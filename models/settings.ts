@@ -8,7 +8,6 @@ export type AI提供商 = (typeof AI提供商列表)[number];
 
 import type { 提示词模块 } from './prompts';
 import { createBuiltinPromptModules } from '@/data/builtinPromptModules';
-import { 默认文生图规则中心, normalizeImageRules } from '@/utils/imagePromptRules';
 import type { 剧情编织API覆盖 } from './storyWeaving';
 import type { STPresetEntryV2, TavernPostProcessMode } from './stTypes';
 
@@ -149,7 +148,7 @@ export function 创建空忆庭API覆盖(): 忆庭API覆盖 {
   return 建忆庭API覆盖Schema('openai_compatible').parse({});
 }
 
-export interface 文生图词组转化器API覆盖 {
+export interface 文生图LLMAPI覆盖 {
   provider: AI提供商 | '';
   baseUrl: string;
   apiKey: string;
@@ -159,7 +158,7 @@ export interface 文生图词组转化器API覆盖 {
   retryCount?: number;
 }
 
-export function 创建空文生图词组转化器API覆盖(): 文生图词组转化器API覆盖 {
+export function 创建空文生图LLMAPI覆盖(): 文生图LLMAPI覆盖 {
   return {
     provider: '',
     baseUrl: '',
@@ -179,6 +178,18 @@ export interface VisualTextSettings {
   narrationFontSize: number;
   dialogueFontSize: number;
   playerFontSize: number;
+}
+
+/**
+ * AVG（galgame 式逐句推进）设置。
+ *
+ * 借鉴自用户的 galgame 前端：正文不再一次性铺开，而是按「一句」为单位，
+ * 用滚轮 / 空格 / 回车前进、反向滚动后退。
+ */
+export interface 逐句推进设置 {
+  启用: boolean;
+  /** 一次性把本回合全部展开（跳过逐句）。 */
+  立即全显: boolean;
 }
 
 export interface 游戏设置 {
@@ -204,6 +215,8 @@ export interface 游戏设置 {
   剧情编织系统: 剧情编织系统设置;
   文生图系统: 文生图系统设置;
   记忆系统: 记忆系统设置;
+  /** AVG 式逐句推进（可选）。 */
+  逐句推进: 逐句推进设置;
   variableApi: 变量API覆盖;
   variableUpdateRequireConfirm: boolean;
   /** @deprecated 用 promptModules 替代。保留字段用于旧存档迁移。 */
@@ -222,6 +235,10 @@ export interface 游戏设置 {
   cotLanguage?: 'zh' | 'en' | 'ja' | 'fr' | 'ru' | 'de' | 'es' | 'it';
   enableCotFakeHistory: boolean;
   enableTagRepair: boolean;
+  /** 正文格式校验：按下面填写的必需标签检查 AI 原始输出，缺失时自动重写。 */
+  enableResponseFormatCheck: boolean;
+  /** 每行 / 逗号分隔；写不写尖括号都行。空串表示不校验。 */
+  responseFormatRequiredTags: string;
   autoRetryOnError: boolean;
   autoRetryCount: number;
   enableAutoSaveEveryTurn: boolean;
@@ -286,447 +303,261 @@ export interface 剧情编织系统设置 {
   剧情推进AI判定: boolean;
   /** 留空复用剧情编织 api，再回退主 API。 */
   推进判定API: 剧情编织API覆盖设置;
+  /** 剧情对齐巡检：每隔若干回合用 AI 把近期正文总结与剧情库比对，向前纠正当前段；默认关闭。 */
+  剧情对齐巡检: boolean;
+  /** 剧情对齐巡检的间隔回合数。 */
+  剧情对齐巡检间隔: number;
   /** 旧存档缺省关闭，可手动开启。 */
   世界演变: boolean;
 }
 
-export type 文生图响应格式 = 'url' | 'b64_json' | 'dataUrl';
-export type 文生图默认风格 = 'hsr' | 'anime' | 'realistic' | 'custom';
-export const 文生图后端列表 = ['openai_compatible', 'novelai', 'sd_webui', 'comfyui'] as const;
-export type 文生图后端类型 = (typeof 文生图后端列表)[number];
-export type 文生图接口路径模式 = 'preset' | 'custom';
-export type 自动生图场景构图 = '纯场景' | '故事快照' | '剧照';
-export type 自动NPC生图构图 = '头像' | '半身' | '立绘';
-export type 自动NPC生图性别筛选 = '全部' | '男' | '女';
-export type 文生图规则模板类型 = 'npc' | 'scene' | 'scene_judge';
-export type 画师串预设适用范围 = 'npc' | 'scene' | 'all';
-export type PNG画风预设来源 = 'novelai' | 'sd_webui' | 'comfyui' | 'unknown';
-export type 文生图预设接口路径 =
-  | 'openai_images'
-  | 'novelai_generate'
-  | 'sd_txt2img'
-  | 'comfyui_prompt';
+/**
+ * 文生图系统的设置类型与归一化函数。
+ *
+ * [FACT] 本文件原先自带一整套 `文生图API配置` / `文生图规则中心设置` / `正文生图设置`
+ * 类型与归一化函数。旧实现硬编码 `CheckpointLoaderSimple` / `KSampler` 等
+ * class_type 定位 ComfyUI 节点，只能跑一种工作流形状，已整体退役。
+ *
+ * 新实现（`models/genSystem.ts`）改为**占位符驱动**：工作流里写 `"seed"` 这类
+ * 带引号的 token，出图时按名替换，因此任意 API 格式工作流都能用。
+ * 这里只保留 `文生图系统` 这个键名，避免存档与四十余个调用点大面积迁移。
+ */
+export type {
+  生图渠道,
+  设置页签,
+  占位符定义,
+  占位符取值,
+  提示词预设,
+  替换规则集,
+  LLM条目,
+  LLM预设,
+  角色部位字段,
+  角色媒体,
+  服装条目,
+  角色卡,
+  角色位置,
+  角色启用条目,
+  角色启用预设,
+  通用角色列表预设,
+  通用服装列表预设,
+  注入模板集,
+  角色AI设置,
+  词条,
+  词库分组,
+  词库子分组,
+  已装词库,
+  词库树,
+  图片缓存条目,
+  缓存图片,
+  生成参数快照,
+  ComfyUI连接设置,
+  ComfyUI参数设置,
+  ComfyUI档案,
+  ComfyUI设置,
+  提示词设置,
+  LLM设置,
+  正文配图设置,
+  图片缓存设置,
+} from './genSystem';
 
-export const 文生图预设路径表: Record<文生图后端类型, { 预设接口: 文生图预设接口路径; 路径: string }> = {
-  openai_compatible: { 预设接口: 'openai_images', 路径: '/images/generations' },
-  novelai: { 预设接口: 'novelai_generate', 路径: '/ai/generate-image' },
-  sd_webui: { 预设接口: 'sd_txt2img', 路径: '/sdapi/v1/txt2img' },
-  comfyui: { 预设接口: 'comfyui_prompt', 路径: '/prompt' },
-};
-export type NovelAI采样器 = 'k_euler' | 'k_euler_ancestral' | 'k_dpmpp_2m' | 'k_dpmpp_2s_ancestral' | 'k_dpmpp_sde' | 'k_dpmpp_2m_sde';
-export type NovelAI噪点表 = 'native' | 'karras' | 'exponential' | 'polyexponential';
+export {
+  生图渠道列表,
+  角色部位字段名,
+  创建空角色部位字段,
+  默认词汇替换,
+  创建默认ComfyUI设置,
+  创建默认提示词设置,
+  创建默认LLM设置,
+  创建默认角色AI设置,
+  创建默认角色启用预设列表,
+  创建默认注入模板列表,
+  默认启用预设名,
+  默认通用角色列表名,
+  默认通用服装列表名,
+  默认注入模板名,
+  内置注入模板,
+  内置注入模板名列表,
+  镜像启用列表,
+  归一化角色AI消息列表,
+  人物生成预设消息,
+  归一化角色启用条目,
+  归一化角色启用预设,
+  归一化注入模板集,
+  创建默认文生图系统设置,
+} from './genSystem';
 
-export interface 文生图API配置 {
-  enabled: boolean;
-  backend: 文生图后端类型;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  pathMode: 文生图接口路径模式;
-  presetPath: 文生图预设接口路径;
-  customPath: string;
-  responseFormat: 文生图响应格式;
-  defaultSize: string;
-  defaultStyle: 文生图默认风格;
-  customStyle: string;
-  steps: number;
-  cfgScale: number;
-  seed: number;
-  sampler: NovelAI采样器;
-  noiseSchedule: NovelAI噪点表;
-  useDefaultComfyWorkflow: boolean;
-  comfyWorkflowJson: string;
-  negativePrompt: string;
-  retryCount: number;
+import {
+  创建默认文生图系统设置,
+  创建默认注入模板列表,
+  归一化角色AI消息列表,
+  人物生成预设消息,
+  默认启用预设名,
+  默认通用角色列表名,
+  默认通用服装列表名,
+  默认注入模板名,
+  镜像启用列表,
+  归一化角色启用预设,
+  归一化注入模板集,
+  type 角色AI消息,
+  type 角色启用预设,
+  type 通用角色列表预设,
+  type 通用服装列表预设,
+  type 注入模板集,
+  type 文生图系统设置,
+} from './genSystem';
+import { 人物生成默认提示词 } from '@/prompts/cot/characterFeaturePrompt';
+
+export type { 文生图系统设置 };
+
+/**
+ * 角色 AI 的消息序列归一化。
+ *
+ * 默认是**空白**（预设改为导入制）。唯一的例外是升级：旧存档（本轮之前）
+ * 只有一个 `提示词: string`，那时内置的破甲序列正在替用户干活 ——
+ * 如果这里也把 `消息` 归一成空，升级上来的用户会静默失去「空回已修好」的状态。
+ * 所以：
+ *   · 有 `消息` → 用它（逐条裁剪、丢空内容、未知 role 退回 system）；
+ *   · 没有 `消息` 但**有旧 `提示词`** → 补上「人物生成」序列（升级路径，见 `迁移角色AI附加要求`）；
+ *   · 两者都没有（新装 / 从没保存过）→ 空，等用户导入。
+ */
+function 迁移角色AI消息(输入: Partial<文生图系统设置>['角色AI'] | undefined): 角色AI消息[] {
+  const 原始 = 输入?.消息;
+  const 有旧提示词 = Boolean(String((输入 as { 提示词?: string } | undefined)?.提示词 ?? '').trim());
+  // 缺省时按上面的口径取来源，但**照样走归一化**：否则「首次水合给未裁剪的默认值、
+  // 二次水合才裁剪」会让水合不幂等（game-settings-hydration 的幂等用例就抓这个）。
+  const 来源 = Array.isArray(原始) && 原始.length > 0
+    ? 原始
+    : (有旧提示词 ? 人物生成预设消息() : []);
+  return 归一化角色AI消息列表(来源);
 }
 
-export interface 文生图规则中心设置 {
-  画师串预设列表: 文生图画师串预设[];
-  当前NPC画师串预设ID: string;
-  当前场景画师串预设ID: string;
-  详细画风预设列表: 文生图详细画风预设[];
-  当前NPC详细画风预设ID: string;
-  当前场景详细画风预设ID: string;
-  质量增强预设列表: 文生图质量增强预设[];
-  当前质量增强预设ID: string;
-  PNG画风预设列表: 文生图PNG画风预设[];
-  当前NPCPNG画风预设ID: string;
-  当前场景PNG画风预设ID: string;
-  模型词组转化器预设列表: 文生图模型规则集[];
-  词组转化器提示词预设列表: 文生图规则模板[];
-  当前NPC词组转化器提示词预设ID: string;
-  当前场景词组转化器提示词预设ID: string;
-  当前场景判定提示词预设ID: string;
-  hsrBaseStyle: string;
-  compositionRule: string;
-  hsrCharacterAnchorRule: string;
-  promptTokenizerOutputRule: string;
-  modelCompatibilityRule: string;
-  artistPresetPositive: string;
-  artistPresetNegative: string;
-  pngStyleRule: string;
-  avatarRule: string;
-  portraitRule: string;
-  sceneRule: string;
-  sceneCharacterRule: string;
-  phoneWallpaperRule: string;
-  itemIconRule: string;
-  itemDisplayRule: string;
-  nsfwRule: string;
-  nsfwPartRule: string;
-  nsfwIsolationRule: string;
-  commonNegative: string;
-  nsfwNegative: string;
-  sizePresetRule: string;
-  autoQueueRule: string;
-  profileRule: string;
-}
-
-export interface 文生图画师串预设 {
-  id: string;
-  名称: string;
-  适用范围: 画师串预设适用范围;
-  画师串: string;
-  正面提示词: string;
-  负面提示词: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 文生图详细画风预设 {
-  id: string;
-  名称: string;
-  适用范围: 画师串预设适用范围;
-  风格定位: string;
-  构图镜头: string;
-  光影色彩: string;
-  材质细节: string;
-  正面提示词: string;
-  负面提示词: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 文生图质量增强预设 {
-  id: string;
-  名称: string;
-  正面提示词: string;
-  负面提示词: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 文生图PNG画风预设 {
-  id: string;
-  名称: string;
-  来源: PNG画风预设来源;
-  画师串: string;
-  正面提示词: string;
-  负面提示词: string;
-  原始正面提示词?: string;
-  原始负面提示词?: string;
-  参数?: Record<string, unknown>;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 文生图模型规则集 {
-  id: string;
-  名称: string;
-  模型专属提示词: string;
-  锚定模式模型提示词?: string;
-  是否启用: boolean;
-  NPC词组转化器提示词预设ID: string;
-  场景词组转化器提示词预设ID: string;
-  场景判定提示词预设ID: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 文生图规则模板 {
-  id: string;
-  名称: string;
-  类型: 文生图规则模板类型;
-  提示词: string;
-  角色锚定模式提示词?: string;
-  场景角色锚定模式提示词?: string;
-  无锚点回退提示词?: string;
-  输出格式提示词?: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface 正文生图解析API配置 {
-  provider: AI提供商 | '';
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  maxTokens?: number;
-  temperature?: number;
-  retryCount?: number;
-}
-
-export interface 正文生图设置 {
-  enabled: boolean;
-  mode: 'auto' | 'manual';
-  playerAppearanceMode: 'off' | 'auto' | 'force';
-  /** @deprecated 正文生图固定为故事快照，仅保留字段兼容旧存档。 */
-  preference: 'scene_only' | 'character_only' | 'both';
-  timing: 'immediate' | 'queue_current' | 'queue_async';
-  parserApi: 正文生图解析API配置;
-  imageApi: 文生图API配置;
-}
-
-export const 参考图注入选择加入版本 = 1;
-
-export function 正文生图手动模式(设置: 正文生图设置): boolean {
-  return 设置.enabled && 设置.mode === 'manual';
-}
-
-export interface 文生图参考图设置 {
-  enabled: boolean;
-  /** 玩家已在对应版本明确选择是否启用；缺失时按关闭迁移一次。 */
-  injectionOptInVersion: number;
-  sdWebuiDenoisingStrength: number;
-  enableComfyWorkflowReference: boolean;
-  enableOpenAICompatibleReference: boolean;
-  enableNovelAIReference: boolean;
-}
-
-export interface 文生图系统设置 {
-  enabled: boolean;
-  普通接口: 文生图API配置;
-  场景接口: 文生图API配置;
-  useSeparateSceneApi: boolean;
-  NSFW接口: 文生图API配置;
-  enableNsfwImageGeneration: boolean;
-  enablePromptTokenizer: boolean;
-  词组转化器API: 文生图词组转化器API覆盖;
-  promptTokenizerSystemPrompt: string;
-  rules: 文生图规则中心设置;
-  enableAutoSceneGeneration: boolean;
-  autoSceneIntervalTurns: number;
-  autoSceneComposition: 自动生图场景构图;
-  autoSceneSize: string;
-  enableAutoNpcGeneration: boolean;
-  autoNpcGenderFilter: 自动NPC生图性别筛选;
-  autoNpcImportantOnly: boolean;
-  autoNpcComposition: 自动NPC生图构图;
-  autoNpcSize: string;
-  enableAutoItemGeneration: boolean;
-  autoItemSize: string;
-  正文生图: 正文生图设置;
-  参考图: 文生图参考图设置;
-}
-
-export function 创建默认文生图API配置(): 文生图API配置 {
-  return {
-    enabled: false,
-    backend: 'openai_compatible',
-    baseUrl: '',
-    apiKey: '',
-    model: '',
-    pathMode: 'preset',
-    presetPath: 'openai_images',
-    customPath: '',
-    responseFormat: 'url',
-    defaultSize: '1024x1024',
-    defaultStyle: 'hsr',
-    customStyle: '',
-    steps: 28,
-    cfgScale: 7,
-    seed: -1,
-    sampler: 'k_euler_ancestral',
-    noiseSchedule: 'karras',
-    useDefaultComfyWorkflow: true,
-    comfyWorkflowJson: '',
-    negativePrompt: '',
-    retryCount: 2,
-  };
-}
-
-export function 创建默认文生图系统设置(): 文生图系统设置 {
-  return {
-    enabled: false,
-    普通接口: 创建默认文生图API配置(),
-    场景接口: 创建默认文生图API配置(),
-    useSeparateSceneApi: false,
-    NSFW接口: {
-      ...创建默认文生图API配置(),
-      backend: 'comfyui',
-      responseFormat: 'url',
-      defaultStyle: 'anime',
-    },
-    enableNsfwImageGeneration: false,
-    enablePromptTokenizer: true,
-    词组转化器API: 创建空文生图词组转化器API覆盖(),
-    promptTokenizerSystemPrompt: [
-      '你是「开拓轶事」的图片提示词转化器。',
-      '请把角色档案、场景摘要或 NSFW 档案转化为适合图片生成模型的提示词。',
-      '必须优先保留可视觉化信息：外貌、发型、服饰、材质、配色、姿态、表情、镜头、光线、环境、崩坏：星穹铁道式科幻奇幻质感。',
-      '不要把剧情解释、心理分析、抽象情绪塞进提示词；需要情绪时转成可见表情、动作和环境反馈。',
-      '普通生图不得包含成人内容；NSFW 生图必须只在 NSFW 接口启用时使用，并严格依据对应性别与部位档案生成。',
-    ].join('\n'),
-    rules: 默认文生图规则中心,
-    enableAutoSceneGeneration: false,
-    autoSceneIntervalTurns: 5,
-    autoSceneComposition: '故事快照',
-    autoSceneSize: '1280x720',
-    enableAutoNpcGeneration: false,
-    autoNpcGenderFilter: '全部',
-    autoNpcImportantOnly: true,
-    autoNpcComposition: '头像',
-    autoNpcSize: '1024x1024',
-    enableAutoItemGeneration: false,
-    autoItemSize: '1024x1024',
-    正文生图: 创建默认正文生图设置(),
-    参考图: 创建默认文生图参考图设置(),
-  };
-}
-
-export function 创建默认文生图参考图设置(): 文生图参考图设置 {
-  return {
-    enabled: false,
-    injectionOptInVersion: 参考图注入选择加入版本,
-    sdWebuiDenoisingStrength: 0.55,
-    enableComfyWorkflowReference: false,
-    enableOpenAICompatibleReference: false,
-    enableNovelAIReference: false,
-  };
-}
-
-export function 创建默认正文生图设置(): 正文生图设置 {
-  return {
-    enabled: false,
-    mode: 'auto',
-    playerAppearanceMode: 'auto',
-    preference: 'both',
-    timing: 'queue_current',
-    parserApi: {
-      provider: '',
-      baseUrl: '',
-      apiKey: '',
-      model: '',
-      maxTokens: 1600,
-      temperature: 0.3,
-      retryCount: 1,
-    },
-    imageApi: 创建默认文生图API配置(),
-  };
-}
-
-export function 归一化文生图API配置(input?: Partial<文生图API配置>): 文生图API配置 {
-  const defaults = 创建默认文生图API配置();
-  if (!input) return defaults;
-  return {
-    ...defaults,
-    ...input,
-    enabled: input.enabled === true,
-    backend: input.backend && 文生图后端列表.includes(input.backend) ? input.backend : defaults.backend,
-    responseFormat: input.responseFormat ?? defaults.responseFormat,
-    defaultSize: input.defaultSize || defaults.defaultSize,
-    defaultStyle: input.defaultStyle ?? defaults.defaultStyle,
-    pathMode: input.pathMode === 'custom' ? 'custom' : 'preset',
-    presetPath: input.presetPath ?? defaults.presetPath,
-    customPath: input.customPath ?? defaults.customPath,
-    steps: Math.max(1, Math.min(80, Math.trunc(input.steps ?? defaults.steps) || defaults.steps)),
-    cfgScale: Math.max(0, Math.min(30, input.cfgScale ?? defaults.cfgScale) || defaults.cfgScale),
-    seed: typeof input.seed === 'number' && Number.isFinite(input.seed) ? Math.trunc(input.seed) : defaults.seed,
-    sampler: input.sampler ?? defaults.sampler,
-    noiseSchedule: input.noiseSchedule ?? defaults.noiseSchedule,
-    useDefaultComfyWorkflow: input.useDefaultComfyWorkflow !== false,
-    comfyWorkflowJson: input.comfyWorkflowJson ?? '',
-    negativePrompt: input.negativePrompt ?? '',
-    retryCount: Math.max(0, Math.trunc(input.retryCount ?? defaults.retryCount) || 0),
-  };
+/**
+ * 旧版 `提示词` 的迁移：它是「角色设计」那一条。
+ *
+ * 内置默认序列里已经含同一条，所以
+ *   · 用户没改过它（等于旧默认值）→ 丢弃，避免同一条发两遍；
+ *   · 用户改过 → 当作「附加要求」保留，仍然会发出去（位置在消息序列之后）。
+ */
+function 迁移角色AI附加要求(输入: Partial<文生图系统设置>['角色AI'] | undefined): string {
+  const 已存 = String(输入?.附加要求 ?? '').trim();
+  if (已存) return 已存;
+  const 旧提示词 = String((输入 as { 提示词?: string } | undefined)?.提示词 ?? '').trim();
+  if (!旧提示词) return '';
+  return 旧提示词 === 人物生成默认提示词.trim() ? '' : 旧提示词;
 }
 
 export function 归一化文生图系统设置(input?: Partial<文生图系统设置>): 文生图系统设置 {
   const defaults = 创建默认文生图系统设置();
   if (!input) return defaults;
-  return {
-    ...defaults,
-    ...input,
-    enabled: input.enabled === true,
-    普通接口: 归一化文生图API配置(input.普通接口),
-    场景接口: 归一化文生图API配置(input.场景接口),
-    useSeparateSceneApi: input.useSeparateSceneApi === true,
-    NSFW接口: {
-      ...归一化文生图API配置(defaults.NSFW接口),
-      ...(input.NSFW接口 ? 归一化文生图API配置(input.NSFW接口) : {}),
-    },
-    enableNsfwImageGeneration: input.enableNsfwImageGeneration === true,
-    enablePromptTokenizer: input.enablePromptTokenizer !== false,
-    词组转化器API: {
-      ...创建空文生图词组转化器API覆盖(),
-      ...(input.词组转化器API ?? {}),
-      retryCount: Math.max(0, Math.trunc(input.词组转化器API?.retryCount ?? defaults.词组转化器API.retryCount ?? 2) || 0),
-      maxTokens: Math.max(256, Math.trunc(input.词组转化器API?.maxTokens ?? defaults.词组转化器API.maxTokens ?? 1600) || 1600),
-      temperature: Number.isFinite(input.词组转化器API?.temperature ?? defaults.词组转化器API.temperature)
-        ? input.词组转化器API?.temperature ?? defaults.词组转化器API.temperature
-        : defaults.词组转化器API.temperature,
-    },
-    promptTokenizerSystemPrompt: input.promptTokenizerSystemPrompt ?? defaults.promptTokenizerSystemPrompt,
-    rules: normalizeImageRules(input.rules),
-    enableAutoSceneGeneration: input.enableAutoSceneGeneration === true,
-    autoSceneIntervalTurns: Math.max(1, Math.min(20, Math.trunc(input.autoSceneIntervalTurns ?? defaults.autoSceneIntervalTurns) || defaults.autoSceneIntervalTurns)),
-    autoSceneComposition: input.autoSceneComposition ?? defaults.autoSceneComposition,
-    autoSceneSize: input.autoSceneSize || defaults.autoSceneSize,
-    enableAutoNpcGeneration: input.enableAutoNpcGeneration === true,
-    autoNpcGenderFilter: input.autoNpcGenderFilter ?? defaults.autoNpcGenderFilter,
-    autoNpcImportantOnly: input.autoNpcImportantOnly !== false,
-    autoNpcComposition: input.autoNpcComposition ?? defaults.autoNpcComposition,
-    autoNpcSize: input.autoNpcSize || defaults.autoNpcSize,
-    enableAutoItemGeneration: false,
-    autoItemSize: input.autoItemSize || defaults.autoItemSize,
-    正文生图: 归一化正文生图设置(input.正文生图),
-    参考图: 归一化文生图参考图设置(input.参考图),
-  };
-}
+  // 「转化器」现在叫「LLM」。旧存档里这个块的名字是 `转化器`，
+  // 不迁移的话用户已有的模型/预设配置会在打开设置时被默认值覆盖掉。
+  const 旧LLM = (input as { 转化器?: 文生图系统设置['LLM'] }).转化器;
+  const LLM输入 = input.LLM ?? 旧LLM;
+  const 合并 = { ...defaults, ...input };
+  合并.启用 = input.启用 === true;
+  合并.渠道 = input.渠道 ?? defaults.渠道;
+  合并.角色卡 = input.角色卡 ?? {};
 
-export function 归一化文生图参考图设置(input?: Partial<文生图参考图设置>): 文生图参考图设置 {
-  const defaults = 创建默认文生图参考图设置();
-  if (!input) return defaults;
-  const inputOptInVersion = Math.max(0, Math.floor(input.injectionOptInVersion || 0));
-  const hasCurrentOptIn = inputOptInVersion >= 参考图注入选择加入版本;
-  return {
-    enabled: hasCurrentOptIn && input.enabled === true,
-    injectionOptInVersion: 参考图注入选择加入版本,
-    sdWebuiDenoisingStrength: Math.max(0.05, Math.min(0.95, input.sdWebuiDenoisingStrength ?? defaults.sdWebuiDenoisingStrength) || defaults.sdWebuiDenoisingStrength),
-    enableComfyWorkflowReference: input.enableComfyWorkflowReference === true,
-    enableOpenAICompatibleReference: input.enableOpenAICompatibleReference === true,
-    enableNovelAIReference: input.enableNovelAIReference === true,
-  };
-}
+  /*
+   * 角色启用：v1 存档只有一个扁平的 `角色启用列表`，没有预设概念。
+   * 升级方式是把它收进「默认启用列表」这一个预设里，之后两者保持镜像——
+   * 预设是数据源（条目上带各自的图片/音频绑定），扁平的 `角色启用列表`
+   * 是给引擎读的视图（`$…$` 匹配、参考图挑选都只认它）。
+   */
+  const 旧启用列表 = Array.isArray(input.角色启用列表)
+    ? input.角色启用列表.map((项) => String(项)).filter(Boolean)
+    : [];
+  const 启用预设列表: Record<string, 角色启用预设> = {};
+  for (const [名称, 预设] of Object.entries(input.角色启用预设列表 ?? {})) {
+    启用预设列表[名称] = 归一化角色启用预设(预设);
+  }
+  if (Object.keys(启用预设列表).length === 0) {
+    启用预设列表[默认启用预设名] = 归一化角色启用预设({
+      条目: 旧启用列表.map((角色Id) => ({ 角色Id })),
+    });
+  }
+  合并.角色启用预设列表 = 启用预设列表;
+  合并.当前启用预设 = typeof input.当前启用预设 === 'string' && 启用预设列表[input.当前启用预设]
+    ? input.当前启用预设
+    : Object.keys(启用预设列表)[0];
+  合并.角色启用列表 = 镜像启用列表(启用预设列表[合并.当前启用预设]);
 
-export function 归一化正文生图设置(input?: Partial<正文生图设置>): 正文生图设置 {
-  const defaults = 创建默认正文生图设置();
-  if (!input) return defaults;
-  const 兼容输入 = input as {
-    preference?: 'scene_only' | 'character_only' | 'both';
+  const 归一化字符串列表 = (值: unknown): string[] => (
+    Array.isArray(值)
+      ? 值.filter((项) => 项 !== null && 项 !== undefined).map((项) => String(项)).filter(Boolean)
+      : []
+  );
+  const 通用角色列表: Record<string, 通用角色列表预设> = {};
+  for (const [名称, 预设] of Object.entries(input.通用角色列表 ?? {})) {
+    通用角色列表[名称] = { 角色: 归一化字符串列表((预设 as 通用角色列表预设 | undefined)?.角色) };
+  }
+  if (Object.keys(通用角色列表).length === 0) 通用角色列表[默认通用角色列表名] = { 角色: [] };
+  合并.通用角色列表 = 通用角色列表;
+  合并.当前通用角色列表 = typeof input.当前通用角色列表 === 'string' && 通用角色列表[input.当前通用角色列表]
+    ? input.当前通用角色列表
+    : Object.keys(通用角色列表)[0];
+
+  const 通用服装列表: Record<string, 通用服装列表预设> = {};
+  for (const [名称, 预设] of Object.entries(input.通用服装列表 ?? {})) {
+    通用服装列表[名称] = { 服装: 归一化字符串列表((预设 as 通用服装列表预设 | undefined)?.服装) };
+  }
+  if (Object.keys(通用服装列表).length === 0) 通用服装列表[默认通用服装列表名] = { 服装: [] };
+  合并.通用服装列表 = 通用服装列表;
+  合并.当前通用服装列表 = typeof input.当前通用服装列表 === 'string' && 通用服装列表[input.当前通用服装列表]
+    ? input.当前通用服装列表
+    : Object.keys(通用服装列表)[0];
+
+  // 注入模板：内置的四套永远在（缺了补回来），用户自建的同名可覆盖内置。
+  const 注入模板列表: Record<string, 注入模板集> = { ...创建默认注入模板列表() };
+  for (const [名称, 模板] of Object.entries(input.注入模板列表 ?? {})) {
+    注入模板列表[名称] = 归一化注入模板集(模板);
+  }
+  合并.注入模板列表 = 注入模板列表;
+  合并.当前注入模板 = typeof input.当前注入模板 === 'string' && 注入模板列表[input.当前注入模板]
+    ? input.当前注入模板
+    : 默认注入模板名;
+
+  合并.角色AI = {
+    ...defaults.角色AI,
+    ...(input.角色AI ?? {}),
+    消息: 迁移角色AI消息(input.角色AI),
+    附加要求: 迁移角色AI附加要求(input.角色AI),
+    重试次数: Math.max(0, Math.trunc(input.角色AI?.重试次数 ?? defaults.角色AI.重试次数) || 0),
+    API: { ...defaults.角色AI.API, ...(input.角色AI?.API ?? {}) },
   };
-  const 兼容默认 = defaults as {
-    preference: 'scene_only' | 'character_only' | 'both';
+
+  const comfyui = input.comfyui ?? defaults.comfyui;
+  const 档案列表 = comfyui.档案列表 && Object.keys(comfyui.档案列表).length > 0
+    ? comfyui.档案列表
+    : defaults.comfyui.档案列表;
+  合并.comfyui = {
+    ...defaults.comfyui,
+    ...comfyui,
+    档案列表,
+    当前档案: 档案列表[comfyui.当前档案] ? comfyui.当前档案 : Object.keys(档案列表)[0],
   };
-  return {
-    enabled: input.enabled === true,
-    mode: input.mode === 'manual' ? 'manual' : 'auto',
-    playerAppearanceMode: input.playerAppearanceMode === 'off' || input.playerAppearanceMode === 'force' ? input.playerAppearanceMode : 'auto',
-    preference: 兼容输入.preference ?? 兼容默认.preference,
-    timing: input.timing ?? defaults.timing,
-    parserApi: {
-      provider: (input.parserApi?.provider ?? ''),
-      baseUrl: input.parserApi?.baseUrl ?? '',
-      apiKey: input.parserApi?.apiKey ?? '',
-      model: input.parserApi?.model ?? '',
-      maxTokens: Math.max(256, Math.trunc(input.parserApi?.maxTokens ?? defaults.parserApi.maxTokens ?? 1600) || 1600),
-      temperature: Number.isFinite(input.parserApi?.temperature)
-        ? input.parserApi?.temperature
-        : defaults.parserApi.temperature,
-      retryCount: Math.max(0, Math.trunc(input.parserApi?.retryCount ?? defaults.parserApi.retryCount ?? 1) || 1),
-    },
-    imageApi: 归一化文生图API配置(input.imageApi),
+
+  合并.提示词 = {
+    ...defaults.提示词,
+    ...(input.提示词 ?? {}),
+    // 固定画风是后加的层级，旧存档没有这一块；缺字段时逐项回退，避免半截对象。
+    固定画风: { ...defaults.提示词.固定画风, ...(input.提示词?.固定画风 ?? {}) },
   };
+  合并.LLM = { ...defaults.LLM, ...(LLM输入 ?? {}) };
+  合并.正文配图 = {
+    ...defaults.正文配图,
+    ...(input.正文配图 ?? {}),
+    每轮上限: Math.max(0, Math.trunc(input.正文配图?.每轮上限 ?? defaults.正文配图.每轮上限) || 0),
+    // 旧存档没有这两个显示开关，缺省时沿用默认（显示 + 折叠）。
+    默认显示: input.正文配图?.默认显示 !== false,
+    默认展开: input.正文配图?.默认展开 === true,
+  };
+  合并.图片缓存 = {
+    ...defaults.图片缓存,
+    ...(input.图片缓存 ?? {}),
+    保留天数: Math.max(0, Math.trunc(input.图片缓存?.保留天数 ?? defaults.图片缓存.保留天数) || 0),
+  };
+  return 合并;
 }
 
 /** 阈值契约版本：存档缺失或低于此值时按历史默认组合一次性迁移。 */
@@ -869,7 +700,8 @@ export function 创建默认手机系统设置(): 手机系统设置 {
   return {
     enabled: true,
     api: 创建空手机API覆盖(),
-    autoGenerateSeeds: true,
+    // 主动来信默认关闭：多数玩家不希望 NPC 自来。开关只控 NPC 主动来信，不影响玩家主动发消息。
+    autoGenerateSeeds: false,
     maxSeedsPerTurn: 2,
     contactCooldownTurns: 3,
     groupCooldownTurns: 5,
@@ -896,6 +728,8 @@ export function 创建默认剧情编织系统设置(): 剧情编织系统设置
     currentWindow: true,
     剧情推进AI判定: false,
     推进判定API: 创建空剧情编织API覆盖(),
+    剧情对齐巡检: false,
+    剧情对齐巡检间隔: 6,
     世界演变: true,
   };
 }
@@ -950,6 +784,8 @@ export function 归一化剧情编织系统设置(input?: Partial<剧情编织�
     currentWindow: input.currentWindow !== false,
     剧情推进AI判定: input.剧情推进AI判定 === true,
     推进判定API: normalizeApiOverride(input.推进判定API, defaults.推进判定API),
+    剧情对齐巡检: input.剧情对齐巡检 === true,
+    剧情对齐巡检间隔: Math.max(2, Math.min(30, Math.trunc(input.剧情对齐巡检间隔 ?? defaults.剧情对齐巡检间隔) || defaults.剧情对齐巡检间隔)),
     世界演变: input.世界演变 === true,
   };
 }
@@ -1046,12 +882,16 @@ export function 创建默认游戏设置(): 游戏设置 {
     剧情编织系统: 创建默认剧情编织系统设置(),
     文生图系统: 创建默认文生图系统设置(),
     记忆系统: 创建默认记忆系统设置(),
+    // 默认关闭：改成逐句推进是阅读习惯的改变，不该替用户决定。
+    逐句推进: { 启用: false, 立即全显: false },
     variableApi: 创建空变量API覆盖(),
     variableUpdateRequireConfirm: false,
     customPrompt: '',
     promptModules: createBuiltinPromptModules(),
     enableCotFakeHistory: true,
     enableTagRepair: true,
+    enableResponseFormatCheck: false,
+    responseFormatRequiredTags: '',
     autoRetryOnError: true,
     autoRetryCount: 2,
     enableAutoSaveEveryTurn: true,

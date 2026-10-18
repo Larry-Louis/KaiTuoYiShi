@@ -22,7 +22,8 @@ import { baseSnapshot as baseSnapshotFixture } from '../helpers/saveManagerFixtu
 const 全部页签: SettingsTab[] = [
   'visual', 'theme', 'game', 'prompts', 'tavernPresets', 'extra',
   'api', 'apiErrors',
-  'variableUpdate', 'variableRepair', 'memory', 'yiting', 'news', 'zhiku', 'storyWeaving', 'phone',
+  'variableUpdate', 'variableRepair', 'memory', 'yiting', 'news', 'zhiku', 'storyWeaving', 'phone', 'imageGen',
+  'lanPlay',
   'variables', 'context', 'storage',
   'nsfw',
 ];
@@ -116,7 +117,7 @@ describe('设置分区注册表', () => {
       .filter((section) => section.group === 'subsystems')
       .map((section) => section.key);
     expect(subsystemKeys).toEqual([
-      'variableUpdate', 'variableRepair', 'memory', 'yiting', 'news', 'zhiku', 'storyWeaving', 'phone',
+      'variableUpdate', 'variableRepair', 'memory', 'yiting', 'news', 'zhiku', 'storyWeaving', 'phone', 'imageGen',
     ]);
   });
 
@@ -136,6 +137,79 @@ describe('设置分区注册表', () => {
 
     expect(await screen.findByText('记忆系统管理')).toBeInTheDocument();
     expect(screen.queryByText(/API 配置包/)).not.toBeInTheDocument();
+  });
+
+  it('文生图主机能在设置里打开（这是用户找不到的那个入口）', async () => {
+    render(<SettingsModal {...buildProps({ initialTab: 'imageGen' })} />);
+
+    // 总览页的基础开关与渠道选择。
+    expect(await screen.findByText('基础开关')).toBeInTheDocument();
+    expect(screen.getByText('生图渠道')).toBeInTheDocument();
+    expect(screen.getByText('启用文生图')).toBeInTheDocument();
+  });
+
+  it('文生图设置内部各页签都能打开，且 ComfyUI 地址字段在', async () => {
+    render(<SettingsModal {...buildProps({ initialTab: 'imageGen' })} />);
+    await screen.findByText('基础开关');
+
+    // 用完整可访问名（label + desc）精确定位：只写 /ComfyUI/ 会同时命中侧栏的
+    // 「文生图 ComfyUI 工作流与提示词」。
+    const 页签名 = [
+      'ComfyUI 地址与并发',
+      'NovelAI 模型与坐标',
+      'SD WebUI A1111 / Forge',
+      'Banana / Grok OpenAI 兼容图像接口',
+      '提示词 预设与替换规则',
+      '角色管理 角色卡与部位字段',
+      '词库与标签 导入 tagData 与选词',
+      '图片缓存 容量与清理',
+    ];
+    for (const 名称 of 页签名) {
+      fireEvent.click(screen.getByRole('button', { name: 名称 }));
+      expect(document.body.textContent, `页签「${名称}」没有渲染内容`).not.toBe('');
+    }
+
+    // 回到 ComfyUI 页确认地址字段确实在——用户点名的就是这个。
+    fireEvent.click(screen.getByRole('button', { name: 'ComfyUI 地址与并发' }));
+    expect(await screen.findByText('ComfyUI 地址')).toBeInTheDocument();
+  });
+
+  it('提示词页里有自检，且默认未启用时列出阻塞项', async () => {
+    render(<SettingsModal {...buildProps({ initialTab: 'imageGen' })} />);
+    await screen.findByText('基础开关');
+    fireEvent.click(screen.getByRole('button', { name: '提示词 预设与替换规则' }));
+
+    expect(await screen.findByText('自检')).toBeInTheDocument();
+    expect(screen.getByText(/文生图未启用/)).toBeInTheDocument();
+  });
+
+  it('视觉设置里那段叫 galgame 模式，不再出现 AVG 字样', async () => {
+    render(<SettingsModal {...buildProps({ initialTab: 'visual' })} />);
+    expect(await screen.findByText('galgame 模式')).toBeInTheDocument();
+    expect(screen.getByText('启用 galgame 模式')).toBeInTheDocument();
+    // 机制名（逐段推进）继续出现在说明里，但「AVG」这个旧名字不该再冒出来。
+    expect(screen.getByText(/逐段推进/)).toBeInTheDocument();
+    expect(screen.queryByText(/AVG/)).toBeNull();
+  });
+
+  it('关掉再打开回到上次那一页；显式指定页签时仍然优先', async () => {
+    localStorage.removeItem('kty.settingsTab');
+
+    const 第一次 = render(<SettingsModal {...buildProps({ initialTab: undefined })} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^文生图/ }));
+    expect(await screen.findByText('基础开关')).toBeInTheDocument();
+    第一次.unmount();
+
+    // 不给 initialTab 时不该回到 API 页，而是回到刚才那一页。
+    const 第二次 = render(<SettingsModal {...buildProps({ initialTab: undefined })} />);
+    expect(await screen.findByText('基础开关')).toBeInTheDocument();
+    第二次.unmount();
+
+    // 深链（从「视觉资产」跳转那种）仍以显式页签为准，不看记忆。
+    render(<SettingsModal {...buildProps({ initialTab: 'visual' })} />);
+    expect(await screen.findByText('galgame 模式')).toBeInTheDocument();
+
+    localStorage.removeItem('kty.settingsTab');
   });
 });
 

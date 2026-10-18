@@ -130,6 +130,63 @@ export function compactChatHistoryForLongSession(
   });
 }
 
+/** 把一条消息的 parsedResponse 压到“只留正文/渲染所需”，剥掉全部推理（思维链）与命令草稿。 */
+function 只留正文(parsed: 聊天消息['parsedResponse']): 聊天消息['parsedResponse'] {
+  if (!parsed) return parsed;
+  return {
+    ...parsed,
+    rawText: '',
+    thinking: '',
+    memory: '',
+    commands: {},
+    worldEvents: [],
+    actionOptions: [],
+    variableDraft: '',
+    storyPlan: '',
+  };
+}
+
+/**
+ * 存档专用压缩：比长会话压缩更狠——存档快照不需要调试/计费/推理字段。
+ * 剥离范围是**全部**消息（不再只剥旧消息）：读取旧内容时界面读正文即可，不保留思维链。
+ */
+export function compactChatHistoryForSave(
+  value: readonly 聊天消息[] | null | undefined,
+): 聊天消息[] {
+  const compacted = compactChatHistoryForLongSession(value);
+  let lastAssistantIndex = -1;
+  for (let index = compacted.length - 1; index >= 0; index -= 1) {
+    if (compacted[index].role === 'assistant') {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+
+  return compacted.map((message, index) => {
+    const keepContinuationState = index === lastAssistantIndex;
+    const parsed = message.parsedResponse;
+    const baseParsed = parsed ? 只留正文(parsed) : undefined;
+    return {
+      ...message,
+      debugContext: undefined,
+      inputTokens: undefined,
+      outputTokens: undefined,
+      tokenUsage: undefined,
+      responseDurationSec: undefined,
+      // 最后一条 assistant 是读档后继续游玩的落点：行动选项和原始文本要留着，
+      // 否则刷新/读档后输入区没有可点选项，「原始消息」也只剩正文。
+      parsedResponse: baseParsed
+        ? {
+            ...baseParsed,
+            ...(keepContinuationState
+              ? { actionOptions: parsed?.actionOptions ?? [], rawText: parsed?.rawText ?? '' }
+              : {}),
+          }
+        : parsed,
+    };
+  });
+}
+
 function collectDetailedAssistantIndices(messages: readonly 聊天消息[]): Set<number> {
   const indices = new Set<number>();
   let remaining = DETAILED_CHAT_TURNS;

@@ -9,7 +9,7 @@ import {
   restoreVariableProjectionSnapshot,
   runVariableCalibrationStep,
 } from './variableWorkflow';
-import { regenerateNarrativeImagesForMessage } from './narrativeImageWorkflow';
+import { 生成消息插图 } from './illustrationWorkflow';
 import { cancelPendingQueueTasks, pushQueueTask } from './workflowTaskRuntime';
 import { buildRecentTurnWindowForNews, runNewsGenerationStep } from './newsWorkflow';
 import { 构造世界事实视图 } from '@/services/storyFactConsumerView';
@@ -33,15 +33,43 @@ export async function retryQueueTask(
   mode: 'retry' | 'reroll' = 'retry',
 ): Promise<void> {
   if (task.id === 'narrative_image_parse' || task.id === 'narrative_image_generate') {
-    const targetMessageId = task.targetMessageId ?? findLatestAssistantMessage(state.chatHistory)?.id;
-    if (!targetMessageId) {
+    const 目标消息 = task.targetMessageId
+      ? state.chatHistory.find((项) => 项.id === task.targetMessageId)
+      : findLatestAssistantMessage(state.chatHistory);
+    const 正文 = 目标消息?.parsedResponse?.body.trim() || 目标消息?.content.trim() || '';
+    if (!目标消息 || !正文) {
       pushQueueTask(state, task.id, 'failed', {
         detail: '未找到可重试的正文回合。',
         failCount: (task.failCount ?? 0) + 1,
       });
       return;
     }
-    await regenerateNarrativeImagesForMessage(state, getActiveConfig, targetMessageId, { mode });
+    // mode 只区分「重出图」与「连提示词一起重跑」：reroll 重问 LLM。
+    const 结果 = await 生成消息插图(
+      state,
+      目标消息.id,
+      正文,
+      目标消息.narrativeImages,
+      { 只重新生成提示词: mode === 'reroll' },
+    );
+    for (const 插图 of 结果.插图) {
+      if (插图.status === 'failed') {
+        pushQueueTask(state, 'narrative_image_generate', 'failed', {
+          detail: 插图.error ?? '正文插图重新生成失败。',
+          failCount: (task.failCount ?? 0) + 1,
+          targetMessageId: 目标消息.id,
+        });
+        return;
+      }
+    }
+    state.setChatHistory((上一份) => 上一份.map((项) => (
+      项.id === 目标消息.id ? { ...项, narrativeImages: 结果.插图 } : 项
+    )));
+    state.set相册(结果.相册);
+    pushQueueTask(state, 'narrative_image_parse', 'success', {
+      detail: `正文插图已重新生成：${结果.成功数} 张。`,
+      targetMessageId: 目标消息.id,
+    });
     return;
   }
 

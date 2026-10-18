@@ -15,12 +15,23 @@ export const 回合动作策略表: Record<回合动作ID, 回合动作策略> =
     id: 'regenerate_snapshot',
     taskIds: ['narrative_image_parse', 'narrative_image_generate'],
     retryable: true,
-    requiresIdle: true,
+    /*
+     * 正文生图**不要求全局空闲**。
+     *
+     * `busy` 的来源是 `activeWorkflow.loading || activeWorkflow.pendingVariable`，
+     * 而 `pendingVariable` 在正文落地后就被置真、直到整轮后台结算（记忆 / 变量 /
+     * 自动配图…）全部跑完才复位，可能持续几分钟。生图与变量结算互不依赖，
+     * 让它陪着一起等，用户看到的就是「点生图 → 报错说任务进行中」。
+     *
+     * 重复触发仍由下面的「同动作已有未决任务」拦着，所以放开这里不会点两次出两批图。
+     */
+    requiresIdle: false,
   },
   reparse_variables: {
     id: 'reparse_variables',
     taskIds: ['variable_reparse'],
     retryable: false,
+    // 变量重解析会重写变量状态，必须等前台与后台结算都停下来，否则写入会交错。
     requiresIdle: true,
   },
 };
@@ -41,6 +52,15 @@ export interface 回合动作视图 {
   enabled: boolean;
   running: boolean;
   detail?: string;
+  /** LLM 的原始回复；解析失败时用户需要看到模型到底回了什么。 */
+  rawText?: string;
+  /**
+   * 当前阶段，供界面区分是在等 LLM 写提示词还是在逐张出图。
+   *
+   * 两者等待时间差一个数量级（LLM 几十秒、出图每张几十秒），
+   * 只显示「正在生成」用户无法判断是不是卡住了。
+   */
+  阶段?: '等提示词' | '出图中';
 }
 
 export interface 回合动作上下文 {
@@ -73,6 +93,16 @@ export function 派生回合动作视图(
       enabled: !running,
       running,
       ...(最新任务?.status === 'failed' && 最新任务.detail ? { detail: 最新任务.detail } : {}),
+      ...(最新任务?.rawText ? { rawText: 最新任务.rawText } : {}),
+      // 阶段优先取任务上写明的：图片状态只在「写回消息之后」才可见，
+      // 整轮生成期间消息里根本没有 generating 的图，只能靠任务告诉界面。
+      ...(running
+        ? {
+          阶段: 最新任务?.status === 'pending' && 最新任务.阶段
+            ? 最新任务.阶段
+            : (images.some((image) => image.status === 'generating') ? '出图中' as const : '等提示词' as const),
+        }
+        : {}),
     };
   }
 

@@ -106,12 +106,18 @@ export function migratePromptModules(savedGame: {
 export function 归一化游戏设置(settings: 游戏设置): 游戏设置 {
   return {
     ...settings,
+    enableResponseFormatCheck: settings.enableResponseFormatCheck,
+    responseFormatRequiredTags: typeof settings.responseFormatRequiredTags === 'string'
+      ? settings.responseFormatRequiredTags
+      : '',
     新闻系统: 归一化星际和平周报设置(settings.新闻系统),
     手机系统: 归一化手机系统设置(settings.手机系统),
     智库系统: 归一化智库系统设置(settings.智库系统),
     剧情编织系统: 归一化剧情编织系统设置(settings.剧情编织系统),
     记忆系统: 归一化记忆系统设置(settings.记忆系统),
     文生图系统: 归一化文生图系统设置(settings.文生图系统),
+    // 后加的开关，旧存档没有这一块；缺省时回退默认（关闭），不能留 undefined。
+    逐句推进: { ...创建默认游戏设置().逐句推进, ...(settings.逐句推进 ?? {}) },
     visualTextSettings: 归一化视觉文本设置(settings.visualTextSettings),
     额外功能: 归一化额外功能设置(settings.额外功能),
   };
@@ -159,6 +165,10 @@ export function hydratePersistedGameSettings(input: unknown): HydratedGameSettin
     deepSeekMainMode: partialSavedGame.deepSeekMainMode ?? defaults.deepSeekMainMode,
     backgroundTaskMode: partialSavedGame.backgroundTaskMode ?? defaults.backgroundTaskMode,
     enableCacheDiagnostics: partialSavedGame.enableCacheDiagnostics ?? defaults.enableCacheDiagnostics,
+    enableResponseFormatCheck: partialSavedGame.enableResponseFormatCheck ?? defaults.enableResponseFormatCheck,
+    responseFormatRequiredTags: typeof partialSavedGame.responseFormatRequiredTags === 'string'
+      ? partialSavedGame.responseFormatRequiredTags
+      : defaults.responseFormatRequiredTags,
     enableMaleNsfwArchive: partialSavedGame.enableMaleNsfwArchive ?? defaults.enableMaleNsfwArchive,
     enablePlayerSpeechExpansion: partialSavedGame.enableNoControl
       ? false

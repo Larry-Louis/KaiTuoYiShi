@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import type { NPC记录 } from '@/models/npc';
 import { 读取NPC头像 } from '@/models/npc';
 import type { 角色数据结构 } from '@/models/character';
@@ -8,7 +9,9 @@ import { normalizeInlineSpeakerTags, shouldRenderAsNarrationForPlayerLine } from
 import { getBuiltinAvatarSetForNames } from '@/data/builtinAvatars';
 import { 解析相册资源引用 } from '@/utils/albumActions';
 import { AvatarImage } from '@/components/ui/ResilientImage';
-import { cardClip } from '@/components/ui/clipPaths';
+import { cardClip, smallClip } from '@/components/ui/clipPaths';
+import { 匹配锚点行 } from '@/services/ai/imageGen/illustrationProtocol';
+import { use逐段推进, 派生段落插图 } from './use逐段推进';
 
 interface BodyBlockProps {
   content: string;
@@ -19,6 +22,14 @@ interface BodyBlockProps {
   userInput?: string;
   visualTextSettings?: VisualTextSettings;
   deferOffscreen?: boolean;
+  /** 待插入正文行间的插图；锚点文本与渲染行做模糊匹配，命中后插在该行之后。 */
+  行间插图?: Array<{ id: string; 锚点: string }>;
+  /** 渲染一张插图卡片；返回 null 表示这张不渲染。 */
+  renderIllustration?: (插图Id: string) => ReactNode;
+  /** AVG 式逐句推进设置；不传即关闭，行为与原来一致。 */
+  逐句推进?: { 启用: boolean; 立即全显: boolean };
+  /** 流式生成中：句子还在变，逐句推进没有意义，强制全显。 */
+  生成中?: boolean;
 }
 
 const DEFERRED_NARRATION_STYLE = {
@@ -449,17 +460,101 @@ export const NarrationLine = memo(function NarrationLine({ text, fontSize = 15, 
   );
 });
 
-export function BodyBlock({ content, npcRecords, traveler, album, showInnerVoice = true, userInput, visualTextSettings, deferOffscreen = false }: BodyBlockProps) {
+export function BodyBlock({ content, npcRecords, traveler, album, showInnerVoice = true, userInput, visualTextSettings, deferOffscreen = false, 行间插图, renderIllustration, 逐句推进, 生成中 = false }: BodyBlockProps) {
   const lines = useMemo(() => (content ? parseBodyLines(content, traveler, userInput) : []), [content, traveler, userInput]);
   const fontSettings = useMemo(() => normalizeVisualTextSettings(visualTextSettings), [visualTextSettings]);
   const npcMap = useMemo(() => buildNpcLookupMap(npcRecords), [npcRecords]);
+
+  /**
+   * AVG 式逐段推进：一次只渲染**一段**，前进时上一段消失。
+   *
+   * 单位是段落（按正文空行切）而不是单个渲染行：正文里对白常一行一句，
+   * 按行推进会变成一堆几个字的停顿，读起来很碎。
+   *
+   * 注意不能先 slice 再渲染：`行插图` 的行号是按**完整 lines** 算的，
+   * 切片会让索引整体错位、插图插到别的行上。所以只按区间限制渲染。
+   */
+  const 推进 = use逐段推进({
+    行: lines,
+    启用: 逐句推进?.启用 === true,
+    立即全显: 逐句推进?.立即全显 === true,
+    生成中,
+  });
+
+  /**
+   * 把插图锚点匹配到**渲染行**上。
+   *
+   * 不用流水线算出的行索引：那个索引基于 `content.split('\n')` 的原始行，
+   * 而这里的分组把对白的多行合并成一段，两套编号并不等价。
+   * 直接对渲染后的行文本做模糊匹配，既不依赖编号稳定性，也能容忍正文被编辑过。
+   */
+  const 行插图 = useMemo(() => {
+    const 映射 = new Map<number, string[]>();
+    if (!行间插图 || 行间插图.length === 0) return 映射;
+    const 行文本 = lines.map((行) => ('text' in 行 ? 行.text : '') || '');
+    const 已用 = new Set<number>();
+    for (const 项 of 行间插图) {
+      const 命中 = 匹配锚点行(行文本, 项.锚点);
+      if (!命中 || 已用.has(命中.行索引)) continue;
+      已用.add(命中.行索引);
+      映射.set(命中.行索引, [...(映射.get(命中.行索引) ?? []), 项.id]);
+    }
+    return 映射;
+  }, [行间插图, lines]);
+
+  /** 兜底：所有没匹配上的插图按原顺序铺在正文之后，而不是整张丢掉。 */
+  const 未匹配插图 = useMemo(() => {
+    const 已放 = new Set<string>();
+    行插图.forEach((列表) => 列表.forEach((id) => 已放.add(id)));
+    return (行间插图 ?? []).filter((项) => !已放.has(项.id));
+  }, [行插图, 行间插图]);
+
+  /**
+   * 逐段推进时**固定在上方**的那张图。
+   *
+   * 图的归属规则来自用户的 galgame 前端（`galgame前端.html` L563-L588）：
+   * 每个文本块沿用最近一个 `<image>` 的图，所以同一张图会横跨多段文字，
+   * 直到下一张图出现才切换。
+   *
+   * 为什么不按段落渲染图卡片：那样图会随段落卸载，前进到没有图归属的段落时
+   * 画面会突然空掉。这里把它提出来固定挂着，文字在下面滚动。
+   */
+  const 固定插图Id = useMemo(() => {
+    if (推进.是否全显 || !renderIllustration) return null;
+    const 分配 = 派生段落插图(推进.段落列表, 行插图);
+    if (分配.length === 0) return null;
+    return 分配[Math.min(Math.max(推进.段序号, 0), 分配.length - 1)] ?? null;
+  }, [推进.是否全显, 推进.段落列表, 推进.段序号, 行插图, renderIllustration]);
+
   if (!content) return null;
 
+  const 画插图 = (i: number) => {
+    if (!renderIllustration) return null;
+    const 列表 = 行插图.get(i);
+    if (!列表 || 列表.length === 0) return null;
+    return (
+      <>
+        {列表.map((id) => {
+          // 「当前图」已经固定在上方了，不要在正文里再画一遍。
+          if (id === 固定插图Id) return null;
+          const 节点 = renderIllustration(id);
+          return 节点 ? <div key={`anchor-${id}`} className="my-2">{节点}</div> : null;
+        })}
+      </>
+    );
+  };
+
   return (
-    <div>
+    <div ref={推进.容器引用}>
+      {/* 固定在上方的当前插图：文字往下滚，它一直挂着，直到下一张图接管。 */}
+      {固定插图Id ? (
+        <div className="mb-2 flex justify-center">{renderIllustration?.(固定插图Id)}</div>
+      ) : null}
       {lines.map((line, i) => {
-        if (line.kind === 'blank') {
-          return <div key={i} className="h-1.5" />;
+        // 逐段推进：只渲染当前段的区间，其余整段不渲染（上一段自然消失）。
+        if (i < 推进.可见区间.起 || i >= 推进.可见区间.止) return null;
+        const 尾部 = 画插图(i);        if (line.kind === 'blank') {
+          return <div key={i}>{尾部}<div className="h-1.5" /></div>;
         }
         if (line.kind === 'dialogue') {
           const npc = lookupNpc(line.name, npcMap);
@@ -469,27 +564,73 @@ export function BodyBlock({ content, npcRecords, traveler, album, showInnerVoice
             ? 解析相册资源引用(album, traveler?.图像档案?.正文头像?.trim() || traveler?.头像.trim()) || undefined
             : 解析相册资源引用(album, 读取NPC头像(npc, '正文')) || undefined;
           return (
-            <DialogueBubble
-              key={i}
-              name={line.name}
-              text={line.text}
-              color={color}
-              avatarUrl={avatarUrl}
-              isProtagonist={protagonist}
-              fontSize={protagonist ? fontSettings.playerFontSize : fontSettings.dialogueFontSize}
-              deferOffscreen={deferOffscreen}
-            />
+            <div key={i}>
+              <DialogueBubble
+                name={line.name}
+                text={line.text}
+                color={color}
+                avatarUrl={avatarUrl}
+                isProtagonist={protagonist}
+                fontSize={protagonist ? fontSettings.playerFontSize : fontSettings.dialogueFontSize}
+                deferOffscreen={deferOffscreen}
+              />
+              {尾部}
+            </div>
           );
         }
         if (line.kind === 'inner') {
-          if (!showInnerVoice) return null;
-          return <InnerVoiceBubble key={i} text={line.text} traveler={traveler} album={album} fontSize={fontSettings.dialogueFontSize} deferOffscreen={deferOffscreen} />;
+          if (!showInnerVoice) return 尾部 ? <div key={i}>{尾部}</div> : null;
+          return (
+            <div key={i}>
+              <InnerVoiceBubble text={line.text} traveler={traveler} album={album} fontSize={fontSettings.dialogueFontSize} deferOffscreen={deferOffscreen} />
+              {尾部}
+            </div>
+          );
         }
-        if (line.kind === 'narration') {
-          return <NarrationLine key={i} text={line.text} fontSize={fontSettings.narrationFontSize} deferOffscreen={deferOffscreen} />;
-        }
-        return <NarrationLine key={i} text={line.text} fontSize={fontSettings.narrationFontSize} deferOffscreen={deferOffscreen} />;
+        return (
+          <div key={i}>
+            <NarrationLine text={line.text} fontSize={fontSettings.narrationFontSize} deferOffscreen={deferOffscreen} />
+            {尾部}
+          </div>
+        );
       })}
+      {renderIllustration && 未匹配插图.length > 0 ? (
+        <div className="space-y-2">
+          {未匹配插图.map((项) => {
+            const 节点 = renderIllustration(项.id);
+            return 节点 ? <div key={`fallback-${项.id}`} className="my-2">{节点}</div> : null;
+          })}
+        </div>
+      ) : null}
+      {/*
+        逐段推进时给一个可点的「继续」：滚轮/空格/回车是熟悉 galgame 的人的习惯，
+        但第一次遇到的人需要看到「还能往下走」，否则会以为正文就这么多。
+      */}
+      {!推进.是否全显 ? (
+        <button
+          type="button"
+          onClick={推进.前进}
+          className="mt-2 w-full px-2 py-1.5 text-[11px] transition-all hover:opacity-80"
+          style={{
+            color: 'rgba(var(--tj-text-secondary), 0.66)',
+            background: 'rgba(var(--tj-accent-primary), 0.04)',
+            border: '1px solid rgba(var(--tj-accent-primary), var(--tj-edge-tint-weak))',
+            // 和其它按钮一样带切角：正文里的操作按钮此前是仅剩的直角方块，
+            // galgame 模式下尤其显眼（用户报的「按钮显示 bug」之一）。
+            clipPath: smallClip,
+          }}
+        >
+          {推进.段序号 >= 推进.段总数 - 1
+            ? '已是最后一段（滚轮向上可回退）'
+            : `▼ 继续（滚轮 / 空格 / 回车）　·　${推进.段序号 + 1} / ${推进.段总数} 段`}
+          <span
+            className="ml-2 underline"
+            onClick={(事件) => { 事件.stopPropagation(); 推进.全部展开(); }}
+          >
+            跳到末段
+          </span>
+        </button>
+      ) : null}
     </div>
   );
 }

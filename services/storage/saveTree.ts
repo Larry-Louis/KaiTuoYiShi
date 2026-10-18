@@ -7,12 +7,14 @@ import { devLog, devLogError } from '@/utils/devLog';
 import type { SaveCatalogSnapshot, SaveListItemSummary } from '@/contracts/storage';
 import { buildSaveSummary, isUnsealedHeadSave, type SaveWithTree, type StoredSaveMeta } from './saveSummary';
 import { loadRawSave, restoreDeltaSaveIfNeeded } from './saveRecord';
-import { deleteManagedSaveItems, getSaveCatalogSnapshot, loadSave, loadSaveIdByNodeId, saveGame } from './saveCrud';
+import { deleteManagedSaveItems, findAutoDeltaBase, getSaveCatalogSnapshot, loadSave, loadSaveIdByNodeId, saveGame } from './saveCrud';
 import { createCatalogRecordFromSummary } from '@/services/storage/saveCatalog';
+import { 对账并补齐磁盘 } from '@/services/storage/diskPersistence';
 import { runWithSaveMutationPriority } from '@/services/storage/saveCatalogRepair';
-import { openDB, SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE, NEWEST_STORY_STORE } from './dbConnection';
-import { buildSaveNodeDeltaRecord, isDeltaOnlyStoredSave } from '@/utils/saveDeltaStorage';
-import { stripSaveAssetPayloadForStorage } from '@/utils/saveAssetStorage';
+import { openDB, SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE, SAVE_ASSETS_STORE, NEWEST_STORY_STORE } from './dbConnection';
+import { buildDeltaOnlyStoredSave, buildSaveNodeDeltaRecord, isDeltaOnlyStoredSave } from '@/utils/saveDeltaStorage';
+import { extractSaveAssetRecords, materializeSaveAssetRecords, stripSaveAssetPayloadForStorage } from '@/utils/saveAssetStorage';
+import { 投影存档载荷为落盘 } from '@/utils/savePayloadProjection';
 import { omitKeys, toError } from '@/utils/storageUtils';
 
 export interface LeafNodeResult {
@@ -22,13 +24,20 @@ export interface LeafNodeResult {
 
 export async function createLeafNode(payload: 存档数据): Promise<LeafNodeResult> {
   const withMarker = {
-    ...payload,
+    // 活跃叶子也要投影：否则「载入头叶子 → 打补丁 → 再存」会把胖档原样复制下去。
+    ...投影存档载荷为落盘(payload, 'head'),
     saveRuntime: { unsealedHead: true },
   } as StoredSaveMeta;
   const saveId = await saveGame(withMarker, { forceFullStore: true });
   const tree = (withMarker as SaveWithTree).saveTree;
   if (!tree?.nodeId) {
     throw new Error('创建叶子节点失败：缺少 saveTree 元信息。');
+  }
+  // 手动存档 / 导入存档：此时对账一次（频率低、时机明确）。
+  if (payload.type !== 'auto') {
+    await 对账并补齐磁盘().catch((error: unknown) => {
+      devLogError('save', 'manual-save-reconcile-failed', error);
+    });
   }
   return { saveId, saveTree: tree };
 }
@@ -46,7 +55,7 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
     return;
   }
   const sealedFields = omitKeys(
-    stripEphemeralFields(sealedPayload) as 存档数据 & { saveStorage?: unknown },
+    stripEphemeralFields(投影存档载荷为落盘(sealedPayload, 'sealed')) as 存档数据 & { saveStorage?: unknown },
     ['queueTasks', 'saveStorage'] as const,
   );
   const sealedStored = stripSaveAssetPayloadForStorage({
@@ -54,6 +63,9 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
     id: saveId,
     saveRuntime: undefined,
   });
+  // 自动档封版后降级为「仅增量」（每 MAX_DELTA_NODES_PER_CHECKPOINT 个落一个全量检查点）；
+  // 手动档 findAutoDeltaBase 直接返回 null，保持全量、独立、不被自动清理。
+  const deltaBase = await findAutoDeltaBase(db, sealedStored);
   // 事务内二次确认未封版不可省：事务外预检到写入之间存在 TOCTOU 窗口，会覆写已封版检查点。
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction([SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE], 'readwrite');
@@ -74,9 +86,15 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
         resolve();
         return;
       }
-      saveStore.put(sealedStored);
+      saveStore.put(deltaBase ? buildDeltaOnlyStoredSave(sealedStored, deltaBase.baseSaveId) : sealedStored);
       summaryStore.put(createCatalogRecordFromSummary(buildSaveSummary(sealedStored)));
-      const delta = buildSaveNodeDeltaRecord(sealedStored, saveId);
+      const delta = buildSaveNodeDeltaRecord(
+        sealedStored,
+        saveId,
+        deltaBase
+          ? { baseSave: deltaBase.baseSave, baseSaveId: deltaBase.baseSaveId, storageMode: 'delta' }
+          : undefined,
+      );
       if (delta) deltaStore.put(delta);
     };
     readRequest.onerror = () => reject(toError(readRequest.error));
@@ -88,6 +106,145 @@ export async function sealLeafRow(sealedPayload: 存档数据): Promise<void> {
     };
     tx.onerror = () => reject(toError(tx.error));
     tx.onabort = () => reject(tx.error ?? new Error('封版叶子事务已中止。'));
+  });
+  // 自动档滚动窗口：把旧全量已并入的部分清掉，恒保持「1 全量 + ≤5 增量」。
+  if (sealedStored.type === 'auto') {
+    const rootId = (sealedStored as SaveWithTree).saveTree?.rootId;
+    if (rootId) {
+      await compressAutoSaveWindow(rootId).catch((error: unknown) => {
+        devLogError('save', 'auto-window-compress-failed', error);
+      });
+      // 只在刚落全量（检查点）时对账一次，避免频繁全库操作。
+      if (deltaBase === null) {
+        await 对账并补齐磁盘().catch((error: unknown) => {
+          devLogError('save', 'checkpoint-reconcile-failed', error);
+        });
+      }
+    }
+  }
+}
+
+/** 自动档窗口保留的增量个数。 */
+const AUTO_WINDOW_DELTAS = 5;
+
+/**
+ * 自动档滚动窗口：只保留「最新 1 个全量 + 其后 ≤AUTO_WINDOW_DELTAS 个增量」，更早的自动档整段清除。
+ * 最新档是自足全量，删旧不会伤到它；手动档与其它分支一律不动。
+ * 仅由 sealLeafRow 在「刚落下新全量」时调用。
+ */
+export async function compressAutoSaveWindow(rootId: string): Promise<number> {
+  const trimmed = rootId.trim();
+  if (!trimmed) return 0;
+  const catalog = await getSaveCatalogSnapshot();
+  if (!catalog.catalogComplete) return 0;
+  const byNode = new Map<string, SaveListItemSummary>();
+  for (const item of catalog.items) {
+    const nodeId = item.saveTree?.nodeId;
+    if (nodeId && item.saveTree?.rootId === trimmed && item.type === 'auto') byNode.set(nodeId, item);
+  }
+  const newest = await loadNewestStory();
+  // 从 head 沿 parentNodeId 回溯自动链（链上都是本 root 的自动节点）
+  const chain: SaveListItemSummary[] = [];
+  const seenNodeIds = new Set<string>();
+  let cursor = newest.headNodeId;
+  while (cursor && byNode.has(cursor) && !seenNodeIds.has(cursor)) {
+    seenNodeIds.add(cursor);
+    const item = byNode.get(cursor) as SaveListItemSummary;
+    chain.push(item);
+    cursor = item.saveTree?.parentNodeId ?? null;
+  }
+  // 链上也该丢弃的部分（滚动窗口）；它同时是「重定父」的边界依据。
+  const 链上截断 = chain.slice(AUTO_WINDOW_DELTAS + 1);
+  const drop = [...链上截断];
+  // 除当前链外，其它「整棵都是自动档」的树也一并清除（同步分叉留下的噪声树；含手动/导入的树一律不动）。
+  const 当前根 = chain[0]?.saveTree?.rootId ?? null;
+  const 按根 = new Map<string, SaveListItemSummary[]>();
+  for (const item of catalog.items) {
+    const 根 = item.saveTree?.rootId;
+    if (!根 || !item.saveTree?.nodeId) continue;
+    const 组 = 按根.get(根) ?? [];
+    组.push(item);
+    按根.set(根, 组);
+  }
+  // 同一根下、但**不在 head 链上**的自动节点：父链断裂留下的孤儿链（重载/对账后很常见）。
+  // 它们从 head 根本不可达。旧实现只按 rootId 分组清“其它树”，这些共用同一个 rootId
+  // 的断裂链会被当成“当前链”放过 —— 每条链各留 7 个，一夜下来堆成一两百个节点。
+  // 只当整个根都不含手动档时才清（与“手动档一律不动”一致）。
+  //
+  // 唯一不能碰的是**未封版**节点：它要么是正在写的头，要么是崩溃窗口里待采纳的子叶。
+  // 已验证的保留条件：未封版 **且父节点在 head 链上** —— 那才是重载分叉留下的待采纳子叶；
+  // 父链已经断了的未封版孤儿头属于噪声，可以清。增量基底由 deleteManagedSaveItems
+  // 兜底降级为不可见基底，不会误删。
+  if (当前根) {
+    const 本根 = 按根.get(当前根) ?? [];
+    if (本根.every((项) => 项.type === 'auto')) {
+      for (const item of 本根) {
+        const nodeId = item.saveTree?.nodeId;
+        if (!nodeId || seenNodeIds.has(nodeId)) continue;
+        if (item.unsealedHead === true) {
+          const parent = item.saveTree?.parentNodeId ?? null;
+          if (parent && seenNodeIds.has(parent)) continue;
+        }
+        drop.push(item);
+      }
+    }
+  }
+  for (const [根, 组] of 按根) {
+    if (根 === 当前根) continue;
+    if (组.every((项) => 项.type === 'auto')) drop.push(...组);
+  }
+  if (!drop.length) return 0;
+  // 重定父的边界**只能由链上的截断点决定**：额外清除的节点（同根孤儿链、其它树）与保留链
+  // 没有父子关系，拿它们的 parent 当边界会把链根接到链尾 —— 实测会绕成环，整棵存档树读不出来。
+  // 链下标可能越界（链比窗口短时）。这里用显式守卫而不是可选链：该索引在类型上被视为非空，
+  // 可选链会被 lint 判为多余，但运行时确实可能越界。
+  const keepOldest = chain[AUTO_WINDOW_DELTAS] as SaveListItemSummary | undefined;
+  const 链上新父 = 链上截断[链上截断.length - 1] as SaveListItemSummary | undefined;
+  const nextParentNodeId = 链上新父 ? (链上新父.saveTree?.parentNodeId ?? null) : null;
+  const db = await openDB();
+  await deleteManagedSaveItems(db, drop);
+  // 只有链上确实截断过，才存在「保留链的新链根」；否则 keepOldest 为空，不能重定父。
+  if (链上截断.length && keepOldest && keepOldest.saveTree?.nodeId) {
+    await reparentSaveNode(db, keepOldest, nextParentNodeId);
+  }
+  devLog('save', 'auto-window-compressed', {
+    rootId: trimmed,
+    dropped: drop.length,
+    kept: chain.length - drop.length,
+  });
+  return drop.length;
+}
+
+/** 只改节点的 saveTree.parentNodeId（原样保留其余字段，避免用残缺行重算摘要）。 */
+async function reparentSaveNode(
+  db: IDBDatabase,
+  item: SaveListItemSummary,
+  parentNodeId: string | null,
+): Promise<void> {
+  if (!item.saveTree?.nodeId) return;
+  const patchTree = (tree: 存档树元信息): 存档树元信息 => {
+    const next = { ...tree } as 存档树元信息 & { parentNodeId?: string };
+    if (parentNodeId) next.parentNodeId = parentNodeId;
+    else delete next.parentNodeId;
+    return next;
+  };
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([SAVES_STORE, SAVE_SUMMARIES_STORE], 'readwrite');
+    const saveStore = tx.objectStore(SAVES_STORE);
+    const summaryStore = tx.objectStore(SAVE_SUMMARIES_STORE);
+    const saveRequest = saveStore.get(item.id);
+    saveRequest.onsuccess = () => {
+      const row = saveRequest.result as (存档数据 & { saveTree?: 存档树元信息 }) | undefined;
+      if (row?.saveTree) saveStore.put({ ...row, saveTree: patchTree(row.saveTree) });
+      const summaryRequest = summaryStore.get(item.id);
+      summaryRequest.onsuccess = () => {
+        const summaryRow = summaryRequest.result as { saveTree?: 存档树元信息 } | undefined;
+        if (summaryRow?.saveTree) summaryStore.put({ ...summaryRow, saveTree: patchTree(summaryRow.saveTree) });
+      };
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(toError(tx.error));
+    tx.onabort = () => reject(toError(tx.error ?? new Error('自动档窗口重定父节点事务已中止。')));
   });
 }
 
@@ -202,8 +359,9 @@ async function putHeadRow(saveId: number, patch: Partial<存档数据>): Promise
     : null;
   let restoredFromDelta = false;
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction([SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE], 'readwrite');
+    const tx = db.transaction([SAVES_STORE, SAVE_SUMMARIES_STORE, SAVE_NODE_DELTAS_STORE, SAVE_ASSETS_STORE], 'readwrite');
     const saveStore = tx.objectStore(SAVES_STORE);
+    const assetStore = tx.objectStore(SAVE_ASSETS_STORE);
     const summaryStore = tx.objectStore(SAVE_SUMMARIES_STORE);
     const deltaStore = tx.objectStore(SAVE_NODE_DELTAS_STORE);
     const readRequest = saveStore.get(saveId);
@@ -224,7 +382,18 @@ async function putHeadRow(saveId: number, patch: Partial<存档数据>): Promise
       restoredFromDelta = isDeltaOnlyStoredSave(raw);
       const current = restoredFromDelta ? (restoredPreview ?? raw) : raw;
       const next = { ...current, ...patchWithoutId, id: saveId } as StoredSaveMeta;
+      /*
+       * 图片字节必须在这里落进 `saveAssets`。
+       *
+       * `stripSaveAssetPayloadForStorage` 只把 `相册.assets[].dataUrl` 改写成 `asset:<id>`
+       * 引用，**不会**保存字节本身；字节由调用方负责写进独立 store。
+       * 新建叶子（`createLeafNode`）与整档保存（`saveGameInternal`）都做了这一步，
+       * 而改活跃叶子这条路原来漏了 —— 于是回合外生成/重生的插图只有引用、
+       * 没有字节，重新进入后图与相册一起消失（实际反馈过）。
+       */
       const nextStored = stripSaveAssetPayloadForStorage(next);
+      const assetRecords = materializeSaveAssetRecords(extractSaveAssetRecords(nextStored));
+      for (const record of assetRecords) assetStore.put(record);
       saveStore.put(nextStored);
       summaryStore.put(createCatalogRecordFromSummary(buildSaveSummary(nextStored)));
       const delta = buildSaveNodeDeltaRecord(nextStored, saveId);

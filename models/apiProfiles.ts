@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { AI提供商列表, 文生图后端列表 } from '@/models/settings';
+import { AI提供商列表 } from '@/models/settings';
 import type { AI提供商, API设置, 游戏设置 } from '@/models/settings';
 
 export interface API配置包 {
@@ -20,10 +20,20 @@ export interface API配置包 {
     记忆总结API: 游戏设置['记忆系统']['记忆总结API'];
     忆庭召回API: 游戏设置['记忆系统']['忆庭召回API'];
     忆庭精炼API: 游戏设置['记忆系统']['忆庭精炼API'];
-    文生图普通接口: 游戏设置['文生图系统']['普通接口'];
-    文生图场景接口: 游戏设置['文生图系统']['场景接口'];
-    文生图NSFW接口: 游戏设置['文生图系统']['NSFW接口'];
-    文生图词组转化器API: 游戏设置['文生图系统']['词组转化器API'];
+    /**
+     * 上联服务端口的地址不在配置包里；这里只带 LLM 预设的覆盖。
+     *
+     * 键名保持 `文生图词组转化器API` **不要改**：这个字面量会写进用户导出/导入的
+     * API 配置包 JSON 里，改名会让已有配置包认不出来。UI 上它已经叫「LLM 预设」。
+     */
+    文生图词组转化器API: 游戏设置['文生图系统']['LLM']['API'];
+    /**
+     * 「角色管理 → 生成」用的覆盖（一键生成角色特征）。
+     *
+     * 与 LLM 预设同样是文生图里的文本接口，所以一起进配置包；**可选**是因为
+     * 旧配置包（以及上游导出的包）里没有这一项，缺省时保留本机现值。
+     */
+    文生图角色生成API?: 游戏设置['文生图系统']['角色AI']['API'];
   };
 }
 
@@ -64,28 +74,11 @@ const API设置Schema = z.object({
   configs: z.array(API配置项Schema),
 });
 
-const 文生图配置Schema = z.object({
-  enabled: z.boolean(),
-  backend: z.enum(文生图后端列表),
+const LLMAPI覆盖Schema = z.object({
+  provider: z.string(),
   baseUrl: z.string(),
   apiKey: z.string(),
   model: z.string(),
-  pathMode: z.enum(['preset', 'custom']),
-  presetPath: z.enum(['openai_images', 'novelai_generate', 'sd_txt2img', 'comfyui_prompt']),
-  customPath: z.string(),
-  responseFormat: z.enum(['url', 'b64_json', 'dataUrl']),
-  defaultSize: z.string(),
-  defaultStyle: z.enum(['hsr', 'anime', 'realistic', 'custom']),
-  customStyle: z.string(),
-  steps: z.number(),
-  cfgScale: z.number(),
-  seed: z.number(),
-  sampler: z.enum(['k_euler', 'k_euler_ancestral', 'k_dpmpp_2m', 'k_dpmpp_2s_ancestral', 'k_dpmpp_sde', 'k_dpmpp_2m_sde']),
-  noiseSchedule: z.enum(['native', 'karras', 'exponential', 'polyexponential']),
-  useDefaultComfyWorkflow: z.boolean(),
-  comfyWorkflowJson: z.string(),
-  negativePrompt: z.string(),
-  retryCount: z.number().int().min(0),
 });
 
 export const API配置包信封Schema = z.object({
@@ -106,10 +99,8 @@ export const API配置包信封Schema = z.object({
     记忆总结API: 忆庭API覆盖Schema,
     忆庭召回API: 忆庭API覆盖Schema,
     忆庭精炼API: 忆庭API覆盖Schema,
-    文生图普通接口: 文生图配置Schema,
-    文生图场景接口: 文生图配置Schema,
-    文生图NSFW接口: 文生图配置Schema,
-    文生图词组转化器API: 可空ProviderAPI覆盖Schema,
+    文生图词组转化器API: LLMAPI覆盖Schema,
+    文生图角色生成API: LLMAPI覆盖Schema.optional(),
   }),
 });
 

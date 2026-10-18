@@ -13,7 +13,7 @@ import { 构造世界事实视图, type 世界事实视图 } from '@/services/st
 import { buildYitingArchiveEntry } from '@/services/yitingArchive';
 import { resolveApiConfig } from '@/services/apiConfig';
 import { buildFallbackPhoneSeed } from './phoneWorkflow';
-import { resolveNarrativeImageTokenizerConfig, resolveNarrativeImageGenerationApi, generateNarrativeImagesForMessage } from './narrativeImageWorkflow';
+import { 生成消息插图 } from './illustrationWorkflow';
 import { pushQueueTask } from './workflowTaskRuntime';
 import { isMemorySystemNoise, upsertRecallEntry } from './memoryUtils';
 import { 创建默认记忆系统设置 } from '@/models/settings';
@@ -76,6 +76,25 @@ interface NarrativeJobParams {
   queueTasksMirror: TurnContext['queueTasksMirror'];
 }
 interface NarrativeJobResult { finalHistoryForSave: 聊天消息[]; 相册After?: 相册系统; }
+
+/**
+ * 正文自动配图的准入判断。
+ *
+ * 抽成纯函数是为了能直接测：它有三个条件（总开关、正文配图开关、模式是否为 auto），
+ * 任何一个不满足都会**静默返回**，用户看到的就是「自动生图模式没有去请求生图」。
+ * 所以这里除了给出结论，还要给出**原因**，让调用方把原因报到队列里，而不是让人猜。
+ */
+export function 判定正文配图门禁(
+  文生图系统: 文生图系统设置 | undefined,
+): { 放行: boolean; 原因?: string } {
+  if (!文生图系统) return { 放行: false, 原因: '还没有文生图系统设置。' };
+  if (!文生图系统.启用) return { 放行: false, 原因: '文生图总开关没有打开。' };
+  const 正文配图 = 文生图系统.正文配图;
+  if (!正文配图) return { 放行: false, 原因: '缺少正文配图设置。' };
+  if (!正文配图.启用) return { 放行: false, 原因: '「正文自动配图」没有打开。' };
+  if (正文配图.模式 !== 'auto') return { 放行: false, 原因: '正文配图当前是手动模式，自动生图不会触发。' };
+  return { 放行: true };
+}
 
 function 合并忆庭系统(base: 忆庭系统, override?: 忆庭系统): 忆庭系统 {
   if (!override) return base;
@@ -200,51 +219,70 @@ function runPhoneFallbackJob(p: PhoneJobParams): Promise<PhoneJobResult> {
 }
 
 async function runNarrativeImageJob(p: NarrativeJobParams): Promise<NarrativeJobResult> {
-  let fh = p.finalHistory;
+  const fh = p.finalHistory;
   const 文生图系统 = p.state.deviceSettings.gameSettings.文生图系统 as 文生图系统设置 | undefined;
-  const 正文生图设置 = 文生图系统?.正文生图;
-  if (!正文生图设置?.enabled || 正文生图设置.mode !== 'auto') return { finalHistoryForSave: fh };
+  const 门禁 = 判定正文配图门禁(文生图系统);
+  if (!门禁.放行) {
+    // 不静默返回：用户开了自动模式却在别处被拦下时，必须能看到被谁拦的。
+    pushQueueTask(p.state, 'narrative_image_parse', 'skipped', {
+      detail: `本回合未自动生图：${门禁.原因}`,
+    }, p.turnCountAtStart, p.queueTasksMirror);
+    return { finalHistoryForSave: fh };
+  }
   const targetMessageId = p.aiMsg.id;
-  const tokenizerConfig = resolveNarrativeImageTokenizerConfig(p.state);
-  const imageApiConfig = resolveNarrativeImageGenerationApi(p.state);
-  if (!tokenizerConfig) {
-    pushQueueTask(p.state, 'narrative_image_parse', 'failed', {
-      detail: '正文生图词组转化器未配置，无法解析故事快照提示词。',
-      targetMessageId,
-    }, p.turnCountAtStart, p.queueTasksMirror);
-    return { finalHistoryForSave: fh };
-  }
-  if (!imageApiConfig) {
-    pushQueueTask(p.state, 'narrative_image_generate', 'failed', {
-      detail: '正文生图主文生图接口未启用，无法生成故事快照。',
-      targetMessageId,
-    }, p.turnCountAtStart, p.queueTasksMirror);
-    return { finalHistoryForSave: fh };
-  }
-  const generatedImagesResult = await generateNarrativeImagesForMessage({
-    state: p.state,
-    messageId: targetMessageId,
-    body: p.displayText,
-    tokenizerConfig,
-    imageApiConfig,
-    turn: p.turnCountAtStart,
+
+  /*
+   * 先落一条 pending：自动配图整段（LLM 写提示词 + 逐张出图）可能好几分钟，
+   * 而结果只在结束时才写回消息 —— 中间界面上**完全没有任何反馈**，
+   * 用户会以为没触发、又去点手动生图。这条任务同时驱动卡片的运行态与置灰。
+   */
+  pushQueueTask(p.state, 'narrative_image_parse', 'pending', {
+    detail: '正在为正文生成插图（先写提示词，再逐张出图）…',
+    targetMessageId,
+    阶段: '等提示词',
+  }, p.turnCountAtStart, p.queueTasksMirror);
+
+  const 结果 = await 生成消息插图(p.state, targetMessageId, p.displayText, undefined, {
     signal: p.abortController.signal,
-    assertWorkflowActive: p.assertWorkflowActive,
-    pushTask: (id, status, patch, turn) => pushQueueTask(p.state, id, status, patch, turn ?? p.turnCountAtStart, p.queueTasksMirror),
+    // 出图阶段再报一条（只报第一次），让「等提示词」与「正在出图」在界面上分得开。
+    on进度: (事件) => {
+      if (事件.阶段 !== '出图' || (事件.完成数 ?? 0) > 0) return;
+      pushQueueTask(p.state, 'narrative_image_generate', 'pending', {
+        detail: `正在逐张出图（共 ${事件.总数 ?? 0} 张）…`,
+        targetMessageId,
+        阶段: '出图中',
+      }, p.turnCountAtStart, p.queueTasksMirror);
+    },
   });
   p.assertWorkflowActive();
-  const generatedImages = generatedImagesResult.images;
-  if (generatedImages?.length) {
-    fh = p.finalHistory.map((msg) =>
-      msg.id === targetMessageId && msg.role === 'assistant'
-        ? {
-            ...msg,
-            narrativeImages: [...(msg.narrativeImages ?? []), ...generatedImages],
-          }
-        : msg,
-    );
+
+  if (结果.插图.length === 0) {
+    pushQueueTask(p.state, 'narrative_image_parse', 'failed', {
+      detail: 结果.提示词诊断 ?? '正文配图没有产出任何插图。',
+      targetMessageId,
+    }, p.turnCountAtStart, p.queueTasksMirror);
+    return { finalHistoryForSave: fh, 相册After: 结果.相册 };
   }
-  return { finalHistoryForSave: fh, 相册After: generatedImagesResult.相册 };
+
+  const 下一份历史 = p.finalHistory.map((msg) =>
+    msg.id === targetMessageId && msg.role === 'assistant'
+      ? { ...msg, narrativeImages: [...(msg.narrativeImages ?? []), ...结果.插图] }
+      : msg,
+  );
+  pushQueueTask(
+    p.state,
+    'narrative_image_generate',
+    结果.失败数 === 0 ? 'success' : 'failed',
+    {
+      detail: 结果.失败数 === 0
+        ? `正文插图生成完成：${结果.成功数} 张。`
+        : `正文插图生成：成功 ${结果.成功数} 张，失败 ${结果.失败数} 张。`,
+      targetMessageId,
+    },
+    p.turnCountAtStart,
+    p.queueTasksMirror,
+  );
+  return { finalHistoryForSave: 下一份历史, 相册After: 结果.相册 };
 }
 
 export async function stage11_backgroundJobs(

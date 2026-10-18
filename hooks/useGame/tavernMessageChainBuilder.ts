@@ -6,6 +6,7 @@ import type { MacroContext } from '@/utils/macroEngine';
 import { createMacroContext, processMacros } from '@/utils/macroEngine';
 import type { 游戏设置 } from '@/models/settings';
 import type { PromptScope } from './promptAssembly';
+import { 剥掉内联插图 } from '@/utils/illustrationMarkup';
 
 export const TAVERN_CHAR_COMPAT_PROMPT =
   '当前剧情中的主要互动对象、出场 NPC、同伴、敌对角色以及由 AI 负责扮演和调度的剧情角色集合。不要把 {{char}} 理解为固定角色卡；应根据最近剧情、玩家输入、聊天历史和世界状态判断当前焦点对象。';
@@ -390,7 +391,7 @@ function buildTavernChatHistory(history: 聊天消息[]): Array<{role: STMessage
 }
 
 function buildTavernHistoryContent(msg: 聊天消息): string {
-  if (msg.role !== 'assistant') return typeof msg.content === 'string' ? msg.content.trim() : '';
+  if (msg.role !== 'user') return 剥掉内联插图(typeof msg.content === 'string' ? msg.content.trim() : '');
   const parsed = msg.parsedResponse;
   const body = typeof parsed?.body === 'string' ? parsed.body.trim() : '';
   const worldEvents = Array.isArray(parsed?.worldEvents) && parsed.worldEvents.length > 0
@@ -399,10 +400,12 @@ function buildTavernHistoryContent(msg: 聊天消息): string {
   const memory = typeof parsed?.memory === 'string' && parsed.memory.trim()
     ? `【记忆】\n${parsed.memory.trim()}`
     : '';
-  return [body, worldEvents, memory]
+  // 插图文法是给渲染层用的中间产物：正文模型会把它写在正文行间。
+  // 留在历史里会一路带进变量更新、记忆总结与后续续写，既费 token 又可能被模仿。
+  return 剥掉内联插图([body, worldEvents, memory]
     .filter(Boolean)
     .join('\n\n')
-    .trim() || (typeof msg.content === 'string' ? msg.content.trim() : '');
+    .trim() || (typeof msg.content === 'string' ? msg.content.trim() : ''));
 }
 
 function getLastMessageContent(history: 聊天消息[], role?: STMessageRole): string {

@@ -30,13 +30,26 @@ Thumbs.db
 reasonix.toml
 kaituo-star-rail-ui/
 
+# Local file-based save data (personal playthrough, never commit)
+save/
+
+# 测试/构建临时目录（跑 vitest、vite 时会把 TEMP/TMP 指到这里）
+.vt/
+.bt/
+
 # Local assistant memory / private planning notes
 .claude/
 .superpowers/
 AGENTS.md
 AGENTS-OLD.md
 AGENT_CHECKLISTS.md
-docs/
+
+# docs/ 默认不发布，但**不能写成 `docs/`**：
+# 排除整个目录后 Git 根本不会进入它，后面的 `!` 放行规则一律失效（实测过）。
+# 正确写法是先放行目录、再排除目录内容，最后放行要发布的那一份。
+!docs/
+docs/*
+!docs/文生图-实机验证清单.md
 
 # Logs
 *.log

@@ -1,5 +1,7 @@
-const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+import { 取待落盘字节 } from './pendingAssetBytes';
+import { blob转数据地址 } from './blobEncoding';
 
+const DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
 interface AlbumAssetCacheEntry {
   blob: Blob;
   mimeType?: string;
@@ -32,12 +34,8 @@ export function dataUrlToBlob(dataUrl: string): Blob | null {
 }
 
 export async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-    reader.onerror = () => reject(reader.error ?? new Error('Blob 转 dataUrl 失败'));
-    reader.readAsDataURL(blob);
-  });
+  // 实现集中在 blobEncoding：不用 FileReader，避免 jsdom 下的 Blob 跨 realm 拒收。
+  return blob转数据地址(blob);
 }
 
 export function rememberAlbumAssetBlob(assetId: string, blob: Blob, mimeType?: string): void {
@@ -65,11 +63,20 @@ export function rememberAlbumAssetFromDataUrl(assetId: string, dataUrl: string):
 }
 
 export function getAlbumAssetBlob(assetId: string): Blob | undefined {
-  return assetCache.get(assetId.trim())?.blob;
+  const id = assetId.trim();
+  /*
+   * 先看旁路暂存：那是「刚出图、还没落盘」的权威来源，且不会被 prune 回收。
+   * 展示缓存只作兜底 —— 它随时可能被 `pruneAlbumAssetCache` 清掉，
+   * 而自动配图的落盘发生在回合末尾，正好横跨这段窗口（「只剩最后一张」的成因）。
+   */
+  return 取待落盘字节(id) ?? assetCache.get(id)?.blob;
 }
 
 export function hasAlbumAssetBlob(assetId: string): boolean {
-  return assetCache.has(assetId.trim());
+  const id = assetId.trim();
+  // 与 getAlbumAssetBlob 保持同一口径：旁路暂存也算「有字节」，
+  // 否则 stripAlbumAssetPayload 会在缓存被回收后把 dataUrl 误判成「无字节」而丢弃。
+  return 取待落盘字节(id) !== undefined || assetCache.has(id);
 }
 
 export function resolveAlbumAssetDisplayUrl(assetId: string): string | undefined {

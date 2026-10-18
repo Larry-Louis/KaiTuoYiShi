@@ -76,10 +76,8 @@ export function buildApiProfile(settings: API设置, gameSettings: 游戏设置,
       记忆总结API: gameSettings.记忆系统.记忆总结API,
       忆庭召回API: gameSettings.记忆系统.忆庭召回API,
       忆庭精炼API: gameSettings.记忆系统.忆庭精炼API,
-      文生图普通接口: gameSettings.文生图系统.普通接口,
-      文生图场景接口: gameSettings.文生图系统.场景接口,
-      文生图NSFW接口: gameSettings.文生图系统.NSFW接口,
-      文生图词组转化器API: gameSettings.文生图系统.词组转化器API,
+      文生图词组转化器API: gameSettings.文生图系统.LLM.API,
+      文生图角色生成API: gameSettings.文生图系统.角色AI.API,
     },
   }, includeApiKeys);
 }

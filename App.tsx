@@ -3,6 +3,16 @@ import { useGame } from '@/hooks/useGame';
 import { useDeviceSettings } from '@/hooks/useDeviceSettings';
 import { useAiTools, type AiToolsActions } from '@/hooks/useAiTools';
 import { useHomePage } from '@/hooks/useHomePage';
+import {
+  exportAlbumInWorker,
+  importAlbumInWorker,
+  albumOperationStageLabel,
+} from '@/components/features/GameSystems/album/albumArchiveWorkerClient';
+import type { AlbumImportMode } from '@/components/features/GameSystems/album/albumArchive';
+import { 写入相册设定 } from '@/utils/avatarActions';
+import { LiveSyncBridge } from '@/components/features/Chat/LiveSyncBridge';
+import { 发送远程输入, 是主机端 } from '@/services/localSave/liveSync';
+import { devLog, devLogError } from '@/utils/devLog';
 import { LandingPage } from '@/components/features/Home/LandingPage';
 import { HomeTransitionOverlay, MysteryChatModal } from '@/components/features/Home/HomeOverlays';
 import { GameView } from '@/components/layout/GameView';
@@ -24,9 +34,9 @@ import { GAME_MENU_ITEMS, type GameSystemId } from '@/data/gameMenu';
 import { saveSetting } from '@/services/storage/settings';
 import { getCurrentStoryChapterLabel } from '@/services/storyProgressService';
 import { isOpeningLanded, shouldStartOpening } from '@/models/opening';
-import { 正文生图手动模式 } from '@/models/settings';
+import { pushQueueTask } from '@/hooks/useGame/workflowTaskRuntime';
 import type { 角色数据结构 } from '@/models/character';
-import type { NPC记录, NPC角色锚点档案 } from '@/models/npc';
+import type { NPC记录 } from '@/models/npc';
 import type { 世界书 } from '@/models/worldbook';
 import type { 相册系统 } from '@/models/imageGeneration';
 import type { 新闻条目 } from '@/models/news';
@@ -36,11 +46,11 @@ import type { 忆庭系统 } from '@/models/yiting';
 import type { 智库系统 } from '@/models/zhiku';
 import type { 命途ID } from '@/models/journey';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
-import type { 战技生成草稿, 战技生成上下文, ImageGenerationRequest, ImageGenerationResult, 解析上下文, 场景图解析结果, 故事快照解析结果, CharacterAnchorExtractInput, ImagePromptTokenizerInput, ImagePromptTokenizerResult } from '@/contracts/ai';
+import type { 战技生成草稿, 战技生成上下文 } from '@/contracts/ai';
 import {
-  AlbumPanel,
   CompanionPanel,
   GitHubCloudSaveModal,
+  ImageWorkbenchPanel,
   InventoryPanel,
   LazySurface,
   MemoryPanel,
@@ -81,9 +91,6 @@ export function App() {
   const {
     fetchModels,
     testConnection,
-    testImageGenerationConnection,
-    fetchImageGenerationModels,
-    fetchComfyWorkflowCandidates,
     loadApiErrorReports,
     clearApiErrorReports,
   } = aiTools;
@@ -96,7 +103,10 @@ export function App() {
   const [showMysteryChat, setShowMysteryChat] = useState(false);
   const [showCharacter, setShowCharacter] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('api');
+  /**
+   * 只在「从某处深链打开设置」时给值；普通打开留空，由 SettingsModal 回到上次那一页。
+   */
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined);
   const [activeSystem, setActiveSystem] = useState<GameSystemId | null>(null);
   const [undoDraft, setUndoDraft] = useState<{ id: string; text: string } | null>(null);
 
@@ -113,8 +123,72 @@ export function App() {
   const handleOpenProfile = useCallback(() => setShowCharacter(true), []);
   const handleOpenPhone = useCallback(() => setShowPhone(true), []);
   const handleOpenSaveLoad = useCallback(() => setShowSaveLoad(true), []);
-  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleOpenSettings = useCallback(() => {
+    setSettingsInitialTab(undefined);
+    setShowSettings(true);
+  }, []);
+
+  /**
+   * 打开设置并直接落在指定页签。
+   *
+   * 用于「视觉资产」这类页面里的引导按钮：文生图设置埋在「子系统」分组里，
+   * 只写一句「去设置里开」用户很可能找不到（实际反馈过）。
+   */
+  const handleOpenSettingsAt = useCallback((页签: SettingsTab) => {
+    setSettingsInitialTab(页签);
+    setShowSettings(true);
+  }, []);
   const handleCloseSystemDrawer = useCallback(() => setActiveSystem(null), []);
+
+  /*
+   * 相册备份的导入导出。
+   *
+   * 旧分支这两件事在相册面板里，新版工作台把面板换掉后没有接上，
+   * 于是图库既导不出去也导不回来。这里复用归档 worker，
+   * 导出只是下载文件，导入则替换/合并当前相册并立刻写进活跃叶子。
+   */
+  const [albumOperationLabel, setAlbumOperationLabel] = useState('');
+
+  const handleExportAlbum = useCallback(() => {
+    setAlbumOperationLabel('正在导出相册…');
+    void (async () => {
+      try {
+        const 结果 = await exportAlbumInWorker(state.相册, (进度) => {
+          const 后缀 = 进度.total && 进度.total > 0
+            ? ` ${Math.min(进度.completed ?? 0, 进度.total)}/${进度.total}`
+            : '';
+          setAlbumOperationLabel(`${albumOperationStageLabel(进度)}${后缀}`);
+        });
+        devLog('save', 'album-export-done', { ...结果 });
+      } catch (错误) {
+        devLogError('save', 'album-export-failed', 错误);
+      } finally {
+        setAlbumOperationLabel('');
+      }
+    })();
+  }, [state.相册]);
+
+  const handleImportAlbum = useCallback((file: File | null, mode: AlbumImportMode) => {
+    if (!file) return;
+    setAlbumOperationLabel('正在导入相册…');
+    void (async () => {
+      try {
+        const 结果 = await importAlbumInWorker({
+          file,
+          currentAlbum: state.相册,
+          mode,
+          onProgress: (进度) => setAlbumOperationLabel(albumOperationStageLabel(进度)),
+        });
+        if (!结果) return;
+        const 落盘 = await 写入相册设定(state, 结果.album);
+        devLog('save', 'album-import-done', { ...结果.stats, 已落盘: 落盘.成功 });
+      } catch (错误) {
+        devLogError('save', 'album-import-failed', 错误);
+      } finally {
+        setAlbumOperationLabel('');
+      }
+    })();
+  }, [state]);
   const closeTransientUi = useCallback(() => {
     setActiveSystem(null);
     setShowCharacter(false);
@@ -177,10 +251,7 @@ export function App() {
     onEnterWorldbook: () => setShowWorldbookManager(true),
     onEnterGame: () => state.setView('game'),
     onOpenZhiku: () => setShowZhikuManager(true),
-    onOpenSettings: () => {
-      setSettingsInitialTab('api');
-      setShowSettings(true);
-    },
+    onOpenSettings: handleOpenSettings,
     onOpenCloudSave: () => setShowCloudSave(true),
     onOpenAnnouncements: () => setShowReleaseAnnouncements(true),
     onOpenMysteryChat: () => setShowMysteryChat(true),
@@ -241,7 +312,24 @@ export function App() {
     [rerollParentStatus, canRerollWithTree],
   );
 
-  const narrativeImageManualEnabled = 正文生图手动模式(gameSettings.文生图系统.正文生图);
+  const narrativeImageManualEnabled = gameSettings.文生图系统.正文配图.启用
+    && gameSettings.文生图系统.正文配图.模式 === 'manual';
+
+  // 正文插图的显示方式。用 useMemo 保持引用稳定，否则每次渲染都会重建对象、
+  // 让下游依赖它的 memo 全部失效。
+  const 插图显示 = useMemo(() => ({
+    默认显示: gameSettings.文生图系统.正文配图.默认显示,
+    默认展开: gameSettings.文生图系统.正文配图.默认展开,
+  }), [
+    gameSettings.文生图系统.正文配图.默认显示,
+    gameSettings.文生图系统.正文配图.默认展开,
+  ]);
+
+  // 逐句推进设置：同样保持引用稳定，否则每轮渲染都会让正文整片重算。
+  const 逐句推进 = useMemo(() => ({
+    启用: gameSettings.逐句推进?.启用 === true,
+    立即全显: gameSettings.逐句推进?.立即全显 === true,
+  }), [gameSettings.逐句推进?.启用, gameSettings.逐句推进?.立即全显]);
 
   const turnBusy = state.activeWorkflow.loading || state.activeWorkflow.pendingVariable;
 
@@ -329,8 +417,39 @@ export function App() {
         turnActions={actions.turnActions}
         turnActionContext={turnActionContext}
         narrativeImageManualEnabled={narrativeImageManualEnabled}
+        插图显示={插图显示}
+        逐句推进={逐句推进}
         onEditBody={handleEditBody}
         devMode={gameSettings.devMode}
+        onIllustrationRegenerate={(messageId, 插图, 选项) => {
+          // 单张重生失败结果已写在插图自身（卡片上会显示），这里只兜住未捕获的异常。
+          void actions.handleRegenerateIllustration(messageId, 插图, 选项).catch((错误) => {
+            pushQueueTask(
+              state,
+              'narrative_image_generate',
+              'failed',
+              {
+                detail: `插图重新生成失败：${错误 instanceof Error ? 错误.message : String(错误)}`,
+                targetMessageId: messageId,
+              },
+              state.turnCount,
+            );
+          });
+        }}
+        onIllustrationRerollPrompts={(messageId) => {
+          void actions.handleRerollIllustrationPrompts(messageId).catch((错误) => {
+            pushQueueTask(
+              state,
+              'narrative_image_parse',
+              'failed',
+              {
+                detail: `重跑插图提示词失败：${错误 instanceof Error ? 错误.message : String(错误)}`,
+                targetMessageId: messageId,
+              },
+              state.turnCount,
+            );
+          });
+        }}
       />
       <PathAwakeningInvitation
         world={state.世界}
@@ -359,7 +478,18 @@ export function App() {
       ) : null}
       <InputArea
         key={state.activeWorkflow.sessionEpoch}
-        onSend={(text) => { void actions.handleSend(text); }}
+        onSend={(text) => {
+          if (是主机端()) {
+            void actions.handleSend(text);
+            return;
+          }
+          // 遥控端（手机，局域网）：不本地生成，把输入转给主机；同时本地补一条用户消息（纯显示）。
+          void 发送远程输入(text);
+          state.setChatHistory((前) => [
+            ...前,
+            { id: `remote-user-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() },
+          ]);
+        }}
         onAbort={actions.handleAbort}
         loading={state.activeWorkflow.loading}
         disabled={state.activeWorkflow.pendingVariable}
@@ -394,6 +524,11 @@ export function App() {
             onNpcRecordsChange: state.setNPC,
             album: state.相册,
             onAlbumChange: state.set相册,
+            state,
+            onExportAlbum: handleExportAlbum,
+            onImportAlbum: handleImportAlbum,
+            albumOperationLabel,
+            albumOperationBusy: Boolean(albumOperationLabel),
             phone: state.手机,
             onPhoneChange: state.set手机,
             memorySystem: state.记忆,
@@ -420,16 +555,9 @@ export function App() {
             turnCount: state.turnCount,
             mainChatHistory: state.chatHistory,
             fetchModels,
-            testImageGenerationConnection,
-            fetchImageGenerationModels,
-            fetchComfyWorkflowCandidates,
             onSaveStoryWeaving: actions.handleSaveStoryWeaving,
             onGenerateSkillDraft: actions.handleGenerateSkillDraft,
-            onGenerateAlbumImage: actions.handleGenerateAlbumImage,
-            onParseSceneImagePrompt: actions.handleParseSceneImagePrompt,
-            onParseStorySnapshotPrompt: actions.handleParseStorySnapshotPrompt,
-            onExtractCharacterAnchor: actions.handleExtractCharacterAnchor,
-            onTokenizeImagePrompt: actions.handleTokenizeImagePrompt,
+            onOpenSettingsAt: handleOpenSettingsAt,
           })}
         </LazySurface>
       </SystemDrawer>
@@ -616,6 +744,15 @@ export function App() {
 
   return (
     <>
+      <LiveSyncBridge
+        on远程输入={(text) => { void actions.handleSend(text); }}
+        on追加消息={(消息) => {
+          // 遥控端：把主机这一回合追加到本地聊天（纯显示；不载入、不分叉）
+          state.setChatHistory((前) => (
+            前.some((项) => 项.id === 消息.id) ? 前 : [...前, 消息]
+          ));
+        }}
+      />
       <GameView
         weatherId={state.世界.当前天气}
         topBar={topBar}
@@ -825,6 +962,12 @@ function renderSystemPanel(
     onNpcRecordsChange: React.Dispatch<React.SetStateAction<NPC记录[]>>;
     album: 相册系统;
     onAlbumChange: React.Dispatch<React.SetStateAction<相册系统>>;
+    /** 视觉资产页需要整套状态：头像挂载要写活跃叶子。 */
+    state: ReturnType<typeof useGame>['state'];
+    onExportAlbum: () => void;
+    onImportAlbum: (file: File | null, mode: AlbumImportMode) => void;
+    albumOperationLabel: string;
+    albumOperationBusy: boolean;
     phone: import('@/models/phone').手机系统;
     onPhoneChange: React.Dispatch<React.SetStateAction<import('@/models/phone').手机系统>>;
     memorySystem: 记忆系统;
@@ -851,38 +994,10 @@ function renderSystemPanel(
     turnCount: number;
     mainChatHistory: import('@/models/chat').聊天消息[];
     fetchModels: AiToolsActions['fetchModels'];
-    testImageGenerationConnection: AiToolsActions['testImageGenerationConnection'];
-    fetchImageGenerationModels: AiToolsActions['fetchImageGenerationModels'];
-    fetchComfyWorkflowCandidates: AiToolsActions['fetchComfyWorkflowCandidates'];
     onSaveStoryWeaving: (system: 剧情编织系统) => Promise<void>;
     onGenerateSkillDraft: (apiConfig: import('@/models/settings').API配置项, context: 战技生成上下文) => Promise<战技生成草稿>;
-    onGenerateAlbumImage: (
-      config: import('@/models/settings').文生图API配置,
-      request: ImageGenerationRequest,
-      retry?: {
-        maxRetries?: number;
-        onAttempt?: (attempt: number, total: number) => void;
-        onRetry?: (attempt: number, total: number, errorMessage: string) => void;
-      },
-    ) => Promise<ImageGenerationResult>;
-    onParseSceneImagePrompt: (
-      settings: import('@/models/settings').游戏设置,
-      apiSettings: import('@/models/settings').API设置,
-      context: 解析上下文,
-    ) => Promise<场景图解析结果 | null>;
-    onParseStorySnapshotPrompt: (
-      settings: import('@/models/settings').游戏设置,
-      apiSettings: import('@/models/settings').API设置,
-      context: 解析上下文,
-    ) => Promise<故事快照解析结果 | null>;
-    onExtractCharacterAnchor: (
-      input: CharacterAnchorExtractInput,
-    ) => Promise<NPC角色锚点档案>;
-    onTokenizeImagePrompt: (
-      settings: import('@/models/settings').游戏设置,
-      apiSettings: import('@/models/settings').API设置,
-      input: ImagePromptTokenizerInput,
-    ) => Promise<ImagePromptTokenizerResult | null>;
+    /** 打开设置并落在指定页签；用于面板里的引导入口。 */
+    onOpenSettingsAt: (页签: SettingsTab) => void;
   },
 ) {
   switch (id) {
@@ -915,36 +1030,24 @@ function renderSystemPanel(
           maleNsfwArchiveEnabled={ctx.gameSettings.enableMaleNsfwArchive}
           zhikuSystem={ctx.zhikuSystem}
           devMode={ctx.gameSettings.devMode}
+          state={ctx.state}
+          onOpenImageGenSettings={() => ctx.onOpenSettingsAt('imageGen')}
         />
       );
     case 'album':
       return (
-        <AlbumPanel
+        <ImageWorkbenchPanel
           album={ctx.album}
           onAlbumChange={ctx.onAlbumChange}
           traveler={ctx.traveler}
-          onTravelerChange={ctx.onTravelerChange}
-          phone={ctx.phone}
-          onPhoneChange={ctx.onPhoneChange}
           npcs={ctx.npcRecords}
-          onNpcChange={ctx.onNpcRecordsChange}
-          apiSettings={ctx.apiSettings}
+          state={ctx.state}
           gameSettings={ctx.gameSettings}
-          onGameSettingsChange={ctx.onGameSettingsChange}
-          onPersistGameSettings={ctx.onPersistGameSettings}
-          imageSettings={ctx.gameSettings.文生图系统}
-          nsfwEnabled={ctx.gameSettings.enableNsfw}
-          nsfwImageEnabled={ctx.gameSettings.文生图系统.enableNsfwImageGeneration}
-          mainChatHistory={ctx.mainChatHistory}
-          fetchModels={ctx.fetchModels}
-          testImageGenerationConnection={ctx.testImageGenerationConnection}
-          fetchImageGenerationModels={ctx.fetchImageGenerationModels}
-          fetchComfyWorkflowCandidates={ctx.fetchComfyWorkflowCandidates}
-          onGenerateAlbumImage={ctx.onGenerateAlbumImage}
-          onParseSceneImagePrompt={ctx.onParseSceneImagePrompt}
-          onParseStorySnapshotPrompt={ctx.onParseStorySnapshotPrompt}
-          onExtractCharacterAnchor={ctx.onExtractCharacterAnchor}
-          onTokenizeImagePrompt={ctx.onTokenizeImagePrompt}
+          onOpenImageGenSettings={() => ctx.onOpenSettingsAt('imageGen')}
+          onExportAlbum={ctx.onExportAlbum}
+          onImportAlbum={ctx.onImportAlbum}
+          albumOperationLabel={ctx.albumOperationLabel}
+          albumOperationBusy={ctx.albumOperationBusy}
         />
       );
     case 'news':

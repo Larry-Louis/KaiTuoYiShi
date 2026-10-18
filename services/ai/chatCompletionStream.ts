@@ -123,6 +123,52 @@ function readFinishReason(parsed: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * 从 `tool_calls` 的参数里取出正文。
+ *
+ * 智绘姬系预设明确要求「不要 Text/Content 直出，改用 toolcall 回复」，
+ * 于是模型的可见文本是**空**的，正文全在 `tool_calls[0].function.arguments` 里
+ * （形如 `{"thought_and_context":"…"}`）。只读 `content` 就会把它当成空回——
+ * 实测 `finishReason=stop` 且正文为空，正是这种情况。
+ *
+ * 字段按上游 `fields` 的默认顺序取：`thought_and_context` → `thought` → `content`；
+ * 都取不到时退回整个 arguments 字符串，宁可多给也不要丢内容。
+ */
+function readToolCallText(choice: unknown): string {
+  const 记录 = choice as { message?: { tool_calls?: unknown }; tool_calls?: unknown } | undefined;
+  const 调用列表 = 记录?.message?.tool_calls ?? 记录?.tool_calls;
+  if (!Array.isArray(调用列表) || 调用列表.length === 0) return '';
+
+  const 片段: string[] = [];
+  for (const 调用 of 调用列表) {
+    const 参数 = (调用 as { function?: { arguments?: unknown } })?.function?.arguments;
+    if (typeof 参数 === 'string' && 参数.trim()) {
+      片段.push(从参数串取正文(参数));
+    } else if (参数 && typeof 参数 === 'object') {
+      片段.push(从参数对象取正文(参数 as Record<string, unknown>));
+    }
+  }
+  return 片段.filter((项) => 项.trim().length > 0).join('\n');
+}
+
+function 从参数串取正文(原始: string): string {
+  try {
+    return 从参数对象取正文(JSON.parse(原始) as Record<string, unknown>);
+  } catch {
+    // 参数不是合法 JSON 时整串当作正文，避免丢内容。
+    return 原始;
+  }
+}
+
+function 从参数对象取正文(参数: Record<string, unknown>): string {
+  for (const 键 of ['thought_and_context', 'thought', 'content', 'text']) {
+    const 值 = 参数[键];
+    if (typeof 值 === 'string' && 值.trim()) return 值;
+  }
+  const 全部 = Object.values(参数).filter((项): 项 is string => typeof 项 === 'string' && 项.trim().length > 0);
+  return 全部.join('\n');
+}
+
 export function parseOpenAICompatibleTextResponse(json: unknown): string {
   const data = json as {
     choices?: Array<{ message?: { content?: unknown }; text?: unknown }>;
@@ -134,6 +180,7 @@ export function parseOpenAICompatibleTextResponse(json: unknown): string {
   const choice = data.choices?.at(0);
   return (
     readCompatibleTextContent(choice?.message?.content) ||
+    readToolCallText(choice) ||
     readCompatibleTextContent(choice?.text) ||
     readCompatibleTextContent(data.message?.content) ||
     parseClaudeTextResponse(json) ||
@@ -156,7 +203,35 @@ export function reportOpenAICompatibleDiagnostics(
     sawVisibleContent: text.trim().length > 0,
     finishReason: readFinishReason(json),
     selectedModel: config.model,
+    响应结构: 描述响应结构(json),
+    请求最大输出: request.maxTokens ?? config.maxTokens,
   });
+}
+
+/**
+ * 只描述**键结构与是否为空**，不装原始正文（正文可能几十 KB，进日志会拖垮界面）。
+ * 空回排查需要的正是这几个字段的存在性与取值，而不是内容本身。
+ */
+export function 描述响应结构(json: unknown, 深度 = 0): string {
+  if (深度 > 3) return '…';
+  if (Array.isArray(json)) {
+    return json.length === 0 ? '[]' : `[${json.length}× ${描述响应结构(json[0], 深度 + 1)}]`;
+  }
+  if (!json || typeof json !== 'object') {
+    if (typeof json === 'string') return json.trim() ? `"${json.length}字"` : '空串';
+    return String(json);
+  }
+  const 记录 = json as Record<string, unknown>;
+  const 片段 = Object.entries(记录).map(([键, 值]) => {
+    if (值 === null) return `${键}=null`;
+    if (typeof 值 === 'string') {
+      // 短串直接给值（`finish_reason=stop` 这种是关键信息），长串只给长度避免刷屏。
+      return 值.length <= 40 ? `${键}=${JSON.stringify(值)}` : `${键}="…${值.length}字"`;
+    }
+    if (typeof 值 !== 'object') return `${键}=${String(值)}`;
+    return `${键}=${描述响应结构(值, 深度 + 1)}`;
+  });
+  return `{${片段.join(', ')}}`;
 }
 
 async function readSseTextStream(

@@ -1,4 +1,5 @@
 import { appendApiErrorReport } from './apiErrorReportService';
+import { 带兜底取 } from './aiRelayClient';
 
 type CachedModels = {
   expiresAt: number;
@@ -26,9 +27,7 @@ export async function fetchOpenAICompatibleModels(baseRaw: string, apiKey: strin
   const errors: string[] = [];
   for (const url of buildOpenAICompatibleModelUrls(baseRaw)) {
     try {
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
+      const response = await 带兜底取(url, { headers: { Authorization: `Bearer ${apiKey}` } });
       if (!response.ok) {
         const text = await response.text().catch(() => '');
         void appendApiErrorReport({

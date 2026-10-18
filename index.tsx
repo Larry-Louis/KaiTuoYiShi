@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { App } from '@/App';
 import { bootPerfCommit, bootPerfStart } from '@/utils/bootPerf';
+import { bootstrapDiskPersistence } from '@/services/storage/diskPersistence';
 import '@/styles/tailwind.css';
 import '@/styles/root-theme.css';
 import '@/styles/global.css';
@@ -33,16 +34,19 @@ if (!rootEl) throw new Error('Root element not found');
 
 bootPerfStart();
 
-ReactDOM.createRoot(rootEl).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <BootSplashRemover />
-      <React.Profiler
-        id="app"
-        onRender={(_id, phase, actualDuration) => { bootPerfCommit(phase, actualDuration); }}
-      >
-        <App />
-      </React.Profiler>
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+// 渲染前先接好本地落盘并在必要时从磁盘回灌，保证其后一切 IDB 读取都看到持久数据。
+void bootstrapDiskPersistence().finally(() => {
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <BootSplashRemover />
+        <React.Profiler
+          id="app"
+          onRender={(_id, phase, actualDuration) => { bootPerfCommit(phase, actualDuration); }}
+        >
+          <App />
+        </React.Profiler>
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+});

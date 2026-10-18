@@ -326,7 +326,7 @@ function deleteDeltaBySaveId(deltaStore: IDBObjectStore, saveId: number): void {
   };
 }
 
-async function findAutoDeltaBase(db: IDBDatabase, save: 存档数据): Promise<{ baseSave: 存档数据; baseSaveId: number } | null> {
+export async function findAutoDeltaBase(db: IDBDatabase, save: 存档数据): Promise<{ baseSave: 存档数据; baseSaveId: number } | null> {
   if (save.type !== 'auto') return null;
   const tree = (save as 存档数据 & { saveTree?: import('@/utils/saveTree').存档树元信息 }).saveTree;
   if (!tree?.parentNodeId) return null;
@@ -418,8 +418,46 @@ function collectSaveAlbumAssetIds(save: 存档数据): string[] {
   return Array.from(ids);
 }
 
-async function loadSaveAssetRecords(db: IDBDatabase, assetIds: string[]): Promise<SaveAssetRecord[]> {
-  if (!assetIds.length) return [];
+/**
+ * 直接把若干图片资产记录写进资产库（不碰存档行）。
+ *
+ * 用途：回合外生成插图时，字节已经在手里，直接落库最稳妥 ——
+ * 不必依赖「稍后从内存缓存里再找一次」，那一步会因为缓存被回收而落空。
+ */
+export async function 写入已落盘资产记录(records: SaveAssetRecord[]): Promise<void> {
+  if (!records.length) return;
+  const db = await openDB();
+  if (!db.objectStoreNames.contains(SAVE_ASSETS_STORE)) return;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SAVE_ASSETS_STORE, 'readwrite');
+    const store = tx.objectStore(SAVE_ASSETS_STORE);
+    for (const 记录 of records) store.put(记录);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(toError(tx.error));
+    tx.onabort = () => reject(toError(tx.error ?? new Error('写入图片资产事务已中止。')));
+  });
+}
+
+/**
+ * 直接读若干图片资产记录（绕过任何内存缓存）。
+ *
+ * 用途：写完存档后回读校验「字节真的进库了」。落盘失败在这个应用里会被吞掉
+ * （为了不抹掉已经出好的图），于是用户只看到「图没了」却查不出原因；
+ * 有了这个函数就能在落盘当刻给出结论。
+ */
+export async function 读取已落盘资产记录(assetIds: string[]): Promise<Map<string, SaveAssetRecord>> {
+  const 结果 = new Map<string, SaveAssetRecord>();
+  if (!assetIds.length) return 结果;
+  const db = await openDB();
+  if (!db.objectStoreNames.contains(SAVE_ASSETS_STORE)) return 结果;
+  const records = await loadSaveAssetRecords(db, assetIds);
+  for (const 记录 of records) {
+    if (记录.id) 结果.set(记录.id, 记录);
+  }
+  return 结果;
+}
+
+async function loadSaveAssetRecords(db: IDBDatabase, assetIds: string[]): Promise<SaveAssetRecord[]> {  if (!assetIds.length) return [];
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SAVE_ASSETS_STORE, 'readonly');
     const store = tx.objectStore(SAVE_ASSETS_STORE);

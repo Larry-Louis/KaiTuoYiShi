@@ -3,7 +3,7 @@
   "private": false,
   "version": "1.2.1",
   "description": "开拓轶事：一个以 React + TypeScript 构建的崩坏：星穹铁道同人叙事 Web 应用。",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE AND third_party/st-chatu8/NOTICE.md",
   "packageManager": "pnpm@11.15.0",
   "type": "module",
   "scripts": {
