@@ -91,6 +91,15 @@ describe('取角色注入数据', () => {
     expect(数据.fullSFW).toBe('long legs');
     expect(数据.lowerSFW).toBe('long legs');
   });
+
+  it('{lora} 同时包含本体 LoRA 与服装 LoRA', () => {
+    const 数据 = 取角色注入数据(建角色({
+      nameCN: '流萤',
+      LoRA: [{ id: 'l1', 名称: 'body.safetensors', 权重: 1 }],
+      服装LoRA: [{ id: 'l2', 名称: 'outfit.safetensors', 权重: 0.8 }],
+    }));
+    expect(数据.lora).toBe('<lora:body.safetensors:1>, <lora:outfit.safetensors:0.8>');
+  });
 });
 
 describe('取服装注入数据', () => {

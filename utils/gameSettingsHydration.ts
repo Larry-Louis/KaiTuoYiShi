@@ -106,6 +106,10 @@ export function migratePromptModules(savedGame: {
 export function 归一化游戏设置(settings: 游戏设置): 游戏设置 {
   return {
     ...settings,
+    enableResponseFormatCheck: settings.enableResponseFormatCheck,
+    responseFormatRequiredTags: typeof settings.responseFormatRequiredTags === 'string'
+      ? settings.responseFormatRequiredTags
+      : '',
     新闻系统: 归一化星际和平周报设置(settings.新闻系统),
     手机系统: 归一化手机系统设置(settings.手机系统),
     智库系统: 归一化智库系统设置(settings.智库系统),
@@ -161,6 +165,10 @@ export function hydratePersistedGameSettings(input: unknown): HydratedGameSettin
     deepSeekMainMode: partialSavedGame.deepSeekMainMode ?? defaults.deepSeekMainMode,
     backgroundTaskMode: partialSavedGame.backgroundTaskMode ?? defaults.backgroundTaskMode,
     enableCacheDiagnostics: partialSavedGame.enableCacheDiagnostics ?? defaults.enableCacheDiagnostics,
+    enableResponseFormatCheck: partialSavedGame.enableResponseFormatCheck ?? defaults.enableResponseFormatCheck,
+    responseFormatRequiredTags: typeof partialSavedGame.responseFormatRequiredTags === 'string'
+      ? partialSavedGame.responseFormatRequiredTags
+      : defaults.responseFormatRequiredTags,
     enableMaleNsfwArchive: partialSavedGame.enableMaleNsfwArchive ?? defaults.enableMaleNsfwArchive,
     enablePlayerSpeechExpansion: partialSavedGame.enableNoControl
       ? false

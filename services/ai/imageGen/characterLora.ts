@@ -1,9 +1,9 @@
 /**
- * 角色 LoRA 的槽位收集。
+ * 角色 LoRA（含服装 LoRA）的槽位收集。
  *
  * ComfyUI 侧的接法是**固定槽位**：工作流里串 N 个 `LoraLoader`，各自的
  * `lora_name` 写 `"%lora_name_1%"`、`strength_model`/`strength_clip` 写 `"%lora_weight_1%"`；
- * 应用只负责把「这一张图里出场的角色」的 LoRA 按顺序填进去，没填的槽在提交前
+ * 应用只负责把「这一张图里出场的角色」的本体 LoRA + 服装 LoRA 按顺序填进去，没填的槽在提交前
  * 以 `_skip` 摘掉（见 comfyEngine 的 `标记未用LoRA槽`）。
  *
  * 为什么要按「出场」而不是「启用列表」：一次可能启用好几张卡，而这张图里只有其中一个，
@@ -19,6 +19,11 @@ export interface LoRA槽位 {
   权重: number;
 }
 
+/** 角色本体 LoRA + 服装 LoRA；顺序就是填充 ComfyUI 槽位的顺序。 */
+export function 取角色LoRA列表(角色: 角色卡 | undefined): 角色LoRA条目[] {
+  return [...(角色?.LoRA ?? []), ...(角色?.服装LoRA ?? [])];
+}
+
 /**
  * 角色列表 → 槽位。
  *
@@ -29,14 +34,14 @@ export function 取LoRA槽位(角色列表: readonly (角色卡 | undefined)[]):
   const 结果: LoRA槽位[] = [];
   const 已见 = new Set<string>();
   for (const 角色 of 角色列表) {
-    for (const 条目 of (角色?.LoRA ?? []) as 角色LoRA条目[]) {
-      const 名称 = (条目?.名称 ?? '').trim();
+    for (const 条目 of 取角色LoRA列表(角色)) {
+      const 名称 = 条目.名称.trim();
       if (!名称) continue;
       const 键 = 名称.toLowerCase();
       if (已见.has(键)) continue;
       已见.add(键);
       if (结果.length >= LoRA槽位数) return 结果;
-      结果.push({ 名称, 权重: 夹LoRA权重(条目?.权重) });
+      结果.push({ 名称, 权重: 夹LoRA权重(条目.权重) });
     }
   }
   return 结果;
@@ -47,8 +52,8 @@ export function 统计LoRA超出数(角色列表: readonly (角色卡 | undefine
   let 总数 = 0;
   const 已见 = new Set<string>();
   for (const 角色 of 角色列表) {
-    for (const 条目 of (角色?.LoRA ?? []) as 角色LoRA条目[]) {
-      const 名称 = (条目?.名称 ?? '').trim();
+    for (const 条目 of 取角色LoRA列表(角色)) {
+      const 名称 = 条目.名称.trim();
       if (!名称) continue;
       const 键 = 名称.toLowerCase();
       if (已见.has(键)) continue;

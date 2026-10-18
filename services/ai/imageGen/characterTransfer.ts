@@ -428,6 +428,7 @@ export function 归一化导入角色卡(
     photoMedia: 归一媒体(记录.photoMedia, 'photo'),
     // 角色包带上 LoRA 绑定：分享角色时不用再手填一次。
     LoRA: 归一化LoRA列表(记录.LoRA ?? 记录.lora),
+    服装LoRA: 归一化LoRA列表(记录.服装LoRA ?? 记录.outfitLoRA ?? 记录.outfitLora),
     audioMedia: 归一媒体(记录.audioMedia, 'audio'),
     selectedPhotoId: 媒体Id映射[取值(记录, 'selectedPhotoId')] ?? 取值(记录, 'selectedPhotoId'),
     selectedAudioId: 媒体Id映射[取值(记录, 'selectedAudioId')] ?? 取值(记录, 'selectedAudioId'),

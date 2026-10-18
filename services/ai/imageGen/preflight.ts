@@ -12,6 +12,7 @@
 import { LoRA槽位数 } from '@/models/genSystem';
 import type { 文生图系统设置, 生图渠道 } from '@/models/genSystem';
 import { 未选择模型, 规范化LoRA名称 } from './comfyEngine';
+import { 取角色LoRA列表 } from './characterLora';
 import type { Comfy可选资源 } from './comfyClient';
 import { 是ComfyUI界面格式, 是ComfyUI接口格式 } from './types';
 import { 扫描剩余占位符, 占位符表 } from './workflowTokens';
@@ -471,21 +472,21 @@ function 检查角色LoRA槽位(
   const 启用角色 = 设置.角色启用列表
     .map((id) => 设置.角色卡[id])
     .filter((角色): 角色 is NonNullable<typeof 角色> => Boolean(角色));
-  const 带LoRA = 启用角色.filter((角色) => (角色.LoRA ?? []).some((项) => (项.名称 ?? '').trim()));
+  const 带LoRA = 启用角色.filter((角色) => 取角色LoRA列表(角色).some((项) => (项.名称 ?? '').trim()));
   if (带LoRA.length === 0) return 项;
 
   if (!工作流.includes('%lora_name_1%')) {
     项.push({
       级别: 'warning',
-      标题: '角色绑了 LoRA，但工作流里没有 LoRA 槽位占位符',
-      说明: `「${带LoRA.map((角色) => 角色.nameCN || 角色.id).join('、')}」配了 LoRA，`
+      标题: '角色/服装绑了 LoRA，但工作流里没有 LoRA 槽位占位符',
+      说明: `「${带LoRA.map((角色) => 角色.nameCN || 角色.id).join('、')}」配了角色/服装 LoRA，`
         + '但工作流里没有 %lora_name_1%。请在 LoraLoader 链的第 1 槽写上它（第 N 槽写 %lora_name_N%），'
         + '否则这些 LoRA 不会生效。',
     });
     return 项;
   }
 
-  const 超出 = 带LoRA.flatMap((角色) => (角色.LoRA ?? [])
+  const 超出 = 带LoRA.flatMap((角色) => 取角色LoRA列表(角色)
     .map((条) => (条.名称 ?? '').trim())
     .filter(Boolean)
     .map((名称) => ({ 角色: 角色.nameCN || 角色.id, 名称 })));
@@ -493,7 +494,7 @@ function 检查角色LoRA槽位(
   if (去重后.size > LoRA槽位数) {
     项.push({
       级别: 'warning',
-      标题: `角色 LoRA 共 ${去重后.size} 个，超过工作流的 ${LoRA槽位数} 个槽位`,
+      标题: `角色/服装 LoRA 共 ${去重后.size} 个，超过工作流的 ${LoRA槽位数} 个槽位`,
       说明: `超出的会被丢弃（按出场顺序取前 ${LoRA槽位数} 个）。要么精简绑定，要么在工作流里再加 LoraLoader 槽位`
         + '（占位符只有 1~4，加更多槽需要改代码）。',
     });

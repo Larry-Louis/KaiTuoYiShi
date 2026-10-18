@@ -300,6 +300,13 @@ export interface 角色卡 extends 角色部位字段 {
   参考组?: 角色参考组;
   /** 绑定的 LoRA（可选，旧角色卡没有）。 */
   LoRA?: 角色LoRA条目[];
+  /**
+   * 服装专用 LoRA（可选，旧角色卡没有）。
+   *
+   * 和 `LoRA` 一样只在该角色出场时生效，但用于「角色本体 + 某套服装」需要额外
+   * 服装 LoRA 才能画准的情况；ComfyUI 侧按「角色 LoRA → 服装 LoRA」顺序占槽。
+   */
+  服装LoRA?: 角色LoRA条目[];
   /** 归一化后的角色位置（原插件由 `centersToCoordinates` 从提示词文本解析）。 */
   位置: 角色位置 | null;
   createdAt: number;

@@ -459,6 +459,32 @@ function 建带LoRA的角色(名称: string) {
     expect(命中?.级别).toBe('error');
   });
 
+  it('服装 LoRA 也会参与名称自检', () => {
+    const 设置 = 创建默认文生图系统设置();
+    设置.启用 = true;
+    设置.渠道 = 'comfyui';
+    const 角色 = {
+      ...建带LoRA的角色('add_detail.safetensors'),
+      服装LoRA: [{ ...建LoRA条目('outfit-missing.safetensors'), 权重: 0.8 }],
+    };
+    设置.角色卡 = { [角色.id]: 角色 };
+    设置.角色启用列表 = [角色.id];
+    const 档案 = 设置.comfyui.档案列表[设置.comfyui.当前档案];
+    档案.连接.地址 = 'http://127.0.0.1:8188';
+    档案.工作流Json = JSON.stringify({
+      4: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: '%MODEL_NAME%' } },
+      20: { class_type: 'LoraLoader', inputs: { lora_name: '%lora_name_1%', strength_model: '%lora_weight_1%' } },
+      21: { class_type: 'LoraLoader', inputs: { lora_name: '%lora_name_2%', strength_model: '%lora_weight_2%' } },
+      6: { class_type: 'CLIPTextEncode', inputs: { text: '%prompt%' } },
+      7: { class_type: 'CLIPTextEncode', inputs: { text: '%negative_prompt%' } },
+      3: { class_type: 'KSampler', inputs: { positive: ['6', 0], negative: ['7', 0] } },
+    });
+
+    const 命中 = 运行自检(设置, 资源).检查项.find((项) => 项.标题.includes('角色绑定的 LoRA 在 ComfyUI 上不存在'));
+    expect(命中?.说明).toContain('outfit-missing.safetensors');
+    expect(命中?.说明).not.toContain('「流萤」的 add_detail.safetensors');
+  });
+
   it('缺提示词占位符时点名该改哪个节点', () => {
     const 设置 = 创建默认文生图系统设置();
     设置.启用 = true;

@@ -77,6 +77,17 @@ describe('取LoRA槽位', () => {
     expect(统计LoRA超出数([多])).toBe(2);
   });
 
+  it('服装 LoRA 排在本体 LoRA 之后，并一起参与截断统计', () => {
+    const 甲 = {
+      ...建角色('甲', [{ 名称: 'body.safetensors', 权重: 0.8 }]),
+      服装LoRA: [{ ...建LoRA条目('outfit.safetensors'), 权重: 0.6 }],
+    };
+    expect(取LoRA槽位([甲])).toEqual([
+      { 名称: 'body.safetensors', 权重: 0.8 },
+      { 名称: 'outfit.safetensors', 权重: 0.6 },
+    ]);
+  });
+
   it('没配 LoRA / 未定义角色都不报错', () => {
     expect(取LoRA槽位([undefined, 建角色('甲')])).toEqual([]);
     expect(统计LoRA超出数([undefined])).toBe(0);

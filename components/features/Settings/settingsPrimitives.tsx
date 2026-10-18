@@ -142,17 +142,19 @@ export function 主按钮({ children, onClick, disabled }: {
   );
 }
 
-export function 次级按钮({ children, onClick, disabled, active }: {
+export function 次级按钮({ children, onClick, disabled, active, ariaLabel }: {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className="px-3 py-2 text-xs font-serif tracking-wider transition-all disabled:opacity-40"
       style={{
         color: active ? 'rgb(var(--tj-ui-active-text))' : 'rgba(var(--tj-text-primary), 0.86)',

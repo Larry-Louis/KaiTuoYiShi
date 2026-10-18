@@ -235,6 +235,10 @@ export interface 游戏设置 {
   cotLanguage?: 'zh' | 'en' | 'ja' | 'fr' | 'ru' | 'de' | 'es' | 'it';
   enableCotFakeHistory: boolean;
   enableTagRepair: boolean;
+  /** 正文格式校验：按下面填写的必需标签检查 AI 原始输出，缺失时自动重写。 */
+  enableResponseFormatCheck: boolean;
+  /** 每行 / 逗号分隔；写不写尖括号都行。空串表示不校验。 */
+  responseFormatRequiredTags: string;
   autoRetryOnError: boolean;
   autoRetryCount: number;
   enableAutoSaveEveryTurn: boolean;
@@ -886,6 +890,8 @@ export function 创建默认游戏设置(): 游戏设置 {
     promptModules: createBuiltinPromptModules(),
     enableCotFakeHistory: true,
     enableTagRepair: true,
+    enableResponseFormatCheck: false,
+    responseFormatRequiredTags: '',
     autoRetryOnError: true,
     autoRetryCount: 2,
     enableAutoSaveEveryTurn: true,

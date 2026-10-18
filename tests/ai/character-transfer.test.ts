@@ -117,6 +117,7 @@ describe('导出角色包', () => {
 describe('导入：本应用角色包', () => {
   it('导出 → 导入往返，字段与服装都还在（用新 id 重建）', async () => {
     const 角色 = 建角色({
+      服装LoRA: [{ id: 'l1', 名称: 'outfit.safetensors', 权重: 0.7 }],
       outfits: [{
         id: 'o1', name: '战斗服', 上半身: 'battle top', 下半身: 'battle skirt', 全身: '', 负面: '',
         英文名称: 'battle suit', 归属人: 'Firefly', 上半身背面: 'battle top back', 下半身背面: 'battle skirt back',
@@ -131,6 +132,7 @@ describe('导入：本应用角色包', () => {
     expect(卡.characterTraits).toBe('银发少女（不该被混淆，与上游一致）');
     expect(卡.negative).toBe('bad hands（负面词同样不混淆）');
     expect(卡.fullBodyNSFWBack).toBe('round ass');
+    expect(卡.服装LoRA?.[0]).toMatchObject({ 名称: 'outfit.safetensors', 权重: 0.7 });
     expect(卡.outfits).toHaveLength(1);
     expect(卡.outfits[0]).toMatchObject({
       id: 'o1', name: '战斗服', 上半身: 'battle top', 下半身: 'battle skirt',

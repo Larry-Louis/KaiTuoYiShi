@@ -23,6 +23,57 @@ function hasProtocolTag(rawText: string, tagNames: string[]): boolean {
   });
 }
 
+/**
+ * 用户填写的「必需标签」→ 干净标签名。
+ *
+ * 允许 `正文`、`<正文>`、`</正文>`、`<正文 >` 混写；逗号 / 分号 / 换行 / 空格都能分隔。
+ * 只保留合法的标签名（不含空白、尖括号、斜杠），避免拼进正则时把规则弄坏。
+ */
+export function 解析必需标签(input: string | null | undefined): string[] {
+  const 结果: string[] = [];
+  const 已见 = new Set<string>();
+  const 片段列表 = (input ?? '')
+    .split(/[,，;；\n\r]+/)
+    .flatMap((段) => {
+      const 带尖括号 = 段.match(/<[^<>]*>/g) ?? [];
+      const 剩余 = 段.replace(/<[^<>]*>/g, ' ').trim();
+      return [...带尖括号, ...(剩余 ? 剩余.split(/\s+/) : [])];
+    });
+  for (const 片段 of 片段列表) {
+    const 标签 = 片段
+      .trim()
+      .replace(/^<\s*\/?\s*/, '')
+      .replace(/\s*\/?>\s*$/, '')
+      .trim();
+    if (!标签 || /[\s<>/]/.test(标签)) continue;
+    const 键 = 标签.toLowerCase();
+    if (已见.has(键)) continue;
+    已见.add(键);
+    结果.push(标签);
+  }
+  return 结果;
+}
+
+/** 原始输出里缺少哪些必需标签（只看开标签；允许 `<标签 属性>`）。 */
+export function 取缺失必需标签(rawText: string, requiredTags: readonly string[]): string[] {
+  const raw = rawText || '';
+  return requiredTags.filter((tag) => {
+    const escaped = tag.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return !new RegExp(`<\\s*${escaped}(?:\\s[^>]*)?>`, 'i').test(raw);
+  });
+}
+
+/** 缺少必需标签时的重写指令。要求整段重写，避免模型只补一个空标签交差。 */
+export function buildRequiredTagRetryGuard(missingTags: readonly string[]): string {
+  const 标签串 = missingTags.map((tag) => `<${tag}>`).join('、');
+  return [
+    '正文格式自动重试：上一版原始输出缺少用户指定的必需 XML 标签。',
+    `缺少：${标签串}。`,
+    '请完全重写本回合回复，保留已发生的剧情事实，不要只补标签、不要续写上一版残缺输出。',
+    `重写后必须包含：${标签串}；这些标签要作为顶层标签出现，标签外不要写解释或道歉。`,
+  ].join('\n');
+}
+
 export function getDeepSeekMainProtocolIssues(parsed: 解析后回复, rawText: string): string[] {
   const raw = rawText || parsed.rawText || '';
   const issues: string[] = [];

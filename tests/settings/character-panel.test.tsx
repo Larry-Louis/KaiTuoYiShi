@@ -202,7 +202,7 @@ describe('角色管理面板', () => {
 
     // 初始没有绑定。
     expect(screen.getByText(/还没有绑定 LoRA/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '新增' }));
+    fireEvent.click(screen.getByRole('button', { name: '新增 LoRA' }));
 
     const 名称框 = await screen.findByLabelText('LoRA 1 名称');
     fireEvent.change(名称框, { target: { value: 'krea.safetensors' } });
@@ -219,6 +219,30 @@ describe('角色管理面板', () => {
     壳.unmount();
   });
 
+  it('角色卡可以单独绑定服装 LoRA：新增、改权重、删除都会落盘', async () => {
+    const 捕获: { 系统?: 文生图系统设置 } = {};
+    render(<TestShell 初始={建系统()} on系统={(系统) => { 捕获.系统 = 系统; }} />);
+    fireEvent.click(await screen.findByRole('button', { name: /流萤/ }));
+
+    expect(screen.getByText(/还没有绑定服装 LoRA/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '新增 服装 LoRA' }));
+
+    const 名称框 = await screen.findByLabelText('服装 LoRA 1 名称');
+    fireEvent.change(名称框, { target: { value: 'outfit.safetensors' } });
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '0.8' } });
+
+    await waitFor(() => {
+      expect(捕获.系统?.角色卡.char_1.服装LoRA?.[0]).toMatchObject({ 名称: 'outfit.safetensors', 权重: 0.8 });
+    });
+    // 服装 LoRA 不能串到本体 LoRA 上。
+    expect(捕获.系统?.角色卡.char_1.LoRA ?? []).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 服装 LoRA 1' }));
+    await waitFor(() => {
+      expect(捕获.系统?.角色卡.char_1.服装LoRA ?? []).toHaveLength(0);
+    });
+  });
+
   it('拉到 LoRA 列表后，名称变成和底模一样的选择框（也能切回手填）', async () => {
     const 拉取 = vi.fn(async () => ['krea.safetensors', 'detail.safetensors']);
     render(
@@ -229,7 +253,7 @@ describe('角色管理面板', () => {
       />,
     );
     fireEvent.click(await screen.findByRole('button', { name: /流萤/ }));
-    fireEvent.click(screen.getByRole('button', { name: '新增' }));
+    fireEvent.click(screen.getByRole('button', { name: '新增 LoRA' }));
 
     // 列表已在手上 → 下拉（combobox），选项就是服务器上的 LoRA。
     const 下拉 = await screen.findByRole('combobox', { name: 'LoRA 1 名称' });

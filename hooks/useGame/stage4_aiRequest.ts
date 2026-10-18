@@ -6,13 +6,16 @@ import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 import { isNonRetryableAIError } from '@/services/ai/deepSeekRecovery';
 import { applyTavernOutputRegexScripts } from './tavernRegexProcessor';
 import { calculateRerollSimilarity } from './workflowRetry';
-import { getDeepSeekMainProtocolIssues } from './mainResponseProtocol';
+import {
+  buildDeepSeekProtocolRetryGuard,
+  buildRequiredTagRetryGuard,
+  getDeepSeekMainProtocolIssues,
+  取缺失必需标签,
+  解析必需标签,
+} from './mainResponseProtocol';
 import {
   buildRerollSimilarityRetryGuard,
 } from './workflowRetry';
-import {
-  buildDeepSeekProtocolRetryGuard,
-} from './mainResponseProtocol';
 import { pushQueueTask } from './workflowTaskRuntime';
 import {
   isPageHidden,
@@ -51,7 +54,10 @@ export async function stage4_aiRequest(
   const configuredMaxAttempts = state.deviceSettings.gameSettings.autoRetryOnError
     ? Math.max(1, state.deviceSettings.gameSettings.autoRetryCount) + 1
     : 1;
-  const calcMaxAttempts = (deepSeekMainActive || deps.rerollContext)
+  const 格式校验标签 = 解析必需标签(state.deviceSettings.gameSettings.responseFormatRequiredTags);
+  const 格式校验启用 = state.deviceSettings.gameSettings.enableResponseFormatCheck
+    && 格式校验标签.length > 0;
+  const calcMaxAttempts = (deepSeekMainActive || deps.rerollContext || 格式校验启用)
     ? Math.max(2, maxAttempts ?? configuredMaxAttempts)
     : (maxAttempts ?? configuredMaxAttempts);
 
@@ -205,22 +211,32 @@ export async function stage4_aiRequest(
       const protocolIssues = deepSeekMainActive
         ? getDeepSeekMainProtocolIssues(result.parsed, result.fullText || streamedText)
         : [];
-      if (protocolIssues.length) {
+      const formatIssues = 格式校验启用
+        ? 取缺失必需标签(result.fullText || streamedText, 格式校验标签)
+        : [];
+      if (protocolIssues.length || formatIssues.length) {
         deepSeekProtocolIssuesForTurn = protocolIssues;
+        const issues = [
+          ...protocolIssues,
+          ...formatIssues.map((tag) => `缺少 <${tag}>`),
+        ];
         void appendApiErrorReport({
-          source: 'DeepSeek 主剧情协议校验',
+          source: formatIssues.length ? '正文格式校验' : 'DeepSeek 主剧情协议校验',
           config: mainStoryConfig,
           requestMode: mainRequestMode ?? 'non-stream',
-          error: new Error(`主剧情第 ${attempt}/${calcMaxAttempts} 次输出协议不完整：${protocolIssues.join('；')}`),
+          error: new Error(`主剧情第 ${attempt}/${calcMaxAttempts} 次输出格式不完整：${issues.join('；')}`),
           responseText: result.fullText || streamedText || '（空响应）',
         });
         if (attempt < calcMaxAttempts) {
-          apiMessages.push(创建聊天消息('user', buildDeepSeekProtocolRetryGuard(protocolIssues)));
+          const guards: string[] = [];
+          if (protocolIssues.length) guards.push(buildDeepSeekProtocolRetryGuard(protocolIssues));
+          if (formatIssues.length) guards.push(buildRequiredTagRetryGuard(formatIssues));
+          apiMessages.push(创建聊天消息('user', guards.join('\n\n')));
           pushQueueTask(state, 'main_story', 'pending', {
-            detail: `DeepSeek 输出协议不完整，正在重试：${protocolIssues.join('；')}`,
+            detail: `输出格式不完整，正在重写：${issues.join('；')}`,
             failCount: attempt, retrying: true, cancellable: true,
           }, turnCountAtStart, queueTasksMirror);
-          console.warn(`[sendWorkflow] DeepSeek 第 ${attempt}/${calcMaxAttempts} 次输出协议不完整，自动重试：`, protocolIssues);
+          console.warn(`[sendWorkflow] 第 ${attempt}/${calcMaxAttempts} 次输出格式不完整，自动重写：`, issues);
           continue;
         }
       } else if (deepSeekMainActive) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import type { 角色卡, 服装条目 } from '@/models/genSystem';
@@ -128,6 +128,8 @@ export function 建角色卡(名称: string): 角色卡 {
     photoPrompt: '',
     sendPhoto: false,
     参考组: { references: [], createdAt: 时间, updatedAt: 时间 },
+    LoRA: [],
+    服装LoRA: [],
     位置: null,
     createdAt: 时间,
     updatedAt: 时间,
@@ -214,14 +216,15 @@ export function CharacterSettingsEditor({
   };
 
   /** 改一条 LoRA（权重在这里就夹好，避免存进负值/超大值）。 */
-  const 补丁LoRA = (id: string, 部分: Partial<角色LoRA条目>) => {
+  const 补丁LoRA = (键: 'LoRA' | '服装LoRA', id: string, 部分: Partial<角色LoRA条目>) => {
+    const 列表 = 角色[键] ?? [];
     补丁({
-      LoRA: (角色.LoRA ?? []).map((项) => (
+      [键]: 列表.map((项) => (
         项.id === id
           ? { ...项, ...部分, ...(部分.权重 !== undefined ? { 权重: 夹LoRA权重(部分.权重) } : {}) }
           : 项
       )),
-    });
+    } as Partial<角色卡>);
   };
   // 词库面板追加时的落点：最后一个获得焦点的部位字段，默认落在「角色特征」。
   const 上次聚焦 = useRef<typeof 角色部位字段名[number]>('characterTraits');
@@ -238,6 +241,122 @@ export function CharacterSettingsEditor({
 
   const 补丁服装 = (服装Id: string, 部分: Partial<服装条目>) => {
     补丁({ outfits: 角色.outfits.map((项) => (项.id === 服装Id ? { ...项, ...部分 } : 项)) });
+  };
+
+  /** 角色 LoRA 与服装 LoRA 的编辑区完全同构，抽出来避免两套逻辑漂移。 */
+  const 渲染LoRA绑定 = (
+    键: 'LoRA' | '服装LoRA',
+    标题: string,
+    说明: string,
+    空提示: string,
+    名称前缀: string,
+    底部说明: ReactNode,
+  ) => {
+    const 列表 = 角色[键] ?? [];
+    const 有效数 = 列表.filter((项) => 项.名称.trim()).length;
+    const 已用槽位 = (角色.LoRA?.length ?? 0) + (角色.服装LoRA?.length ?? 0);
+    return (
+      <面板 title={`${标题}（${有效数} 个）`} desc={说明}>
+        <div className="flex flex-wrap items-center gap-2">
+          {键 === 'LoRA' ? (
+            <次级按钮 disabled={!on拉取LoRA || 拉取中} onClick={() => void 处理拉取LoRA()}>
+              {拉取中 ? '读取中…' : '拉取 LoRA 列表'}
+            </次级按钮>
+          ) : null}
+          <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+            {LoRA列表 && LoRA列表.length > 0
+              ? `已读取 ${LoRA列表.length} 个：名称输入框里可以直接挑（和选底模一样）。`
+              : 键 === 'LoRA'
+                ? '还没读到列表：点左边的按钮从 ComfyUI 拉一次（等价于「连接」页的「读取模型列表」）。'
+                : '列表沿用上方角色 LoRA：没读到就先去上方点「拉取 LoRA 列表」。'}
+          </span>
+        </div>
+        {列表.length === 0 ? (
+          <提示条 kind="info" text={空提示} />
+        ) : null}
+        <div className="space-y-2">
+          {列表.map((条目, 序号) => (
+            <div key={条目.id} className="flex flex-wrap items-end gap-2">
+              <字段
+                label={`${名称前缀} ${序号 + 1}`}
+                hint={手填行.has(条目.id) ? '手填：写完请到「自检」核对名字是否存在。' : undefined}
+              >
+                <div className="flex items-center gap-1">
+                  {LoRA列表 && LoRA列表.length > 0 && !手填行.has(条目.id) ? (
+                    <select
+                      aria-label={`${名称前缀} ${序号 + 1} 名称`}
+                      className="kaituo-input w-72 px-2 py-1 text-xs"
+                      value={条目.名称}
+                      onChange={(事件) => 补丁LoRA(键, 条目.id, { 名称: 事件.target.value })}
+                    >
+                      <option value="">（选择 LoRA）</option>
+                      {LoRA列表.map((名) => <option key={名} value={名}>{名}</option>)}
+                      {/* 存着的名字不在列表里（改名/换机器/列表没刷新）也要能看见，别让它显示成空。 */}
+                      {条目.名称 && !LoRA列表.includes(条目.名称) ? (
+                        <option value={条目.名称}>{条目.名称}（不在当前列表里）</option>
+                      ) : null}
+                    </select>
+                  ) : (
+                    <input
+                      aria-label={`${名称前缀} ${序号 + 1} 名称`}
+                      className="kaituo-input w-72 px-2 py-1 font-mono text-xs"
+                      value={条目.名称}
+                      placeholder="krea.safetensors"
+                      onChange={(事件) => 补丁LoRA(键, 条目.id, { 名称: 事件.target.value })}
+                    />
+                  )}
+                  {LoRA列表 && LoRA列表.length > 0 ? (
+                    <次级按钮
+                      onClick={() => {
+                        const 下一 = new Set(手填行);
+                        if (下一.has(条目.id)) 下一.delete(条目.id); else 下一.add(条目.id);
+                        set手填行(下一);
+                      }}
+                    >
+                      {手填行.has(条目.id) ? '用列表选' : '手填'}
+                    </次级按钮>
+                  ) : null}
+                </div>
+              </字段>
+              <字段 label="权重">
+                <input
+                  type="number"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  className="kaituo-input w-20 px-2 py-1 text-xs"
+                  value={条目.权重}
+                  onChange={(事件) => 补丁LoRA(键, 条目.id, { 权重: Number(事件.target.value) })}
+                />
+              </字段>
+              {/* 用图标按钮：一行里既有「权重」又有删除，文字按钮会挤；图标带无障碍名称，测试与读屏都能定位。 */}
+              <IconButton
+                size="sm"
+                icon={Trash2}
+                label={`删除 ${名称前缀} ${序号 + 1}`}
+                description="只从这张角色卡上移除这条绑定"
+                onClick={() => 补丁({ [键]: 列表.filter((项) => 项.id !== 条目.id) } as Partial<角色卡>)}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <次级按钮
+            disabled={已用槽位 >= LoRA槽位数}
+            onClick={() => 补丁({ [键]: [...列表, 建LoRA条目()] } as Partial<角色卡>)}
+            ariaLabel={`新增 ${名称前缀}`}
+          >
+            新增
+          </次级按钮>
+          <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+            角色 + 服装合计最多 {LoRA槽位数} 个生效（与工作流槽位数一致）；同名去重、按出场顺序填槽。
+          </span>
+        </div>
+        <div className="text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+          {底部说明}
+        </div>
+      </面板>
+    );
   };
 
   return (
@@ -289,111 +408,32 @@ export function CharacterSettingsEditor({
         );
       })}
 
-      <面板
-        title={`LoRA（${(角色.LoRA ?? []).filter((项) => 项.名称.trim()).length} 个）`}
-        desc="绑定后这条 LoRA 只在**该角色出场**时生效。ComfyUI 需要工作流里有槽位占位符（见下方说明）；SD / A1111 渠道把 {lora} 写进注入模板即可。"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <次级按钮 disabled={!on拉取LoRA || 拉取中} onClick={() => void 处理拉取LoRA()}>
-            {拉取中 ? '读取中…' : '拉取 LoRA 列表'}
-          </次级按钮>
-          <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-            {LoRA列表 && LoRA列表.length > 0
-              ? `已读取 ${LoRA列表.length} 个：名称输入框里可以直接挑（和选底模一样）。`
-              : '还没读到列表：点左边的按钮从 ComfyUI 拉一次（等价于「连接」页的「读取模型列表」）。'}
-          </span>
-        </div>
-        {(角色.LoRA ?? []).length === 0 ? (
-          <提示条
-            kind="info"
-            text="还没有绑定 LoRA。点「新增」，然后从下拉里挑一个；列表里没有就切「手填」。"
-          />
-        ) : null}
-        <div className="space-y-2">
-          {(角色.LoRA ?? []).map((条目, 序号) => (
-            <div key={条目.id} className="flex flex-wrap items-end gap-2">
-              <字段
-                label={`LoRA ${序号 + 1}`}
-                hint={手填行.has(条目.id) ? '手填：写完请到「自检」核对名字是否存在。' : undefined}
-              >
-                <div className="flex items-center gap-1">
-                  {LoRA列表 && LoRA列表.length > 0 && !手填行.has(条目.id) ? (
-                    <select
-                      aria-label={`LoRA ${序号 + 1} 名称`}
-                      className="kaituo-input w-72 px-2 py-1 text-xs"
-                      value={条目.名称}
-                      onChange={(事件) => 补丁LoRA(条目.id, { 名称: 事件.target.value })}
-                    >
-                      <option value="">（选择 LoRA）</option>
-                      {LoRA列表.map((名) => <option key={名} value={名}>{名}</option>)}
-                      {/* 存着的名字不在列表里（改名/换机器/列表没刷新）也要能看见，别让它显示成空。 */}
-                      {条目.名称 && !LoRA列表.includes(条目.名称) ? (
-                        <option value={条目.名称}>{条目.名称}（不在当前列表里）</option>
-                      ) : null}
-                    </select>
-                  ) : (
-                    <input
-                      aria-label={`LoRA ${序号 + 1} 名称`}
-                      className="kaituo-input w-72 px-2 py-1 font-mono text-xs"
-                      value={条目.名称}
-                      placeholder="krea.safetensors"
-                      onChange={(事件) => 补丁LoRA(条目.id, { 名称: 事件.target.value })}
-                    />
-                  )}
-                  {LoRA列表 && LoRA列表.length > 0 ? (
-                    <次级按钮
-                      onClick={() => {
-                        const 下一 = new Set(手填行);
-                        if (下一.has(条目.id)) 下一.delete(条目.id); else 下一.add(条目.id);
-                        set手填行(下一);
-                      }}
-                    >
-                      {手填行.has(条目.id) ? '用列表选' : '手填'}
-                    </次级按钮>
-                  ) : null}
-                </div>
-              </字段>
-              <字段 label="权重">
-                <input
-                  type="number"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  className="kaituo-input w-20 px-2 py-1 text-xs"
-                  value={条目.权重}
-                  onChange={(事件) => 补丁LoRA(条目.id, { 权重: Number(事件.target.value) })}
-                />
-              </字段>
-              {/* 用图标按钮：一行里既有「权重」又有删除，文字按钮会挤；图标带无障碍名称，测试与读屏都能定位。 */}
-              <IconButton
-                size="sm"
-                icon={Trash2}
-                label={`删除 LoRA ${序号 + 1}`}
-                description="只从这张角色卡上移除这条绑定"
-                onClick={() => 补丁({ LoRA: (角色.LoRA ?? []).filter((项) => 项.id !== 条目.id) })}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <次级按钮
-            disabled={(角色.LoRA ?? []).length >= LoRA槽位数}
-            onClick={() => 补丁({ LoRA: [...(角色.LoRA ?? []), 建LoRA条目()] })}
-          >
-            新增
-          </次级按钮>
-          <span className="text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
-            最多 {LoRA槽位数} 个生效（与工作流槽位数一致）；同名去重、按出场顺序填槽。
-          </span>
-        </div>
-        <div className="text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.68)' }}>
+      {渲染LoRA绑定(
+        'LoRA',
+        'LoRA',
+        '绑定后这条 LoRA 只在**该角色出场**时生效。ComfyUI 需要工作流里有槽位占位符（见下方说明）；SD / A1111 渠道把 {lora} 写进注入模板即可。',
+        '还没有绑定 LoRA。点「新增」，然后从下拉里挑一个；列表里没有就切「手填」。',
+        'LoRA',
+        <>
           ComfyUI 工作流里串 {LoRA槽位数} 个 <code>LoraLoader</code>，把第 N 个的名字写{' '}
           <code>{'%lora_name_N%'}</code>、模型与 CLIP 权重都写 <code>{'%lora_weight_N%'}</code>：
           应用会把**本轮出场的角色**的 LoRA 依次填进槽位，没填的槽在提交前自动跳过
           （不需要为空槽准备备用工作流）。SD / A1111 渠道不用改工作流，把 <code>{'{lora}'}</code>{' '}
           写进「注入模板 → 角色列表」即可输出 <code>{'<lora:名称:权重>'}</code>。
-        </div>
-      </面板>
+        </>,
+      )}
+
+      {渲染LoRA绑定(
+        '服装LoRA',
+        '服装 LoRA',
+        '角色卡上的服装专用 LoRA：只在该角色出场时和本体 LoRA 一起生效。适合「角色本体已经像了，但某套服装没有专属 LoRA 就画不准」的情况。',
+        '还没有绑定服装 LoRA。点「新增」，然后从下拉里挑一个；列表里没有就切「手填」。',
+        '服装 LoRA',
+        <>
+          服装 LoRA 排在本体 LoRA 之后，共用同一组 ComfyUI 槽位与 SD / A1111 的{' '}
+          <code>{'{lora}'}</code> 标签；一个角色同时绑太多时，超出的部分会按出场顺序被截掉。
+        </>,
+      )}
 
       <面板
         title="提示词里怎么写"
