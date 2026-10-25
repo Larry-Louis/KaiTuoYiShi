@@ -1,7 +1,7 @@
 {
   "name": "kaituoyishi",
   "private": false,
-  "version": "1.2.2",
+  "version": "2.3.0",
   "description": "开拓轶事：一个以 React + TypeScript 构建的崩坏：星穹铁道同人叙事 Web 应用。",
   "license": "MIT",
   "packageManager": "pnpm@10.15.0",
@@ -10,6 +10,20 @@
     "dev": "vite",
     "build": "node scripts/clean-generated-build-chunks.mjs && node scripts/clean-retired-avatar-artifacts.mjs && tsc -b && vite build",
     "test:story-weaving": "node scripts/story-weaving-regression.mjs",
+    "test:story-continuity-guard": "node scripts/story-continuity-guard-regression.mjs",
+    "test:variable-continuity-commit": "node scripts/variable-continuity-commit-regression.mjs",
+    "test:variable-undefined-safety": "node scripts/variable-undefined-safety-regression.mjs",
+    "test:variable-time-order": "node scripts/variable-time-order-regression.mjs",
+    "test:variable-fact-identity": "node scripts/variable-fact-identity-regression.mjs",
+    "test:variable-setter-failure": "node scripts/variable-setter-failure-regression.mjs",
+    "test:variable-domain-policy": "node scripts/variable-domain-policy-regression.mjs",
+    "test:variable-batch-transaction": "node scripts/variable-batch-transaction-regression.mjs",
+    "test:variable-calibration-transaction": "node scripts/variable-calibration-transaction-regression.mjs",
+    "test:variable-calibration-context": "node scripts/variable-calibration-context-regression.mjs",
+    "test:variable-runtime-baseline": "node scripts/variable-runtime-baseline-regression.mjs",
+    "test:variable-runtime-linker": "node scripts/variable-runtime-linker-regression.mjs",
+    "test:variable-prompt-contract": "node scripts/variable-prompt-contract-regression.mjs",
+    "test:variable-fact-discriminator": "node scripts/variable-fact-discriminator-regression.mjs",
     "test:story-weaving-ui": "node scripts/story-weaving-ui-regression.mjs",
     "test:story-mode-worldbook": "node scripts/story-mode-worldbook-injection-regression.mjs",
     "test:reroll": "node scripts/reroll-regression.mjs",
@@ -24,6 +38,7 @@
     "test:claude-compatible": "node scripts/claude-compatible-regression.mjs",
     "test:baidu-qianfan": "node scripts/baidu-qianfan-regression.mjs",
     "test:opencode-api": "node scripts/opencode-api-adaptation-regression.mjs",
+    "test:cline-api": "node scripts/cline-api-regression.mjs",
     "test:pioneer-api": "node scripts/pioneer-api-regression.mjs",
     "test:deepseek-format": "node scripts/deepseek-format-stability-regression.mjs",
     "test:deepseek-recovery": "node scripts/deepseek-recovery-regression.mjs",
@@ -42,6 +57,7 @@
     "test:npc-profile-ledger": "node scripts/npc-profile-ledger-regression.mjs",
     "test:npc-ledger-facts": "node scripts/npc-ledger-variable-facts-behavior.mjs",
     "test:npc-archive": "node scripts/npc-archive-enrichment-regression.mjs",
+    "test:companion-npc-triage": "node scripts/companion-npc-triage-regression.mjs",
     "test:affinity-intimacy": "node scripts/affinity-intimacy-nsfw-regression.mjs",
     "test:phone-memory": "node scripts/phone-memory-seed-regression.mjs",
     "test:yiting-archive": "node scripts/yiting-archive-regression.mjs",
@@ -58,6 +74,12 @@
     "test:static-avatar-canary": "node scripts/static-avatar-canary-regression.mjs",
     "test:legacy-avatar-save": "node scripts/legacy-avatar-save-regression.mjs",
     "test:inventory-variable": "node scripts/inventory-variable-regression.mjs",
+    "test:variable-coverage": "node scripts/variable-coverage-regression.mjs",
+    "test:variable-batch-identity": "node scripts/variable-batch-identity-regression.mjs",
+    "test:variable-batch-migration": "node scripts/variable-batch-migration-regression.mjs",
+    "test:variable-phone-boundary": "node scripts/variable-phone-boundary-regression.mjs",
+    "test:variable-repair": "node scripts/variable-repair-regression.mjs",
+    "test:variable-history-repair": "node scripts/variable-history-repair-regression.mjs",
     "test:novelai-image": "node scripts/novelai-image-regression.mjs",
     "test:novelai-prompt-compiler": "node scripts/novelai-prompt-compiler-regression.mjs",
     "test:image-rule-editor": "node scripts/image-rule-editor-regression.mjs",
@@ -94,16 +116,14 @@
     "preview": "vite preview",
     "test:all-prompt": "node scripts/run-prompt-regressions.mjs",
     "test:all": "node scripts/run-all-regressions.mjs",
+    "dump:prompt-order": "npx esbuild scripts/dump-prompt-injection-order.ts --bundle --format=esm --platform=node --outfile=scripts/_dump-prompt-injection-order.mjs && node scripts/_dump-prompt-injection-order.mjs",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build",
-    "test:zhiku-builtin-edit": "node scripts/zhiku-builtin-edit-override-regression.mjs"
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@types/jquery": "^4.0.1",
-    "jquery": "^4.0.0",
     "lucide-react": "^1.24.0",
     "marked": "^18.0.5",
     "react": "^19.2.0",
@@ -124,5 +144,19 @@
     "typescript": "~5.8.0",
     "vite": "^6.2.0",
     "wrangler": "^4.95.0"
-  }
+  },
+  "main": "postcss.config.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LingYuYue1/KaiTuoYiShi.git"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/LingYuYue1/KaiTuoYiShi/issues"
+  },
+  "homepage": "https://github.com/LingYuYue1/KaiTuoYiShi#readme"
 }

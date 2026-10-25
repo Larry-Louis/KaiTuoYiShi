@@ -32,9 +32,8 @@ const apiSettings = read('components/features/Settings/ApiSettings.tsx');
 const chatModel = read('models/chat.ts');
 const turnItem = read('components/features/Chat/TurnItem.tsx');
 const variableModel = read('services/ai/variableModel.ts');
-const variableOutputFormat = read('prompts/cot/variableOutputFormat.ts');
+const variablePromptContract = read('utils/variablePromptContract.ts');
 const variableWorldbook = read('data/variableWorldbook.ts');
-const variableCot = read('prompts/cot/variableCot.ts');
 
 assert(settings.includes("export type DeepSeek主剧情模式 = 'off' | 'standard' | 'lock_format'"), '游戏设置必须声明 DeepSeek 主剧情模式枚举。');
 assert(settings.includes('deepSeekMainMode: DeepSeek主剧情模式'), '游戏设置必须保存 deepSeekMainMode。');
@@ -53,14 +52,14 @@ assert(sendWorkflow.includes("providerCapabilities.transport === 'deepseek'"), '
 assert(!sendWorkflow.includes('function isDeepSeekMainConfig'), '应用层不得保留第二套 DeepSeek provider 判断。');
 assert(!sendWorkflow.includes('resolveMainStoryConfig'), 'DeepSeek reasoner 适配不得继续局限在主剧情局部逻辑。');
 assert(sendWorkflow.includes('sendChatMessage(mainStoryConfig'), '主剧情发送必须使用共享请求层。');
-assert(sendWorkflow.includes('!deepSeekMainActive'), 'DeepSeek 专用模式必须跳过 CoT 伪装历史。');
-assert(sendWorkflow.includes('const usePresetPrefill = Boolean(presetAssistantPrefill) && !deepSeekLockFormat'), 'DeepSeek 锁格式下预设 assistantPrefill 不得覆盖 thinking 起点。');
-assert(sendWorkflow.includes("const effectivePrefixContent = deepSeekLockFormat ? '<thinking>\\n' : presetAssistantPrefill"), 'DeepSeek 锁格式必须从 thinking 起点续写。');
+assert(sendWorkflow.includes('deriveMainStoryMessageMode({') && finalizer.includes("if (input.deepSeekMainActive) return input.deepSeekLockFormat ? 'deepseek_prefix' : 'deepseek_standard'"), 'DeepSeek 专用模式必须通过五模式优先级跳过 CoT 伪装。');
+assert(sendWorkflow.includes("messageMode === 'standard' && !isOpeningSystemTrigger && !isPathAwakeningTurn && presetAssistantPrefill"), 'DeepSeek 锁格式下预设 assistantPrefill 不得覆盖 thinking 起点。');
+assert(sendWorkflow.includes("effectivePrefixContent = '<thinking>\\n'"), 'DeepSeek 锁格式必须从 thinking 起点续写。');
 assert(sendWorkflow.includes('prefixContent: finalizedMainRequest.prefixContent'), '主剧情请求必须透传最终化后的 assistant prefill 内容。');
 assert(!sendWorkflow.includes("prefixContent: '<正文>\\n'"), 'DeepSeek 锁格式不得再锁到正文起点，否则会跳过思维链。');
 assert(sendWorkflow.includes('DEEPSEEK_MAIN_FORMAT_GUARD'), 'DeepSeek 标准/锁格式必须追加专属格式守卫。');
-assert(sendWorkflow.includes("mainTailMessages.push(创建聊天消息('user', DEEPSEEK_MAIN_FORMAT_GUARD))"), 'DeepSeek 格式守卫必须通过共享最终化器进入尾部消息。');
-assert(finalizer.includes('export function finalizeMainRequest') && finalizer.includes('tailMessages'), 'DeepSeek 守卫、人物校准和 prefill 必须经过共享最终化器。');
+assert(sendWorkflow.includes("turnConstraints.push(创建聊天消息('user', DEEPSEEK_MAIN_FORMAT_GUARD))"), 'DeepSeek 格式守卫必须通过共享最终化器进入尾部约束。');
+assert(finalizer.includes('export function finalizeMainRequest') && finalizer.includes('input.turnConstraints') && finalizer.includes('input.taskSequence'), 'DeepSeek 守卫和 prefill 必须经过共享最终化器。');
 assert(sendWorkflow.includes('getDeepSeekMainProtocolIssues'), 'DeepSeek 主剧情必须校验 thinking/正文/记忆/动态世界/变量草稿协议。');
 assert(sendWorkflow.includes('buildDeepSeekProtocolRetryGuard'), 'DeepSeek 协议失败时必须追加重试守卫。');
 assert(sendWorkflow.includes('Math.max(2, configuredMaxAttempts)'), 'DeepSeek 专用模式至少要保留一次协议失败重试。');
@@ -101,14 +100,20 @@ assert(turnItem.includes('主剧情请求模式：'), '请求上下文必须展�
 
 assert(repair.includes('extractJsonLikeText') && repair.includes('repairLooseJsonText') && repair.includes('parseNumberedRecallLines'), '必须提供结构化输出修复工具。');
 assert(variableFacts.includes('parseJsonWithRepair') && variableFacts.includes('extractJsonLikeText(block'), '变量事实解析必须使用 JSON 修复。');
-assert(variableModel.includes('checkVariableModelProtocol'), '变量模型必须校验 <thinking>/<变量事实>/<变量更新> 协议完整性。');
-assert(variableModel.includes('buildVariableProtocolRepairPrompt'), '变量模型协议不完整时必须追加修复提示重试。');
-assert(variableModel.includes('ensureVariableProtocolFallback') && variableModel.includes('{"facts":[]}'), '变量模型协议重试仍失败时必须兜底为空 facts，避免只有 thinking。');
-assert(variableModel.includes('禁止只输出 thinking'), '变量模型用户消息必须明确禁止只输出 thinking。');
-assert(variableModel.includes('reviewVariableModelContent') && variableModel.includes('buildVariableContentReviewPrompt'), '变量模型必须在空 facts 且疑似漏掉重要 NPC 日常轻记忆时触发内容复审。');
-assert((variableModel.includes('低风险日常轻记忆') || variableOutputFormat.includes('低风险日常轻记忆')) && (variableModel.includes('蜂蜜奶酥') || variableOutputFormat.includes('蜂蜜奶酥')), '变量模型提示必须允许重要 NPC 共同日常写入轻记忆。');
+assert(variableModel.includes('checkVariableModelProtocol'), '变量模型必须校验 <变量事实> 协议完整性。');
+assert(!variableModel.includes('buildVariableProtocolRepairPrompt'), '变量模型协议不完整时不得追加第二次修复请求。');
+assert(variableModel.includes('ensureVariableProtocolFallback') && variableModel.includes('{"facts":[]}'), '变量模型协议不完整时必须本地兜底为空 facts，避免只有 thinking。');
+assert(variableModel.includes('不要输出 Markdown 围栏、解释、thinking 或其他标签'), '变量模型输出协议必须只允许 <变量事实> JSON。');
+assert(!variableModel.includes('reviewVariableModelCoverage') && !variableModel.includes('buildVariableCoverageReviewPrompt'), '变量模型不得再根据关键词猜测缺失类别。');
+assert(!variableModel.includes('mergeVariableFacts') && !variableModel.includes('supplementedTypes') && !variableModel.includes('unresolvedTypes'), '变量模型不得残留 coverage 合并与未确认类别。');
+assert(variablePromptContract.includes('具体共同日常可以写 memory / recentInteraction / sharedExperiences') && variablePromptContract.includes('不因没有任务或冲突而漏掉'), '唯一变量 contract 必须允许 NPC 共同日常写入轻记忆。');
 assert(variableWorldbook.includes('共同日常也属于低风险有效互动') && variableWorldbook.includes('memory/recentInteraction/sharedExperiences'), '变量世界书必须明确重要 NPC 共同日常可写轻记忆。');
-assert(variableCot.includes('重要 NPC 的共同日常可以是低风险可承接结果'), '变量 CoT 必须审计重要 NPC 日常轻记忆。');
+assert(
+  variablePromptContract.includes("handler: 'npc-ledger'")
+    && variablePromptContract.includes("field('npc', 'memory'")
+    && variablePromptContract.includes("field('npc', 'recentInteraction'"),
+  '唯一变量 contract 必须把 NPC 日常轻记忆接到正式账本字段。',
+);
 assert(phoneService.includes('parseJsonWithRepair') && phoneService.includes('normalizeStructuredModelText(raw)'), '手机 JSON 解析必须使用结构化输出修复。');
 assert(zhiku.includes('parseZhikuAiOutput(rawText)'), '智库检索必须委托统一编号输出解析器。');
 assert(zhikuIndex.includes("parseJsonWithRepair<Partial<ZhikuAiOutput>>(rawText, 'object')") && repair.includes('normalizeStructuredModelText(rawText)'), '智库编号解析必须经过统一结构化输出清理与修复。');

@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   BookOpen,
   Cable,
   Database,
   FileText,
-  Globe,
   HardDrive,
   Import as ImportIcon,
   Layers3,
@@ -28,7 +27,6 @@ import { ApiErrorReportsTab } from './ApiErrorReportsTab';
 import { StorageManagerTab } from './StorageManager';
 import { VariableManagerTab } from './VariableManager';
 import { ContextViewerTab } from './ContextViewer';
-import { WorldManagerPanel } from '@/components/features/World/WorldManagerPanel';
 import type { API设置, 游戏设置, 主题预设 } from '@/models/settings';
 import type { ContextSnapshot, ContextSnapshotKind } from '@/hooks/useGame/contextSnapshot';
 import type { 角色数据结构 } from '@/models/character';
@@ -41,17 +39,10 @@ import type { NPC记录 } from '@/models/npc';
 import type { 新闻条目 } from '@/models/news';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import type { VariableSetters } from '@/utils/variableExecutor';
-import { loadSetting, saveSetting } from '@/services/dbService';
+import { saveSetting } from '@/services/dbService';
 import type { 世界书 } from '@/models/worldbook';
-import {
-  mergeZhikuStage6Reports,
-  runZhikuStage6Ab,
-  updateZhikuStage6HumanReview,
-  ZHIKU_STAGE6_REPORT_STORAGE_KEY,
-  type ZhikuStage6HumanReview,
-  type ZhikuStage6Report,
-  type ZhikuStage6Selection,
-} from '@/services/zhikuStage6Runner';
+import type { 聊天消息 } from '@/models/chat';
+import type { 变量命令批次 } from '@/models/variableCommand';
 
 export type SettingsTab = Tab;
 
@@ -86,13 +77,14 @@ interface SettingsModalProps {
   worldbooks: 世界书[];
   /** Phase 7.2：世界书变更回调（同时负责持久化到 IndexedDB）。 */
   onWorldbooksChange: (books: 世界书[]) => void;
-  /** 当前激活的世界观 ID。 */
-  activeWorldId: string;
-  /** 切换世界前的钩子（如先保存当前回合），随后切换与页面重载由面板完成。 */
-  onEnterWorld?: (worldId: string) => Promise<void> | void;
+  chatHistory?: 聊天消息[];
+  variableBatches?: 变量命令批次[];
+  onRepairMessage?: (messageId: string) => void | Promise<void>;
+  onBatchRepair?: (messageIds: string[]) => void | Promise<void>;
+  initialVariableWorkspace?: 'state' | 'repair';
 }
 
-type Tab = 'api' | 'apiErrors' | 'game' | 'visual' | 'context' | 'nsfw' | 'variables' | 'prompts' | 'tavernPresets' | 'extra' | 'theme' | 'storage' | 'world';
+type Tab = 'api' | 'apiErrors' | 'game' | 'visual' | 'context' | 'nsfw' | 'variables' | 'prompts' | 'tavernPresets' | 'extra' | 'theme' | 'storage';
 
 const tabs: { key: Tab; label: string; icon: string; navIcon: LucideIcon; subtitle: string }[] = [
   { key: 'visual', label: '视觉设置', icon: '◇', navIcon: TypeIcon, subtitle: '正文显示与字号' },
@@ -106,7 +98,6 @@ const tabs: { key: Tab; label: string; icon: string; navIcon: LucideIcon; subtit
   { key: 'tavernPresets', label: '酒馆预设', icon: '◆', navIcon: ImportIcon, subtitle: 'ST 导入与消息链' },
   { key: 'extra', label: '额外功能', icon: '✦', navIcon: WandSparkles, subtitle: '污染词清理与扩展功能' },
   { key: 'theme', label: '主题风格', icon: '◇', navIcon: Palette, subtitle: '配色与氛围' },
-  { key: 'world', label: '世界观', icon: '✧', navIcon: Globe, subtitle: '世界管理、创建与切换' },
   { key: 'storage', label: '存档管理', icon: '✧', navIcon: HardDrive, subtitle: '本地存档与导入导出' },
 ];
 
@@ -138,95 +129,14 @@ export function SettingsModal({
   initialTab = 'api',
   worldbooks,
   onWorldbooksChange,
-  activeWorldId,
-  onEnterWorld,
+  chatHistory,
+  variableBatches,
+  onRepairMessage,
+  onBatchRepair,
+  initialVariableWorkspace = 'state',
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [contextRefreshKey, setContextRefreshKey] = useState(0);
-  const [zhikuStage6Report, setZhikuStage6Report] = useState<ZhikuStage6Report | null>(null);
-  const [zhikuStage6Running, setZhikuStage6Running] = useState(false);
-  const [zhikuStage6Error, setZhikuStage6Error] = useState('');
-  const zhikuStage6AbortRef = useRef<AbortController | null>(null);
-  const zhikuStage6ReportRef = useRef<ZhikuStage6Report | null>(null);
-  const zhikuStage6Config = useMemo(
-    () => apiSettings.configs.find((item) => item.id === apiSettings.activeConfigId) ?? apiSettings.configs[0] ?? null,
-    [apiSettings.activeConfigId, apiSettings.configs],
-  );
-
-  useEffect(() => {
-    let active = true;
-    void loadSetting<ZhikuStage6Report>(ZHIKU_STAGE6_REPORT_STORAGE_KEY)
-      .then((report) => {
-        if (active && report?.schemaVersion === 1) {
-          zhikuStage6ReportRef.current = report;
-          setZhikuStage6Report(report);
-        }
-      })
-      .catch((error) => {
-        if (active) setZhikuStage6Error(`读取上次阶段六报告失败：${error instanceof Error ? error.message : String(error)}`);
-      });
-    return () => {
-      active = false;
-      zhikuStage6AbortRef.current?.abort();
-    };
-  }, []);
-
-  const persistZhikuStage6Report = useCallback(async (report: ZhikuStage6Report, mergeSingle = false) => {
-    const nextReport = mergeSingle
-      ? mergeZhikuStage6Reports(zhikuStage6ReportRef.current, report)
-      : report;
-    zhikuStage6ReportRef.current = nextReport;
-    setZhikuStage6Report(nextReport);
-    try {
-      await saveSetting(ZHIKU_STAGE6_REPORT_STORAGE_KEY, nextReport);
-    } catch (error) {
-      setZhikuStage6Error(`保存阶段六报告失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, []);
-
-  const runZhikuStage6 = useCallback(async (selection?: ZhikuStage6Selection) => {
-    if (zhikuStage6Running) return;
-    if (!zhikuStage6Config) {
-      setZhikuStage6Error('当前没有可用的主 API 配置。');
-      return;
-    }
-    const controller = new AbortController();
-    zhikuStage6AbortRef.current = controller;
-    setZhikuStage6Running(true);
-    setZhikuStage6Error('');
-    try {
-      const report = await runZhikuStage6Ab({
-        system: 智库,
-        config: zhikuStage6Config,
-        gameSettings,
-        playerRole: 旅人,
-        selection,
-        signal: controller.signal,
-        onProgress: (next) => persistZhikuStage6Report(next, Boolean(selection)),
-      });
-      await persistZhikuStage6Report(report, Boolean(selection));
-    } catch (error) {
-      setZhikuStage6Error(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (zhikuStage6AbortRef.current === controller) zhikuStage6AbortRef.current = null;
-      setZhikuStage6Running(false);
-    }
-  }, [gameSettings, persistZhikuStage6Report, zhikuStage6Config, zhikuStage6Running, 智库, 旅人]);
-
-  const updateZhikuStage6Review = useCallback((fixtureId: string, humanReview: ZhikuStage6HumanReview) => {
-    const current = zhikuStage6ReportRef.current;
-    if (!current) return;
-    const next = updateZhikuStage6HumanReview(current, fixtureId, humanReview);
-    zhikuStage6ReportRef.current = next;
-    setZhikuStage6Report(next);
-    void saveSetting(ZHIKU_STAGE6_REPORT_STORAGE_KEY, next).catch((error) => {
-      setZhikuStage6Error(`保存阶段六人工复核失败：${error instanceof Error ? error.message : String(error)}`);
-    });
-  }, []);
-
-  const cancelZhikuStage6 = useCallback(() => {
-    zhikuStage6AbortRef.current?.abort();
-  }, []);
 
   const persistGameSettingsChange = useCallback((next: 游戏设置) => {
     onGameSettingsChange(next);
@@ -268,13 +178,7 @@ export function SettingsModal({
           <ContextViewerTab
             getSnapshot={getContextSnapshot}
             onRefresh={() => setContextRefreshKey((v) => v + 1)}
-            stage6Config={zhikuStage6Config ? { provider: zhikuStage6Config.provider, model: zhikuStage6Config.model } : null}
-            stage6Report={zhikuStage6Report}
-            stage6Running={zhikuStage6Running}
-            stage6Error={zhikuStage6Error}
-            onRunZhikuStage6={(selection) => void runZhikuStage6(selection)}
-            onCancelZhikuStage6={cancelZhikuStage6}
-            onUpdateZhikuStage6Review={updateZhikuStage6Review}
+            devMode={gameSettings.devMode}
           />
         );
       case 'nsfw':
@@ -320,12 +224,15 @@ export function SettingsModal({
             set剧情编织={on剧情编织Change}
             setters={variableSetters}
             editingLocked={variableEditingLocked}
+            chatHistory={chatHistory}
+            variableBatches={variableBatches}
+            onRepairMessage={onRepairMessage}
+            onBatchRepair={onBatchRepair}
+            initialWorkspace={initialVariableWorkspace}
           />
         );
       case 'theme':
         return <ThemeSettingsTab current={currentTheme} onChange={persistThemeChange} />;
-      case 'world':
-        return <WorldManagerPanel activeWorldId={activeWorldId} onEnterWorld={onEnterWorld} />;
       case 'storage':
         return <StorageManagerTab onSave={onSave} onContinue={onContinue} onLoadSave={onLoadSave} />;
     }

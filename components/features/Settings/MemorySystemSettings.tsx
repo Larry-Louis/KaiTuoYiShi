@@ -18,6 +18,7 @@ const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: stri
   { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
   { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
   { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
+  { value: 'cline', label: 'Cline', defaultBaseUrl: 'https://api.cline.bot/api/v1', defaultModel: 'cline-pass/kimi-k3' },
   { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
   { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
   { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
@@ -170,6 +171,21 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
                 启用中短长期API总结: checked,
               } as Partial<typeof memory>)
             }
+          />
+        </div>
+        <div className="mt-2">
+          <SelectField
+            label="主剧情历史模式"
+            value={memory.主剧情历史模式 ?? 'minimal'}
+            onChange={(value) =>
+              patchMemory({
+                主剧情历史模式: value as 'conservative' | 'minimal',
+              } as Partial<typeof memory>)
+            }
+            options={[
+              { value: 'minimal', label: '精简式（0 条原始历史，仅即时剧情回顾+当前输入）' },
+              { value: 'conservative', label: '保守式（最近 2 回合原始历史）' },
+            ]}
           />
         </div>
       </Section>
@@ -333,10 +349,10 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
       <Section title="自动压缩阈值">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <NumberField
-            label="即时 → 短期"
+            label="即时消息上传条数"
             value={memory.即时转短期阈值}
             onChange={(value) => patchMemory({ 即时转短期阈值: Math.max(1, Math.trunc(value)) })}
-            hint="达到这个条数时，系统会自动把即时记忆整理进短期。"
+            hint="对标参考项目：即时记忆滑动窗口上限（默认 10）；即时剧情回顾窗口 = 该值 - 1。即时层不调用 AI 压缩，超限时最旧条目的短期摘要自动滚入短期。"
           />
           <NumberField
             label="短期 → 中期"
@@ -345,19 +361,25 @@ export function MemorySystemSettingsTab({ settings, onChange, apiSettings }: Pro
               const next = Math.max(1, Math.trunc(value));
               patchMemory({ 短期转中期阈值: next, 短期转长期阈值: next });
             }}
-            hint="达到这个条数时，系统会自动把短期记忆整理成阶段剧情链。"
+            hint="达到这个条数时，系统会自动把短期记忆整理成阶段剧情链（默认 30）。"
           />
           <NumberField
             label="中期 → 长期"
             value={memory.中期转长期阈值}
             onChange={(value) => patchMemory({ 中期转长期阈值: Math.max(1, Math.trunc(value)) })}
-            hint="达到这个条数时，系统会自动把中期记忆沉淀为长期稳定事实。"
+            hint="达到这个条数时，系统会自动把中期记忆沉淀为长期稳定事实（默认 50）。"
           />
           <NumberField
             label="NPC 记忆"
             value={memory.NPC记忆压缩阈值}
             onChange={(value) => patchMemory({ NPC记忆压缩阈值: Math.max(1, Math.trunc(value)) })}
-            hint="伙伴的与你同行记忆达到这个条数后会自动压缩。"
+            hint="伙伴的与你同行记忆达到这个条数后会自动压缩（默认 20，保留最近 5 条）。"
+          />
+          <NumberField
+            label="重要角色关键记忆条数"
+            value={memory.重要角色关键记忆条数N}
+            onChange={(value) => patchMemory({ 重要角色关键记忆条数N: Math.max(1, Math.trunc(value)) })}
+            hint="对标参考项目：原著/同行等重要角色注入主剧情时保留的最近记忆条数（默认 20）；普通 NPC 为 5 条。"
           />
         </div>
       </Section>

@@ -5,33 +5,70 @@ import { sendChatMessage } from '@/services/ai/text';
 import { isEmptyResponse, parseResponse } from '@/services/ai/responseParser';
 import { appendApiErrorReport } from '@/services/ai/apiErrorReportService';
 import { isNonRetryableAIError } from '@/services/ai/deepSeekRecovery';
-import { callVariableModel, type NsfwBaselineCandidate } from '@/services/ai/variableModel';
-import { buildOpeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
+import { callVariableModel } from '@/services/ai/variableModel';
+import {
+  buildVariableBatchFromProjection,
+  commitVariableProjection,
+  linkVariableTurn,
+  splitVariableRuntimeState,
+  unpackVariableProjection,
+  type VariableProjectionCommitReceipt,
+  type VariableTurnProjection,
+} from '@/services/variableRuntime';
+import { buildOpeningSystemPrompt, buildPathAwakeningSystemPrompt, buildSystemPrompt } from './systemPromptBuilder';
 import {
   buildMainTurnEnforcementBlock,
+  buildCotPseudoTaskSequence,
   createMainRequestHash,
   DEEPSEEK_MAIN_FORMAT_GUARD,
+  deriveMainStoryMessageMode,
   finalizeMainRequest,
-  MAIN_COT_FAKE_HISTORY,
+  insertDepthIntoHistory,
+  type MainStoryMessageMode,
 } from './mainRequestFinalizer';
 import { resolveChatProviderCapabilities } from '@/services/ai/chatCompletionClient';
 import { buildTavernMessageChain } from './tavernMessageChainBuilder';
 import { applyTavernOutputRegexScripts } from './tavernRegexProcessor';
 import { getCurrentSTPresetV2 } from '@/utils/stSettingsNormalizer';
 import { getBuiltinPresetsV2 } from '@/data/builtinPresets';
-import { 构建天气Prompt片段, 解析天气标签, 验证天气合法性 } from '@/data/weatherRules';
 import {
-  buildImmediateMemory,
   addImmediateMemory,
+  appendLongTermArchivesToYiting,
   autoCompressMemorySystemWithArchives,
   autoCompressMemorySystemWithArchivesAsync,
   compressNpcMemoryLedger,
-  upsertRecallEntry,
+  isMemorySystemNoise,
+  构建即时记忆条目,
+  构建短期记忆条目,
+  写入四段记忆,
 } from './memoryUtils';
 import { runNewsGenerationStep } from './newsWorkflow';
-import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
-import { evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
-import { 归一化世界状态, 格式化开局档案上下文, type 世界状态 } from '@/models/world';
+import { applyAdjudicatedStoryProgress } from '@/services/storyProgressService';
+import { buildStoryWeavingApiConfig, buildStoryAdvanceJudgeApiConfig, evaluateStoryWeavingGate, getStoryWeavingInjectionDiagnostics } from '@/services/storyWeaving';
+import { judgeStoryAdvance } from '@/services/storyAdvanceJudge';
+import { 归一化世界状态, 归一化剧情编织运行时切片, 格式化开局档案上下文, type 世界状态 } from '@/models/world';
+import { buildStoryWeavingRuntimeProjection } from '@/services/storyRuntime/storyWeavingRuntimeAdapter';
+import {
+  evaluateStoryContinuity,
+  inferStorySeriesRegion,
+} from '@/services/storyRuntime/storyContinuityGuard';
+import { adjudicateStoryTurn, type StoryTurnAdjudication } from '@/services/storyRuntime/storyTurnAdjudicator';
+import { adjudicateWorldEvolution, isWorldFactDuplicate } from '@/services/storyRuntime/worldEvolutionAdjudicator';
+import {
+  buildEarlyResolutionEvidence,
+  buildStoryFactConsumerView,
+  formatFactBrief,
+  materializeAdjudicatedFacts,
+  mergeNewFactIds,
+  type StoryFactConsumerView,
+} from '@/services/storyRuntime/storyFactConsumerView';
+import {
+  buildTurnEvidence,
+  gameTimeOf,
+  mergeProjectionEvents,
+  runWorldEvolutionStep,
+  scanDueWorldEvents,
+} from './worldEvolutionWorkflow';
 import { loadSetting, saveGame, saveSetting, updateSetting } from '@/services/dbService';
 import {
   clearWorkflowRecoveryJournal,
@@ -40,9 +77,12 @@ import {
   updateWorkflowRecoveryJournal,
 } from '@/services/workflowRecovery';
 import { buildSavePayload, commitActiveSaveTreeMeta } from './saveLoadWorkflow';
-import { parseVariableCommands, snapshotVariableState, reduceVariableCommands, commitVariableState, unpackVariableState } from '@/utils/variableExecutor';
-import { factsToVariableCommands, parseVariableFacts } from '@/utils/variableFacts';
-import { isTravelerPlayerAuthoredVariablePath } from '@/utils/variableRegistry';
+import { snapshotVariableState } from '@/utils/variableExecutor';
+import {
+  findRetryableVariableBatch,
+  variableBatchHasFailure,
+  variableBatchHasWarning,
+} from '@/utils/variableBatchStatus';
 import {
   createDocumentVisibilitySource,
   createVisibilityBufferedPublisher,
@@ -50,39 +90,46 @@ import {
 } from '@/utils/visibilityBufferedPublisher';
 import { createRafCoalescedSetter } from '@/utils/rafCoalescedSetter';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
-import type { 变量事实, 变量命令, 变量命令批次 } from '@/models/variableCommand';
+import type { 变量批次诊断, 变量命令批次, 变量命令结果 } from '@/models/variableCommand';
 import { 解析命途ID, 应用狭间结果, 踏入命途狭间, type 狭间评判 } from '@/services/pathService';
 import { 创建默认记忆系统设置 } from '@/models/settings';
 import type { API配置项, API设置, 文生图API配置 } from '@/models/settings';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
-import type { 智库召回诊断 } from '@/services/zhikuRetrieval';
+import { formatZhikuCandidateDecisionTrace, type 智库召回诊断 } from '@/services/zhikuRetrieval';
 import {
   compileZhikuTurn,
   compileZhikuTurnWithModel,
   type ZhikuRequestScope,
 } from '@/services/zhikuRuntimeCompiler';
-import { attachZhikuRequestReceipt } from '@/services/zhikuRunTrace';
 import { applyStoryArchiveZhikuRuntimeUnlock, mergeZhikuRuntimeUnlockPatch } from '@/services/zhikuRuntimeUnlock';
 import { buildPersistedZhikuSystem } from '@/data/zhikuPreset';
-import { buildPersistedStoryWeavingSystem, hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { hydratePersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { 世界存储键 } from '@/models/worldProfile';
 import { getBuiltinPresets } from '@/data/builtinPresets';
-import { retrieveYitingContextWithModel } from '@/services/yitingRetrieval';
-import { buildYitingArchiveEntry } from '@/services/yitingArchive';
+import { retrieveYitingContextWithModel, type 忆庭召回结果 } from '@/services/yitingRetrieval';
+import {
+  executePhoneMemoryDualWrite,
+  parsePhoneMemoryFailureTask,
+  retryPhoneMemoryWrite,
+} from '@/services/phoneMemoryDualWrite';
+import { applyNpcFactMemories } from '@/services/npcFactMemory';
 import { 创建默认智库系统设置 } from '@/models/settings';
-import { selectNpcLedgersForTurn, 提取NPC同行记忆文本列表, type NPC记录, type NPC账本选择结果 } from '@/models/npc';
-import type { 手机系统, 主动来信种子 } from '@/models/phone';
+import { selectNpcLedgersForTurn, 提取NPC同行记忆文本列表, 整理NPC记录列表, 筛选活跃NPC, type NPC记录, type NPC账本选择结果 } from '@/models/npc';
 import {
   buildImmediateStoryReview,
   buildZhikuKeywordRecallQuery,
   buildLeanAssistantHistoryContent,
   buildMainRecallQuery,
+  extractRecentStoryPlanSnippets,
   getMainHistoryWindow,
+  getPathAwakeningHistoryWindow,
 } from './historyWindow';
 import { 归一化剧情编织系统, type 剧情编织系统 } from '@/models/storyWeaving';
-import { restorePreTurnSnapshot } from './turnSnapshot';
-import { getNsfwArchiveBlockReason } from '@/utils/nsfwArchivePolicy';
-import { normalizePlayerSpeechInBody, replaceBodyInRawResponse } from '@/utils/playerSpeechGuard';
-import { enrichNpcArchives, needsNsfwBaseline } from '@/utils/npcArchiveEnrichment';
+import { restorePreTurnSnapshotPersisted } from './turnSnapshot';
+import { normalizePlayerSpeechBody, replaceBodyInRawResponse } from '@/utils/playerSpeechGuard';
+import { resolvePlayerSpeechMode } from '@/utils/narrativeRuntimePolicy';
+import { parseNarrativeBody, serializeNarrativeBody } from '@/utils/narrativeBodyParser';
+import { enrichNpcArchives } from '@/utils/npcArchiveEnrichment';
 import { sanitizeParsedResponse, sanitizeContaminatedText } from '@/utils/textSanitizer';
 import { appendWorldEvents } from '@/utils/worldEvents';
 import { getZhikuCharacterParticipationForTurn } from './npcPresence';
@@ -93,8 +140,15 @@ import { resolveStorySnapshot, selectPresentStorySnapshotNpcs } from '@/services
 import { 创建相册图片条目, 添加图片到相册, 创建相册资源引用 } from '@/utils/albumActions';
 import { compactPreTurnSnapshot } from '@/utils/saveRuntimeCompactor';
 import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
-import { createMacroContext, type MacroContext, type MacroGameState } from '@/utils/macroEngine';
+import { findLinkedVariableBatchAssistant, findLinkedVariableBatchUser } from '@/utils/variableBatchIdentity';
+import type { MacroContext } from '@/utils/macroEngine';
+import {
+  buildPromptMacroContext,
+  buildPromptWorldbookContext,
+  resolvePromptWorldbookPlan,
+} from './promptAssemblyContext';
 import { updateTriggerStatesAfterTurn } from '@/utils/worldbook';
+import type { VariableState } from '@/utils/variableRegistry';
 
 function formatOriginalProtagonistForOpening(originalProtagonist: 世界状态['原著主角']): string {
   if (originalProtagonist === '星') return '原作主角星';
@@ -195,8 +249,7 @@ function buildStoryProgressMemoryLine(previous: 剧情编织系统, next: 剧情
   return parts.join('。');
 }
 
-function applyStoryProgressNpcMemory(npcs: NPC记录[], story: 剧情编织系统, _memoryLine: string, turn: number): NPC记录[] {
-  if (!story.当前进度) return npcs;
+function applyStoryProgressNpcMemory(npcs: NPC记录[], story: 剧情编织系统, _memoryLine: string, turn: number): NPC记录[] {  if (!story.当前进度) return npcs;
   const series = story.系列列表.find((item) => item.id === story.当前进度?.当前系列ID)
     ?? story.系列列表.find((item) => item.id === story.当前系列ID);
   if (!series) return npcs;
@@ -250,6 +303,7 @@ function formatZhikuDiagnosticsPreview(diagnostics?: 智库召回诊断): string
     `AI形态修正：${diagnostics.AI形态修正.join('；') || '无'}`,
     `AI拒绝选择：${diagnostics.AI拒绝选择.join('；') || '无'}`,
     `AI未选择原因：${diagnostics.AI未选择原因 || '无'}`,
+    `逐条召回轨迹：${formatZhikuCandidateDecisionTrace(diagnostics.candidateDecisions)}`,
     `最终注入角色资料（已去重）：${diagnostics.角色相关资料.join('、') || '无'}`,
     `最终注入强资料：${diagnostics.强相关资料.join('、') || '无'}`,
     `最终注入弱资料：${diagnostics.弱相关资料.join('、') || '无'}`,
@@ -522,103 +576,10 @@ function buildNpcLedgerDebug(selection?: NPC账本选择结果): NonNullable<聊
 
 type NpcLedgerUpdateDebug = NonNullable<聊天消息['debugContext']>['npcLedgerUpdate'];
 
-const NPC_LEDGER_FIELD_LABELS: Record<string, string> = {
-  最近互动: '最近互动',
-  对玩家长期印象: '对玩家长期印象',
-  当前关系阶段: '当前关系阶段',
-  共同经历: '共同经历',
-  未完成事项: '未完成事项',
-  未解决冲突: '未解决冲突',
-  必须记得: '必须记得',
-  禁止遗忘: '禁止遗忘',
-  同行记忆: '同行记忆',
-};
-
-function normalizeNpcDebugName(name: string): string {
-  return name.trim() || '未知 NPC';
-}
-
-function extractNpcNameFromCommandKey(key: string): string {
-  const matched = key.match(/^NPC\[id=([^\]]+)\]/);
-  return matched?.[1]?.trim() || '';
-}
-
-function extractNpcFieldFromCommandKey(key: string): string {
-  const matched = key.match(/^NPC\[[^\]]+\]\.([^.[\]]+)/);
-  return matched?.[1]?.trim() || '';
-}
-
 function pushUniqueText(list: string[], text: string) {
   const normalized = text.trim();
   if (!normalized || list.includes(normalized)) return;
   list.push(normalized);
-}
-
-function buildNpcLedgerUpdateDebug(input: {
-  facts: 变量事实[];
-  commands: 变量命令[];
-  results: Array<{ command: 变量命令; ok: boolean; reason?: string; kind?: string }>;
-  warnings: string[];
-  summaryTriggeredNames?: string[];
-}): NpcLedgerUpdateDebug | undefined {
-  const updatedNames: string[] = [];
-  const memoryAppended: string[] = [];
-  const ledgerFieldsUpdated: string[] = [];
-  const warnings: string[] = [];
-  const npcNameById = new Map<string, string>();
-
-  for (const fact of input.facts) {
-    if (fact.type !== 'npc') continue;
-    const name = normalizeNpcDebugName(fact.name || fact.id || '');
-    if (fact.id?.trim()) npcNameById.set(fact.id.trim(), name);
-    const factFields = [
-      fact.recentInteraction ? '最近互动' : '',
-      fact.longTermImpression ? '对玩家长期印象' : '',
-      fact.intimateRelationship !== undefined ? '亲密关系' : '',
-      fact.sharedExperiences?.length ? '共同经历' : '',
-      fact.openItems?.length ? '未完成事项' : '',
-      fact.unresolvedConflicts?.length ? '未解决冲突' : '',
-      fact.mustRemember?.length ? '必须记得' : '',
-      fact.doNotForget?.length ? '禁止遗忘' : '',
-    ].filter(Boolean);
-    if (fact.memory) pushUniqueText(memoryAppended, `${name}：${fact.memory}`);
-    if (factFields.length) pushUniqueText(ledgerFieldsUpdated, `${name}：${factFields.join('、')}`);
-    if (fact.memory && !factFields.length) {
-      pushUniqueText(warnings, `${name} 只写了 memory，没有同步 recentInteraction / mustRemember / openItems 等账本字段。`);
-    }
-    if (factFields.length || fact.memory || fact.affinityDelta !== undefined || fact.affinitySet !== undefined || fact.intimateRelationship !== undefined || fact.following !== undefined) {
-      pushUniqueText(updatedNames, name);
-    }
-  }
-
-  const successfulCommands = input.results.filter((item) => item.ok);
-  for (const item of successfulCommands) {
-    const key = item.command.key;
-    if (!key.startsWith('NPC[')) continue;
-    const commandName = extractNpcNameFromCommandKey(key);
-    const name = npcNameById.get(commandName) ?? commandName;
-    const field = extractNpcFieldFromCommandKey(key);
-    if (name) pushUniqueText(updatedNames, name);
-    if (field === '同行记忆') pushUniqueText(memoryAppended, `${name || 'NPC'}：已追加同行记忆`);
-    const label = NPC_LEDGER_FIELD_LABELS[field];
-    if (label && field !== '同行记忆') pushUniqueText(ledgerFieldsUpdated, `${name || 'NPC'}：${label}`);
-  }
-
-  for (const reason of input.warnings) {
-    pushUniqueText(warnings, reason);
-  }
-
-  const summaryTriggered = input.summaryTriggeredNames ?? [];
-  if (!updatedNames.length && !memoryAppended.length && !ledgerFieldsUpdated.length && !summaryTriggered.length && !warnings.length) {
-    return undefined;
-  }
-  return {
-    updatedNames,
-    memoryAppended,
-    ledgerFieldsUpdated,
-    summaryTriggered,
-    warnings,
-  };
 }
 
 function attachNpcLedgerUpdateDebug(
@@ -650,36 +611,25 @@ function formatNpcLedgerPreview(selection?: NPC账本选择结果): string {
 }
 
 function getStoryWeavingWriteSignature(system: 剧情编织系统): string {
-  return JSON.stringify({
-    当前系列ID: system.当前系列ID,
-    当前进度: system.当前进度
-      ? {
-          当前系列ID: system.当前进度.当前系列ID,
-          当前分段ID: system.当前进度.当前分段ID,
-          当前分段组号: system.当前进度.当前分段组号,
-          推进状态: system.当前进度.推进状态,
-          updatedAt: system.当前进度.updatedAt,
-        }
-      : null,
-    系列: system.系列列表.map((series) => ({
-      id: series.id,
-      来源类型: series.来源类型,
-      标题: series.标题,
-      分段数: series.分段列表.length,
-      章节数: series.章节列表.length,
-      当前分段组号: series.当前分段组号,
-      激活注入: series.激活注入,
-      updatedAt: series.updatedAt,
-      分段更新时间: series.分段列表.map((segment) => `${segment.id}:${segment.处理状态}:${segment.运行状态}:${segment.updatedAt}`),
-    })),
-  });
+  const omitRuntimeKeys = new Set(['当前系列ID', '当前进度', '当前分段组号', '运行状态', 'updatedAt']);
+  const stripRuntimeState = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stripRuntimeState);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !omitRuntimeKeys.has(key))
+        .map(([key, child]) => [key, stripRuntimeState(child)]),
+    );
+  };
+  return JSON.stringify(stripRuntimeState(归一化剧情编织系统(system)));
 }
 
 async function resolveStoryWeavingForBackgroundWrite(input: {
   workflowBase: 剧情编织系统;
   proposed: 剧情编织系统;
+  worldId?: string;
 }): Promise<{ system: 剧情编织系统; concurrentChange: boolean }> {
-  const latest = await loadSetting<剧情编织系统>('storyWeavingSystem');
+  const latest = await loadSetting<剧情编织系统>(世界存储键('storyWeavingSystem', input.worldId));
   const latestNormalized = latest ? hydratePersistedStoryWeavingSystem(latest, input.workflowBase) : null;
   if (!latestNormalized) return { system: input.proposed, concurrentChange: false };
   const baseSignature = getStoryWeavingWriteSignature(归一化剧情编织系统(input.workflowBase));
@@ -688,197 +638,6 @@ async function resolveStoryWeavingForBackgroundWrite(input: {
     return { system: input.proposed, concurrentChange: false };
   }
   return { system: latestNormalized, concurrentChange: true };
-}
-
-function normalizePhoneSeedComparableText(text: string): string {
-  return text
-    .replace(/\s+/g, '')
-    .replace(/[，。！？!?；;、,.…~～“”"'\[\]（）()《》<>]/g, '')
-    .trim();
-}
-
-function isPhoneSeedTextSimilar(a: string, b: string): boolean {
-  const left = normalizePhoneSeedComparableText(a);
-  const right = normalizePhoneSeedComparableText(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  if (left.length >= 12 && right.includes(left)) return true;
-  if (right.length >= 12 && left.includes(right)) return true;
-  const shared = [...new Set(left)].filter((char) => right.includes(char)).length;
-  return shared / Math.max(1, Math.min(left.length, right.length)) >= 0.82;
-}
-
-function hasRecentSimilarPhoneSeed(input: {
-  phone: 手机系统;
-  npcId: string;
-  turn: number;
-  title: string;
-  context: string;
-  windowTurns?: number;
-}): boolean {
-  const windowTurns = Math.max(3, input.windowTurns ?? 12);
-  const currentText = `${input.title}\n${input.context}`;
-  return input.phone.messageSeeds.some((seed) => {
-    if (input.turn - (Number(seed.turn) || 0) > windowTurns) return false;
-    const sameTarget = seed.targetId === input.npcId || seed.targetId === `npc_${input.npcId}` || seed.relatedNpcIds.includes(input.npcId);
-    if (!sameTarget) return false;
-    return isPhoneSeedTextSimilar(currentText, `${seed.title}\n${seed.context}`);
-  });
-}
-
-function buildFallbackPhoneSeed(input: {
-  phone: 手机系统;
-  npcs: NPC记录[];
-  turn: number;
-  userInput: string;
-  body: string;
-  maxSeedsPerTurn: number;
-  contactCooldownTurns: number;
-}): 主动来信种子 | null {
-  if (input.maxSeedsPerTurn <= 0) return null;
-  const pendingCount = input.phone.messageSeeds.filter((seed) => seed.status === 'pending').length;
-  if (pendingCount >= input.maxSeedsPerTurn) return null;
-  if (input.phone.messageSeeds.some((seed) => seed.status === 'pending')) return null;
-
-  const cooldown = Math.max(1, Math.trunc(input.contactCooldownTurns || 3));
-  const fallbackGlobalCooldown = Math.max(3, cooldown);
-  const lastNonUrgentSeedTurn = input.phone.messageSeeds
-    .filter((seed) => seed.priority !== 'urgent')
-    .reduce((latest, seed) => Math.max(latest, Number(seed.turn) || 0), 0);
-  if (lastNonUrgentSeedTurn > 0 && input.turn - lastNonUrgentSeedTurn < fallbackGlobalCooldown) return null;
-
-  const text = `${input.userInput}\n${input.body}`;
-  const candidates = input.npcs
-    .filter((npc) => npc.关系 !== 'enemy')
-    .filter((npc) => npc.阶位 === 'companion' || npc.同行 || 提取NPC同行记忆文本列表(npc).length > 0)
-    .filter((npc) => {
-      const recentTurn = Number(npc.最近回合 || 0);
-      if (recentTurn < Math.max(1, input.turn - 4)) return false;
-      const aliases = [npc.姓名, npc.别名].filter((item): item is string => Boolean(item?.trim()));
-      return npc.同行 || aliases.some((name) => text.includes(name));
-    })
-    .filter((npc) => {
-      const lastSeedTurn = input.phone.messageSeeds
-        .filter((seed) =>
-          seed.targetId === npc.id ||
-          seed.targetId === `npc_${npc.id}` ||
-          seed.relatedNpcIds.includes(npc.id),
-        )
-        .reduce((latest, seed) => Math.max(latest, Number(seed.turn) || 0), 0);
-      return lastSeedTurn <= 0 || input.turn - lastSeedTurn >= cooldown;
-    })
-    .sort((a, b) => {
-      if (a.同行 !== b.同行) return a.同行 ? -1 : 1;
-      const recentDiff = Number(b.最近回合 || 0) - Number(a.最近回合 || 0);
-      if (recentDiff !== 0) return recentDiff;
-      return 提取NPC同行记忆文本列表(b).length - 提取NPC同行记忆文本列表(a).length;
-    });
-
-  const npc = candidates[0];
-  if (!npc) return null;
-  const reason = [
-    input.body.replace(/\s+/g, ' ').trim().slice(0, 120),
-    提取NPC同行记忆文本列表(npc).slice(-1)[0],
-  ].filter(Boolean).join('；');
-  const title = `${npc.姓名}的跟进短讯`;
-  const context = `${npc.姓名}近期与玩家有互动，可低频发来一条跟进、确认状况或延续约定的短讯。已发生事实：${reason || '近期剧情互动。'}`;
-  if (hasRecentSimilarPhoneSeed({
-    phone: input.phone,
-    npcId: npc.id,
-    turn: input.turn,
-    title,
-    context,
-  })) {
-    return null;
-  }
-  return {
-    id: `phone_seed_fallback_${input.turn}_${npc.id}_${Math.random().toString(36).slice(2, 8)}`,
-    turn: input.turn,
-    source: 'main_story',
-    triggerType: npc.同行 ? 'quest' : 'relationship',
-    priority: 'low',
-    targetType: 'private',
-    targetId: npc.id,
-    title,
-    context,
-    relatedNpcIds: [npc.id],
-    expiresAfterTurns: 6,
-    status: 'pending',
-  };
-}
-
-function applyNsfwVariablePolicy(
-  commands: 变量命令[],
-  policy: { nsfwEnabled: boolean; maleNsfwArchiveEnabled: boolean },
-  npcs: NPC记录[] = [],
-): {
-  allowedCommands: 变量命令[];
-  rejectedCommands: Array<{ command: 变量命令; ok: false; reason: string }>;
-} {
-  const allowedCommands: 变量命令[] = [];
-  const rejectedCommands: Array<{ command: 变量命令; ok: false; reason: string }> = [];
-
-  for (const command of commands) {
-    const key = command.key ?? '';
-    const valueText = JSON.stringify(command.value ?? '');
-    const touchesNsfw = key.includes('NSFW档案') || valueText.includes('NSFW档案');
-    const touchesMaleArchive =
-      key.includes('男性身体档案') ||
-      key.includes('男性器') ||
-      valueText.includes('男性身体档案') ||
-      valueText.includes('男性器');
-
-    if (touchesNsfw && !policy.nsfwEnabled) {
-      rejectedCommands.push({
-        command,
-        ok: false,
-        reason: 'NSFW 总开关未开启，已阻止写入 NSFW 档案。',
-      });
-      continue;
-    }
-
-    if (touchesNsfw) {
-      const blockedReason = getNsfwBlockedCommandReason(command, npcs);
-      if (blockedReason) {
-        rejectedCommands.push({
-          command,
-          ok: false,
-          reason: blockedReason,
-        });
-        continue;
-      }
-    }
-
-    if (touchesMaleArchive && !policy.maleNsfwArchiveEnabled) {
-      rejectedCommands.push({
-        command,
-        ok: false,
-        reason: '男性 NSFW 档案开关未开启，已阻止写入男性身体档案。',
-      });
-      continue;
-    }
-
-    allowedCommands.push(command);
-  }
-
-  return { allowedCommands, rejectedCommands };
-}
-
-function getNsfwBlockedCommandReason(command: 变量命令, npcs: NPC记录[]): string | null {
-  const text = `${command.key}\n${JSON.stringify(command.value ?? '')}`;
-  const selector = command.key.match(/^NPC\[([^\]]+)\]/)?.[1] ?? '';
-  const selectorValue = selector.includes('=')
-    ? selector.split('=').slice(1).join('=').replace(/^["']|["']$/g, '').trim()
-    : selector.trim();
-  const npc = npcs.find((item) =>
-    item.id === selectorValue ||
-    item.姓名 === selectorValue ||
-    item.别名 === selectorValue ||
-    text.includes(item.姓名) ||
-    Boolean(item.别名 && text.includes(item.别名)),
-  );
-  const reason = getNsfwArchiveBlockReason(npc, selectorValue, text);
-  return reason ? `NSFW 档案已阻止：${reason}。` : null;
 }
 
 function pushQueueTask(
@@ -891,7 +650,9 @@ function pushQueueTask(
     detail?: string;
     rawText?: string;
     turn?: number;
+    turnId?: string;
     targetMessageId?: string;
+    targetUserMessageId?: string;
     targetBatchId?: string;
     retryHint?: string;
     failCount?: number;
@@ -933,11 +694,13 @@ function pushQueueTask(
       title: patch?.title ?? titleMap[id],
       subtitle: patch?.subtitle ?? subtitleMap[id],
       turn: patch?.turn ?? state.turnCount,
+      turnId: patch?.turnId,
       timestamp: Date.now(),
       status,
       detail: patch?.detail,
       rawText: patch?.rawText,
       targetMessageId: patch?.targetMessageId,
+      targetUserMessageId: patch?.targetUserMessageId,
       targetBatchId: patch?.targetBatchId,
       retryHint: patch?.retryHint,
       failCount: patch?.failCount,
@@ -1363,6 +1126,65 @@ export async function retryQueueTask(
   if (task.id === 'variable') {
     await retryVariableQueueTask(state, getActiveConfig, task, mode);
   }
+
+  if (task.id === 'phone') {
+    await retryPhoneMemoryWriteTask(state, task, getActiveConfig);
+  }
+}
+
+/**
+ * 手机记忆双写单侧失败重试：只执行 failed 的一侧，已 success / not_due 的一侧不重放；
+ * 成功后更新原任务状态，不新增重复任务。
+ */
+async function retryPhoneMemoryWriteTask(
+  state: UseGameStateReturn,
+  task: 队列任务记录,
+  getActiveConfig: () => API配置项 | null,
+): Promise<void> {
+  const payload = parsePhoneMemoryFailureTask(task);
+  if (!payload) {
+    pushQueueTask(state, 'phone', 'failed', {
+      detail: '手机记忆写入任务缺少可恢复载荷，无法重试。',
+      failCount: (task.failCount ?? 0) + 1,
+    });
+    return;
+  }
+  const settings = state.gameSettings.记忆系统;
+  state.setWorkflowHint(`正在补写失败侧：${payload.failedSide === 'yiting' ? '忆庭归档' : 'NPC 同行记忆'}。`);
+  try {
+    const outcome = await retryPhoneMemoryWrite(payload, {
+      memory: state.记忆,
+      yiting: state.忆庭,
+      npcs: 筛选活跃NPC(state.NPC),
+      settings,
+      config: getActiveConfig(),
+      turn: payload.turn || state.turnCount,
+      gameTime: [state.世界.当前日期, state.世界.当前时间].filter(Boolean).join(' ').trim() || undefined,
+    }, {
+      getQueueTasks: () => state.queueTasks,
+      buildSavePayload: (overrides) => buildSavePayload(state, 'auto', overrides),
+      saveGame,
+      publish: (next) => {
+        state.set记忆(next.memory);
+        state.set忆庭(next.yiting);
+        state.setNPC(next.npcs);
+        state.setQueueTasks(next.queueTasks);
+      },
+      onPersistFailure: (error) => state.setWorkflowHint(error),
+    });
+    if (!outcome.ok) {
+      // persistFailed 已由 onPersistFailure 提示；普通业务失败保持原提示。
+      if (!outcome.persistFailed) {
+        state.setWorkflowHint(`手机记忆补写仍然失败：${outcome.error ?? '未知错误'}，可再次重试。`);
+      }
+    }
+  } catch (err) {
+    pushQueueTask(state, 'phone', 'failed', {
+      detail: `手机记忆补写失败：${err instanceof Error ? err.message : String(err)}`,
+      turn: payload.turn || state.turnCount,
+      failCount: (task.failCount ?? 0) + 1,
+    });
+  }
 }
 
 async function retryNewsQueueTask(
@@ -1398,12 +1220,31 @@ async function retryNewsQueueTask(
     targetMessageId: assistant.id,
   });
   try {
+    // R3 修复：新闻重试/重生成同样只消费统一事实视图——从已保存的运行时切片重建 factView，
+    // 约束模式下正文、滑窗、NPC 等旧输入会被 newsWorkflow 清空，避免"报道内容反过来成为事实"；
+    // 旧存档没有运行时切片时保持旧兼容行为（factView 为 null 走旧链路）。
+    const runtimeSlice = state.世界.剧情运行时;
+    let factViewForNewsRetry: StoryFactConsumerView | null = null;
+    if (runtimeSlice && Array.isArray(runtimeSlice.factLedger) && Array.isArray(runtimeSlice.worldEvents)) {
+      const sliceRevision = runtimeSlice.runtimeRevision;
+      const lastFactIds = Number.isFinite(sliceRevision)
+        ? runtimeSlice.factLedger
+            .filter((fact) => fact.sourceRevision === sliceRevision)
+            .map((fact) => fact.factId)
+        : [];
+      factViewForNewsRetry = buildStoryFactConsumerView({
+        factLedger: runtimeSlice.factLedger,
+        worldEvents: runtimeSlice.worldEvents,
+        newFactIds: lastFactIds,
+      });
+    }
     const result = await runNewsGenerationStep({
       state,
       mainBody: body,
       userInput,
       recentTurns: buildRecentTurnWindowForNews(state.chatHistory, userInput, body, interval),
       storyWeavingSnapshot: state.剧情编织,
+      factView: factViewForNewsRetry,
       signal: abortController.signal,
     });
     pushQueueTask(state, 'news', result ? 'success' : 'failed', {
@@ -1447,12 +1288,20 @@ async function retryVariableQueueTask(
     });
     return;
   }
-  const assistant = findAssistantMessageForTurn(state.chatHistory, batch.turn) ?? findLatestAssistantMessage(state.chatHistory);
+  const assistant = findLinkedVariableBatchAssistant(state.chatHistory, batch);
+  const userMessage = findLinkedVariableBatchUser(state.chatHistory, batch);
   const mainConfig = getActiveConfig();
   if (!assistant || !mainConfig) {
     pushQueueTask(state, 'variable', 'failed', {
-      detail: !assistant ? '未找到变量批次对应的正文回合。' : '未配置主 API，无法重试变量结算。',
+      detail: !assistant
+        ? batch.associationStatus === 'ambiguous'
+          ? '变量批次对应多个历史回合，无法安全确定正文；请使用单回合历史修复。'
+          : '未找到变量批次对应的正文回合，已阻止回退到最新 assistant。'
+        : '未配置主 API，无法重试变量结算。',
       targetBatchId: batch.id,
+      turnId: batch.turnId,
+      targetMessageId: batch.targetMessageId,
+      targetUserMessageId: batch.targetUserMessageId,
       failCount: (task.failCount ?? 0) + 1,
     });
     return;
@@ -1469,7 +1318,9 @@ async function retryVariableQueueTask(
   pushQueueTask(state, 'variable', 'pending', {
     detail: mode === 'reroll' ? '正在重生成变量结算结果。' : '正在重试变量结算。',
     turn: batch.turn,
+    turnId: batch.turnId,
     targetMessageId: assistant.id,
+    targetUserMessageId: userMessage?.id ?? batch.targetUserMessageId,
     targetBatchId: batch.id,
     retrying: true,
     failCount: task.failCount,
@@ -1477,25 +1328,35 @@ async function retryVariableQueueTask(
   const overrides = await runVariableCalibrationStep({
     state,
     mainApiConfig: mainConfig,
-    userInput: findPreviousUserInput(state.chatHistory, assistant.id),
+    userInput: userMessage?.content ?? findPreviousUserInput(state.chatHistory, assistant.id),
     body,
     variableDraft: assistant.parsedResponse?.variableDraft,
     turnAfter: batch.turn + 1,
     memorySystemSnapshot: state.记忆,
     travelerSnapshot: state.旅人,
     worldSnapshot: state.世界,
-    allowYiting: false,
+    turnId: batch.turnId ?? assistant.turnId,
+    targetMessageId: assistant.id,
+    targetUserMessageId: userMessage?.id,
+    sourceEvidenceId: batch.sourceEvidenceId ?? `chat_history:${assistant.id}`,
+    mode: mode === 'reroll' ? 'reroll' : 'retry',
+    supersedesBatchId: batch.id,
   });
   const retryBatch = overrides?.batch;
-  const hasFailure = retryBatch?.results.some((result) => !result.ok);
-  pushQueueTask(state, 'variable', retryBatch && !hasFailure ? 'success' : retryBatch ? 'failed' : 'failed', {
+  const hasFailure = variableBatchHasFailure(retryBatch);
+  const hasWarning = variableBatchHasWarning(retryBatch);
+  pushQueueTask(state, 'variable', retryBatch ? hasFailure ? 'failed' : hasWarning ? 'warning' : 'success' : 'failed', {
     detail: retryBatch
       ? hasFailure
         ? '变量结算已重试，但仍存在失败命令，请展开查看原始信息。'
-        : '变量结算已重试并落地。'
+        : hasWarning
+          ? '变量结算已重试并落地，但仍有警告；可展开查看详情。'
+          : '变量结算已重试并落地。'
       : '变量结算重试未返回结果。',
     turn: batch.turn,
+    turnId: batch.turnId,
     targetMessageId: assistant.id,
+    targetUserMessageId: userMessage?.id ?? batch.targetUserMessageId,
     targetBatchId: retryBatch?.id ?? batch.id,
     failCount: hasFailure || !retryBatch ? (task.failCount ?? 0) + 1 : task.failCount,
   });
@@ -1525,18 +1386,6 @@ function findPreviousUserInput(history: 聊天消息[], assistantId: string): st
     if (item.role === 'user') return item.content;
   }
   return '';
-}
-
-function findRetryableVariableBatch(batches: 变量命令批次[], targetBatchId?: string): 变量命令批次 | undefined {
-  const candidates = targetBatchId
-    ? batches.filter((batch) => batch.id === targetBatchId)
-    : [...batches].reverse();
-  // 只允许整批完全失败的结果手动重试。
-  // 若同一批里已有成功命令，重跑整批可能让已成功的 set/push 再落地一次，造成重复结算。
-  return candidates.find((batch) =>
-    batch.results.length > 0 &&
-    batch.results.every((result) => !result.ok),
-  );
 }
 
 function normalizeRerollCompareText(text: string): string {
@@ -1580,6 +1429,7 @@ function buildRerollGenerationGuard(nonce: string, previousResponse: string): st
     '必须更换开场镜头、段落推进顺序、对白切入、收尾钩子和行动选项写法；不得复用上一版前三句、连续短语、变量草稿句式或相同结尾。',
     '如果上一版以旁白开场，本版优先从角色动作或短对白开场；如果上一版以对白开场，本版优先从环境、动作或感官细节切入。',
     '仍必须遵守当前主剧情输出标签和格式要求，不得因为重roll省略 <thinking>、<正文>、<短期记忆>、<动态世界> 或 <变量草稿>。',
+    '可以保留必要事实一致性，但正文展开方式必须明显不同；如果上一版已经处理某事件，本次不得因为重roll而把旧副作用当作已发生事实。',
     previousResponse
       ? `上一版回复摘录（只用于避重复，不是当前事实）：${compactForRerollInstruction(previousResponse)}`
       : '',
@@ -1654,6 +1504,7 @@ export async function executeSendWorkflow(
   let keepWorkflowHint = false;
   let rollbackHistoryOnAbort = state.chatHistory;
   let rollbackSnapshotOnAbort: 回合快照 | null = null;
+  let turnStateCommitted = false;
   let visibilityPublisher: VisibilityBufferedPublisher | null = null;
   // Declared outside the stream setup so finally can always cancel a pending rAF commit.
   const streamMessageSetter = createRafCoalescedSetter(setStreamingMessage);
@@ -1682,6 +1533,12 @@ export async function executeSendWorkflow(
       queueTasks: state.queueTasks,
       turnCount: state.turnCount,
       pendingOpeningTrigger: state.pendingOpeningTrigger,
+      // 回合前的 gameSettings 运行时字段：重 Roll/失败/中止时恢复，保证只有成功回合消费
+      // cooldown/delay 与宏变量；不把 API Key 等无关设置复制进每条消息快照。
+      gameSettingsTurnState: {
+        macroGlobalVars: { ...(state.gameSettings.macroGlobalVars ?? {}) },
+        worldbookTriggerStates: { ...(state.gameSettings.worldbookTriggerStates ?? {}) },
+      },
     });
     rollbackSnapshotOnAbort = preTurnSnapshot;
 
@@ -1689,7 +1546,9 @@ export async function executeSendWorkflow(
     //    避免存档无限膨胀（snapshot 只服务"最近一次 reroll"，老的没用）。
     //    同时把 preTurnSnapshot 也挂到 user 消息上，这样主剧情生成失败（没有 assistant 消息）时，
     //    重roll 仍能找到快照回滚，不会误回退到上一回合。
+    const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const userMsg = 创建聊天消息('user', userInput, {
+      turnId,
       gameTime: `${state.turnCount}`,
       preTurnSnapshot,
     });
@@ -1728,40 +1587,25 @@ export async function executeSendWorkflow(
           : 'main';
     const zhikuParticipation = getZhikuCharacterParticipationForTurn({
       world: effectiveWorld,
-      npcs: state.NPC,
+      npcs: 筛选活跃NPC(state.NPC),
       history: updatedHistory,
       userInput,
       turnCount: state.turnCount,
+      settings: state.gameSettings.记忆系统,
     });
     const openingArchiveText = 格式化开局档案上下文(effectiveWorld.开局档案);
-    const worldbookCtx = {
-      recentUserInput: userInput,
-      recentAIResponse: '',
-      worldName: effectiveWorld.当前时段?.名称 ?? '',
+    const worldbookCtx = buildPromptWorldbookContext({
+      userInput,
+      history: updatedHistory,
+      world: effectiveWorld,
       travelerName: state.旅人.姓名,
       turnCount: state.turnCount,
-      startScenarioId: effectiveWorld.起航之地ID,
-      startSceneName: effectiveWorld.开局档案?.章节锚点名称 ?? effectiveWorld.当前地点,
-      currentLocation: effectiveWorld.当前地点,
-      openingRegionName: effectiveWorld.开局档案?.地区名称,
-      openingChapterName: effectiveWorld.开局档案?.章节锚点名称,
-      openingEntryText: effectiveWorld.开局档案?.玩家介入原文,
-      openingSource: effectiveWorld.开局档案?.来源,
-      openingArchiveText,
       npcNames: zhikuParticipation.present,
-      originalProtagonist: effectiveWorld.原著主角,
-      currentScope,
-      // 当前剧情模式，用于按 storyModeGate 过滤主线世界书（4 选 1）
-      storyMode: effectiveWorld.剧情模式,
-      // Phase 7.1：世界书扫描扩展（消息历史 + 触发状态）
-      recentMessages: updatedHistory
-        .map((m) => (typeof m.content === 'string' ? m.content : ''))
-        .filter(Boolean)
-        .slice(-100),
-      messageCount: state.turnCount,
+      scope: currentScope,
+      openingArchiveText,
       worldbookTriggerStates: state.gameSettings.worldbookTriggerStates,
-    };
-    const immediateStoryReviewForZhiku = !isOpeningSystemTrigger ? buildImmediateStoryReview(updatedHistory) : '';
+    });
+    const immediateStoryReviewForZhiku = !isOpeningSystemTrigger ? buildImmediateStoryReview(updatedHistory, Math.max(1, (state.gameSettings.记忆系统?.即时转短期阈值 ?? 10) - 1)) : '';
     const latestZhikuStoryPlan = [...updatedHistory]
       .reverse()
       .find((message) => message.role === 'assistant' && message.parsedResponse?.storyPlan?.trim())
@@ -1777,6 +1621,7 @@ export async function executeSendWorkflow(
       npcNames: [],
       presentNpcNamesForFallback: worldbookCtx.npcNames,
       anticipatedNpcNames: zhikuParticipation.anticipated,
+      mentionedNpcNames: zhikuParticipation.mentioned,
       aiSupplementHints: {
         currentLocation: effectiveWorld.当前地点,
         presentNpcNames: worldbookCtx.npcNames,
@@ -1849,7 +1694,7 @@ export async function executeSendWorkflow(
     }
     const yitingEnabled = state.gameSettings.记忆系统?.忆庭启用 !== false;
     const yitingRecallEnabled = yitingEnabled && !isOpeningSystemTrigger && (state.gameSettings.记忆系统?.忆庭召回最早触发回合 ?? 10) < state.turnCount;
-    const zhikuRecallEnabled = zhikuRequestScope === 'main'
+    const zhikuRecallEnabled = (zhikuRequestScope === 'main' || zhikuRequestScope === 'opening')
       && !!(state.gameSettings.智库系统?.enabled && state.智库 && worldbookCtx.recentUserInput);
     const zhikuAiSupplementEnabled = zhikuRecallEnabled && state.gameSettings.智库系统?.enableAiSupplement === true;
     const storyWeavingGate = state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow
@@ -1859,7 +1704,12 @@ export async function executeSendWorkflow(
       detail: yitingRecallEnabled ? '正在检索回忆档案。' : '未到忆庭召回回合，已跳过。',
       cancellable: yitingRecallEnabled,
     });
-    const [yitingPreview, zhikuPreview] = await Promise.all([
+    // 阶段1方案E·全知性防护：构建 NPC id→姓名 映射，供忆庭通讯回忆标记来源（对方:NPC名字）
+    const yitingNpcNameMap = 筛选活跃NPC(state.NPC).reduce<Record<string, string>>((map, npc) => {
+      if (npc.id && npc.姓名) map[npc.id] = npc.姓名;
+      return map;
+    }, {});
+    let [yitingPreview, zhikuPreview] = await Promise.all([
       yitingRecallEnabled && state.忆庭 && recallQuery
         ? retrieveYitingContextWithModel(
             state.忆庭,
@@ -1870,6 +1720,7 @@ export async function executeSendWorkflow(
             abortController.signal,
             state.gameSettings.记忆系统?.忆庭召回API.retryCount ?? 2,
             state.gameSettings.promptModules,
+            yitingNpcNameMap,
           ).catch((err: unknown) => {
             pushQueueTask(state, 'yiting', 'failed', {
               detail: err instanceof Error ? err.message : '忆庭召回失败。',
@@ -1921,6 +1772,7 @@ export async function executeSendWorkflow(
           })),
     ]);
     assertWorkflowActive();
+    // 剧情回忆静默注入：召回结果直接进入本轮上下文，不弹预览确认。
     const recallSummaryForTurn = [
       formatZhikuRecallSummary(zhikuPreview?.diagnostics),
       formatYitingRecallSummary(yitingPreview?.previewText),
@@ -1931,12 +1783,16 @@ export async function executeSendWorkflow(
     ].filter(Boolean).join('\n\n');
     state.setLiveRecallSummary(recallSummaryForTurn);
     state.setLiveRecallFullContent(recallFullContentForTurn);
+    // 对标参考项目：回忆召回命中且关闭并存注入时，主剧情已暂停中期+长期+短期记忆注入。
+    const yitingMutexActiveHint =
+      state.gameSettings.记忆系统?.忆庭命中并存注入 !== true
+      && Boolean(yitingPreview?.injection);
     const memoryHint = isOpeningSystemTrigger
       ? '开局专用上下文已注入：角色 / 场景 / 切入说明 / 开局世界书 / 开局 CoT'
-      : yitingPreview?.injection
-      ? `剧情回忆已命中，已暂停普通短中长期记忆注入：强 ${yitingPreview.strongEntries?.length ?? 0} 条 / 弱 ${yitingPreview.weakEntries?.length ?? 0} 条`
       : state.gameSettings.enableMemoryInjection
-      ? `记忆上下文已注入：短期 ${state.记忆.短期记忆.length} 条 / 中期 ${(state.记忆.中期记忆 ?? []).length} 条 / 长期 ${state.记忆.长期记忆.length} 条；即时缓存 ${state.记忆.即时记忆.length} 条仅用于后续压缩`
+      ? yitingMutexActiveHint
+        ? `剧情回忆已命中，已暂停短期/中期/长期记忆注入（回忆承担旧事承接）；即时缓存 ${state.记忆.即时记忆.length} 条仅用于后续压缩`
+        : `记忆上下文已注入：短期 ${state.记忆.短期记忆.length} 条 / 中期 ${(state.记忆.中期记忆 ?? []).length} 条 / 长期 ${state.记忆.长期记忆.length} 条${yitingPreview?.injection ? '；剧情回忆已命中并并存注入' : ''}；即时缓存 ${state.记忆.即时记忆.length} 条仅用于后续压缩`
       : '记忆上下文已跳过';
     const yitingHint = !yitingEnabled
       ? '忆庭召回已关闭'
@@ -1954,7 +1810,7 @@ export async function executeSendWorkflow(
       : '智库已跳过';
     state.setWorkflowHint(isOpeningSystemTrigger ? memoryHint : `${memoryHint} · ${yitingHint} · ${zhikuHint}`);
     state.setWorkflowStatus('done');
-    const immediateStoryReview = !isOpeningSystemTrigger ? buildImmediateStoryReview(updatedHistory) : '';
+    const immediateStoryReview = !isOpeningSystemTrigger ? buildImmediateStoryReview(updatedHistory, Math.max(1, (state.gameSettings.记忆系统?.即时转短期阈值 ?? 10) - 1)) : '';
     const storyRecallInjection = [
       immediateStoryReview
         ? ['# 即时剧情回顾', '', '【即时剧情回顾】', immediateStoryReview].join('\n')
@@ -1980,22 +1836,25 @@ export async function executeSendWorkflow(
     // local 每回合重置；global 从 settings 读取副本（避免直接 mutate state）。
     // 处理完后若 global 变化，回写到 settings.macroGlobalVars 实现跨会话持久化。
     const prevGlobalSnapshot = state.gameSettings.macroGlobalVars ?? {};
-    // 组装游戏状态快照供 ST 标准宏使用（{{char}}/{{user}}/{{lastMessage}} 等）
-    const lastMsg = updatedHistory[updatedHistory.length - 1];
-    const lastUserMsg = [...updatedHistory].reverse().find((m) => m.role === 'user');
-    const lastAssistantMsg = [...updatedHistory].reverse().find((m) => m.role === 'assistant');
-    const macroGameState: MacroGameState = {
-      charName: state.旅人.姓名 || state.旅人.别名 || '开拓者',
-      userName: state.旅人.姓名 || '开拓者',
-      lastMessage: lastMsg?.content ?? '',
-      lastUserMessage: lastUserMsg?.content ?? '',
-      lastCharMessage: lastAssistantMsg?.content ?? '',
-      messageCount: updatedHistory.length,
+    const macroCtx: MacroContext = buildPromptMacroContext({
+      history: updatedHistory,
+      playerName: state.旅人.姓名 || state.旅人.别名 || '开拓者',
       turnCount: state.turnCount,
       modelName: mainStoryConfig.model,
       maxContext: mainStoryConfig.maxContext,
-    };
-    const macroCtx: MacroContext = createMacroContext(prevGlobalSnapshot, macroGameState);
+      globals: prevGlobalSnapshot,
+    });
+
+    // 工作包A：世界书单回合唯一解析——builder 与触发状态提交共用同一 plan，不再重复筛选。
+    const worldbookPlan = resolvePromptWorldbookPlan(
+      state.worldbooks,
+      worldbookCtx,
+      state.gameSettings.enableWorldbookInjection,
+    );
+    // 工作包B：共享预处理——从回合前历史提取最近 1-2 条剧情规划（区5 剧情安排）
+    const storyPlanSnippets = extractRecentStoryPlanSnippets(updatedHistory);
+    // 工作包F：命途狭间回合判定（踏入/出题/评判）——提前声明供 builder 选择与后处理 scope gate 使用
+    const isPathAwakeningTurn = isAwakeningEnterTrigger || awakeningPhase !== undefined;
 
     const builtPrompt = isOpeningSystemTrigger
       ? buildOpeningSystemPrompt(
@@ -2008,8 +1867,25 @@ export async function executeSendWorkflow(
           newsForPrompt,
           currentTriggerType,
           macroCtx,
+          worldbookPlan ?? undefined,
+          zhikuPreview,
         )
-      : buildSystemPrompt(
+      : isPathAwakeningTurn
+        ? buildPathAwakeningSystemPrompt(
+            state.旅人,
+            effectiveWorld,
+            state.gameSettings,
+            state.turnCount,
+            state.worldbooks,
+            worldbookCtx,
+            zhikuPreview,
+            awakeningPhase,
+            storyRecallInjection || undefined,
+            currentTriggerType,
+            macroCtx,
+            worldbookPlan ?? undefined,
+          )
+        : buildSystemPrompt(
           state.旅人,
           effectiveWorld,
           state.记忆,
@@ -2026,30 +1902,33 @@ export async function executeSendWorkflow(
           state.手机,
           awakeningPhase,
           storyRecallInjection || (yitingRecallEnabled ? '' : undefined),
-          Boolean(yitingPreview?.injection),
+          (yitingPreview?.strongEntries?.length ?? 0) > 0,
           npcLedgerSelection,
           currentTriggerType,
           macroCtx,
+          storyPlanSnippets,
+          worldbookPlan ?? undefined,
         );
 
-    // 宏引擎处理后回写 globalVars（仅当 global 变化时）
-    if (Object.keys(macroCtx.global).length !== Object.keys(prevGlobalSnapshot).length
-      || Object.entries(macroCtx.global).some(([k, v]) => prevGlobalSnapshot[k] !== v)) {
-      state.setGameSettings((prev) => ({ ...prev, macroGlobalVars: { ...macroCtx.global } }));
-    }
+    // 宏引擎处理后计算 globalVars 候选（仅当 global 变化时）。不在 API 请求前 setGameSettings：
+    // 只有成功提交的回合才保留宏全局变量变化，失败/停止/重 Roll 由回合快照恢复。
+    const macroGlobalVarsAfter = Object.keys(macroCtx.global).length !== Object.keys(prevGlobalSnapshot).length
+      || Object.entries(macroCtx.global).some(([k, v]) => prevGlobalSnapshot[k] !== v)
+      ? { ...macroCtx.global }
+      : prevGlobalSnapshot;
 
-    // Phase 7.1：本回合世界书注入完成后，回写触发状态表（用于 delay / cooldown 判断）。
+    // Phase 7.1：本回合世界书注入完成后计算触发状态表候选（用于 delay / cooldown 判断）。
     // 必须在 buildSystemPrompt 之后调用，保证本回合 cooldown 检查用的是上一回合的状态。
-    const nextTriggerStates = updateTriggerStatesAfterTurn(state.worldbooks, worldbookCtx);
-    if (nextTriggerStates !== state.gameSettings.worldbookTriggerStates) {
-      state.setGameSettings((prev) => ({ ...prev, worldbookTriggerStates: nextTriggerStates }));
-    }
+    // 同样只在成功回合结束时提交。
+    // 工作包A：触发状态提交消费本回合 plan（不再重新筛选/重抽 probability）
+    const worldbookTriggerStatesAfter = state.gameSettings.enableWorldbookInjection
+      ? updateTriggerStatesAfterTurn(state.worldbooks, worldbookCtx, worldbookPlan ?? undefined)
+      : state.gameSettings.worldbookTriggerStates;
     let systemPrompt = builtPrompt.systemPrompt;
-    // 天气判断 prompt 注入
-    const 天气片断 = 构建天气Prompt片段(effectiveWorld.当前地点, effectiveWorld.当前天气);
-    systemPrompt = systemPrompt + '\n\n' + 天气片断;
+    // 工作包B：天气已由 builder 作为区6 第3项统一组装，不再在此追加
     // Phase 4: In-Chat depth 注入。非 system 角色的模块消息按 depth 插入聊天历史。
     const moduleChatMessages = builtPrompt.chatModuleMessages;
+    const nativeDepthMessages = moduleChatMessages.filter((m) => m._injectionPosition === 1);
     const currentPresetV2 = getCurrentSTPresetV2(state.gameSettings, getBuiltinPresetsV2());
     const shouldTryTavernV2 =
       state.gameSettings.enableStPreset !== false &&
@@ -2057,22 +1936,11 @@ export async function executeSendWorkflow(
       Boolean(currentPresetV2?.preset?.prompt_order?.length);
     let tavernV2Messages: 聊天消息[] | null = null;
     let tavernV2Error: unknown = null;
-    const recentHistory = getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);
+    const recentHistory = awakeningPhase
+      ? getPathAwakeningHistoryWindow(updatedHistory, awakeningPhase)
+      : getMainHistoryWindow(updatedHistory, state.gameSettings, state.记忆);
     const tavernHistory = recentHistory.filter((msg) => msg.id !== userMsg.id);
-    if (deps.rerollContext && !isOpeningSystemTrigger) {
-      systemPrompt = [
-        systemPrompt,
-        '',
-        '# 重roll生成约束',
-        `本次请求是玩家对上一版回复的重roll。重roll nonce: ${deps.rerollContext.nonce}`,
-        '必须基于同一事实起点重新组织镜头、描写、对话和节奏；禁止复用上一版回复的具体段落、句式、变量草稿或行动选项。',
-        '开场方式、对白切入、段落顺序和结尾钩子都要换；不要复用上一版前三句、连续短语或相同收束。',
-        '可以保留必要事实一致性，但正文展开方式必须明显不同；如果上一版已经处理某事件，本次不得因为重roll而把旧副作用当作已发生事实。',
-        deps.rerollContext.previousResponse
-          ? `上一版回复摘录（仅用于避重复，不是当前事实）：${compactForRerollInstruction(deps.rerollContext.previousResponse)}`
-          : '',
-      ].filter(Boolean).join('\n');
-    }
+    // 工作包G：初始重 Roll 约束只保留尾部 buildRerollGenerationGuard（B5）一份，删除 system 侧重复追加。
 
     if (shouldTryTavernV2 && currentPresetV2) {
       try {
@@ -2085,13 +1953,15 @@ export async function executeSendWorkflow(
           settings: state.gameSettings,
           preset: currentPresetV2.preset,
           characterId: state.gameSettings.currentStCharacterId ?? currentPresetV2.characterId ?? null,
-          chatHistory: tavernHistory,
+          chatHistory: insertDepthIntoHistory(tavernHistory, nativeDepthMessages),
           latestUserInput: latestTavernInput,
           playerName: state.旅人.姓名 || state.旅人.别名 || '开拓者',
           playerRole: state.旅人,
           includeNativeContextInWorldbook: false,
           triggerType: currentTriggerType,
           macroCtx,
+          // 工作包D：scope-aware 兼容保护（main/opening/pathAwakening 各读对应 COT）
+          scope: isOpeningSystemTrigger ? 'opening' : (isPathAwakeningTurn ? 'pathAwakening' : 'main'),
         }).map((msg) => 创建聊天消息(msg.role, msg.content));
         if (tavernV2Messages.length === 0) {
           tavernV2Messages = null;
@@ -2105,50 +1975,111 @@ export async function executeSendWorkflow(
       }
     }
 
-    // 3. Prepare messages for API
+    // 3. Prepare messages for API（工作包C：五种消息模式分层组装）
     const apiMessages: 聊天消息[] = [];
-    if (tavernV2Messages) {
-      apiMessages.push(...tavernV2Messages);
-    } else {
-      for (const msg of recentHistory) {
-        // 跳过 [系统] 触发消息，避免污染 AI 上下文
-        if (msg.role === 'user' && msg.content.startsWith('[系统]')) {
-          continue;
-        }
-        if (msg.role === 'user') {
-          apiMessages.push(msg);
-        } else if (msg.role === 'assistant' && msg.parsedResponse) {
-          apiMessages.push(创建聊天消息('assistant', buildLeanAssistantHistoryContent(msg)));
-        }
+    // 回合前历史（排除本轮输入——本轮输入在任务序列中只出现一次）
+    const preTurnHistory: 聊天消息[] = [];
+    for (const msg of recentHistory) {
+      if (msg.id === userMsg.id) continue;
+      if (msg.role === 'user' && msg.content.startsWith('[系统]')) continue;
+      if (msg.role === 'user') {
+        preTurnHistory.push(msg);
+      } else if (msg.role === 'assistant' && msg.parsedResponse) {
+        preTurnHistory.push(创建聊天消息('assistant', buildLeanAssistantHistoryContent(msg)));
       }
-      if (isOpeningSystemTrigger) {
-        apiMessages.push(创建聊天消息('user', openingInstruction));
-      }
-      // [系统] 触发被 API 过滤 → 必须额外推一条真实指令,否则 AI 收到空白消息直接卡住。
-      if (isAwakeningEnterTrigger && awakeningInstruction) {
-        apiMessages.push(创建聊天消息('user', awakeningInstruction));
-      }
+    }
+
+    const providerCapabilities = resolveChatProviderCapabilities(mainStoryConfig);
+    const deepSeekMainMode = state.gameSettings.deepSeekMainMode ?? 'off';
+    const deepSeekTransportActive = providerCapabilities.transport === 'deepseek' && deepSeekMainMode !== 'off';
+    const deepSeekMainActive = deepSeekTransportActive
+      && !tavernV2Messages
+      && !isOpeningSystemTrigger
+      && !isPathAwakeningTurn;
+    const deepSeekLockFormat = deepSeekTransportActive && deepSeekMainMode === 'lock_format';
+
+    // 模式判定（工作包C）：有效 Tavern V2 → DeepSeek lock_format → DeepSeek standard → cot_pseudo → standard。
+    // opening / 命途狭间（踏入/出题/评判）走专用尾部，不派生 cot_pseudo。
+    const messageMode: MainStoryMessageMode = isOpeningSystemTrigger || isPathAwakeningTurn
+      ? 'standard'
+      : deriveMainStoryMessageMode({
+          tavernV2Active: Boolean(tavernV2Messages),
+          deepSeekMainActive,
+          deepSeekLockFormat,
+          enableCotFakeHistory: state.gameSettings.enableCotFakeHistory,
+        });
+
+    // position=0 兼容消息（user/assistant 角色模块，保持角色，位于任务序列之前）
+    const positionZeroCompatMessages = moduleChatMessages
+      .filter((m) => m._injectionPosition === 0 && m.role !== 'system')
+      .sort((a, b) => (a._injectionOrder ?? 0) - (b._injectionOrder ?? 0))
+      .map((m) => 创建聊天消息(m.role === 'assistant' ? 'assistant' : 'user', m.content));
+    // depth 消息（position=1 模块 → 历史窗口内部插入）
+    const depthMessages = tavernV2Messages ? [] : nativeDepthMessages;
+
+    // 本回合条件约束（B2 开局/踏入指令、B3 狭间评判提醒、B4 DeepSeek守卫、B5 重roll守卫）
+    const turnConstraints: 聊天消息[] = [];
+    if (isOpeningSystemTrigger && !tavernV2Messages) {
+      turnConstraints.push(创建聊天消息('user', openingInstruction));
+    }
+    // [系统] 触发被 API 过滤 → 必须额外推一条真实指令,否则 AI 收到空白消息直接卡住。
+    if (isAwakeningEnterTrigger && awakeningInstruction && !tavernV2Messages) {
+      turnConstraints.push(创建聊天消息('user', awakeningInstruction));
     }
     // 评判回合:再追加一条系统级提醒,强化「必输 <狭间评判> 标签」的指令优先级。
     // 实践中,AI 若只在 system prompt 里看到此规则,容易在长正文里漏掉标签;把它升到 user 末尾会显著提高遵循率。
     if (awakeningPhase === 'judgement') {
-      apiMessages.push(
+      turnConstraints.push(
         创建聊天消息(
           'user',
           '⚠ 命途狭间·回应回合提醒:你上一回合已出三题,玩家本轮给出了答案。本回合**必须**在所有标签之外、**单独**写一行 `<狭间评判>升阶</狭间评判>`。命途狭间没有失败、滞留或退转;三问只是让玩家明确自己的道路。漏掉这个标签会让玩家永远卡在虚境无法升阶——这是必须避免的错误。同时正文里要让命途意志回应玩家答案、确认其道路,再把旅人从虚境拉回现实场景。',
         ),
       );
     }
+    if (deepSeekMainActive) {
+      turnConstraints.push(创建聊天消息('user', DEEPSEEK_MAIN_FORMAT_GUARD));
+    }
+    if (deps.rerollContext && !isOpeningSystemTrigger) {
+      turnConstraints.push(创建聊天消息(
+        'user',
+        buildRerollGenerationGuard(deps.rerollContext.nonce, deps.rerollContext.previousResponse),
+      ));
+    }
 
-    const providerCapabilities = resolveChatProviderCapabilities(mainStoryConfig);
-    const deepSeekMainMode = state.gameSettings.deepSeekMainMode ?? 'off';
-    const deepSeekMainActive = providerCapabilities.transport === 'deepseek' && deepSeekMainMode !== 'off';
-    const deepSeekLockFormat = deepSeekMainActive && deepSeekMainMode === 'lock_format';
-    const shouldUseCotFakeHistory =
-      state.gameSettings.enableCotFakeHistory && !isOpeningSystemTrigger && !deepSeekMainActive;
+    // 区E 执法块（main scope：普通回合与 Tavern V2 均包含一次；由统一 finalizer 置于任务序列之前）
+    const enforcementBlock = (
+      zhikuRequestScope === 'main'
+      || zhikuRequestScope === 'opening'
+      || zhikuRequestScope === 'pathAwakeningQuestion'
+      || zhikuRequestScope === 'pathAwakeningJudgement'
+    )
+      ? buildMainTurnEnforcementBlock({
+          playerName: state.旅人.姓名 || state.旅人.别名 || '开拓者',
+          narrativePerson: state.gameSettings.narrativePerson,
+          wordCountTarget: state.gameSettings.wordCountTarget,
+          zhikuCharacterBrief: zhikuPreview.characterEnforcementBrief,
+          storyWeavingActive: Boolean(state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow),
+          speechExpansionActive: resolvePlayerSpeechMode(state.gameSettings) === 'expansion',
+        })
+      : undefined;
 
-    // Phase 4/7：从当前激活预设读取 assistant prefill
-    // DeepSeek lock_format 必须固定从 <thinking>\n 续写；普通请求才允许使用预设 assistantPrefill。
+    // 任务序列（按模式）：
+    // - cot_pseudo：尾部三连（assistant 包装输入 → user 开始任务 → assistant 最小伪装）
+    // - tavern_v2：Tavern 消息链
+    // - opening/狭间踏入：指令已在 turnConstraints，任务序列为空
+    // - standard / deepseek / 评判回合：真实输入（userMsg）一次
+    let taskSequence: 聊天消息[];
+    if (messageMode === 'cot_pseudo') {
+      taskSequence = buildCotPseudoTaskSequence(userInput);
+    } else if (tavernV2Messages) {
+      taskSequence = tavernV2Messages;
+    } else if (isOpeningSystemTrigger || isAwakeningEnterTrigger) {
+      taskSequence = [];
+    } else {
+      taskSequence = [userMsg];
+    }
+
+    // Phase 4/7：assistant prefill（工作包C 8.6：cot_pseudo / Tavern V2 / DeepSeek 不叠加普通 preset prefill）
     const currentPresetId = state.gameSettings.currentStPresetId;
     const allPresets = [
       ...getBuiltinPresets(),
@@ -2158,44 +2089,32 @@ export async function executeSendWorkflow(
       ? allPresets.find((p) => p.id === currentPresetId)
       : undefined;
     const presetAssistantPrefill = currentPreset?.assistantPrefill;
-    const usePresetPrefill = Boolean(presetAssistantPrefill) && !deepSeekLockFormat;
-    const effectivePrefixMode = deepSeekLockFormat || usePresetPrefill;
-    const effectivePrefixContent = deepSeekLockFormat ? '<thinking>\n' : presetAssistantPrefill;
-
-    const mainTailMessages: 聊天消息[] = [];
-    if (deepSeekMainActive) mainTailMessages.push(创建聊天消息('user', DEEPSEEK_MAIN_FORMAT_GUARD));
-
-    // 主剧情普通回合共享同一尾部校准块；普通消息链和 Tavern V2 不再分叉。
-    if (zhikuRequestScope === 'main') {
-      mainTailMessages.push(创建聊天消息('user', buildMainTurnEnforcementBlock({
-        playerName: state.旅人.姓名 || state.旅人.别名 || '开拓者',
-        wordCountTarget: state.gameSettings.wordCountTarget,
-        zhikuCharacterBrief: zhikuPreview.characterEnforcementBrief,
-        storyWeavingActive: Boolean(state.gameSettings.剧情编织系统?.enabled && state.gameSettings.剧情编织系统.currentWindow),
-      })));
-    }
-    if (deps.rerollContext && !isOpeningSystemTrigger) {
-      mainTailMessages.push(创建聊天消息(
-        'user',
-        buildRerollGenerationGuard(deps.rerollContext.nonce, deps.rerollContext.previousResponse),
-      ));
+    let effectivePrefixMode = false;
+    let effectivePrefixContent: string | undefined;
+    if (messageMode === 'deepseek_prefix' || ((isOpeningSystemTrigger || isPathAwakeningTurn) && !tavernV2Messages && deepSeekLockFormat)) {
+      // DeepSeek lock_format 必须固定从 <thinking>\n 续写
+      effectivePrefixMode = true;
+      effectivePrefixContent = '<thinking>\n';
+    } else if (messageMode === 'standard' && !isOpeningSystemTrigger && !isPathAwakeningTurn && presetAssistantPrefill) {
+      effectivePrefixMode = true;
+      effectivePrefixContent = presetAssistantPrefill;
     }
 
-    // 3b. CoT 伪装历史注入：在消息序列最前面塞一对 user/assistant，强化思考段输出习惯。
-    //     DeepSeek 专用模式下不注入这段伪装续聊，避免污染真实 user 输入并降低格式漂移。
     const shouldStreamMainRequest = state.gameSettings.enableStreaming && !isPageHidden();
     const mainRequestMode: 'stream' | 'non-stream' = shouldStreamMainRequest ? 'stream' : 'non-stream';
     const finalizedMainRequest = finalizeMainRequest({
       config: mainStoryConfig,
       systemPrompt,
-      baseMessages: apiMessages,
-      moduleChatMessages,
-      leadingMessages: shouldUseCotFakeHistory ? [...MAIN_COT_FAKE_HISTORY] : [],
-      tailMessages: mainTailMessages,
+      mode: messageMode,
+      preTurnHistory: tavernV2Messages ? [] : preTurnHistory,
+      depthMessages,
+      positionZeroCompatMessages,
+      turnConstraints,
+      enforcementBlock,
+      taskSequence,
       prefixMode: effectivePrefixMode,
       prefixContent: effectivePrefixContent,
       streaming: shouldStreamMainRequest,
-      mode: tavernV2Messages ? 'tavern-v2' : 'native',
       scope: zhikuRequestScope,
       zhikuCompileId: zhikuPreview.compileId,
     });
@@ -2329,7 +2248,7 @@ export async function executeSendWorkflow(
         if (deps.rerollContext) {
           rerollSimilarityForTurn = rerollSimilarity;
         }
-        if (deps.rerollContext && rerollSimilarity >= 0.86 && attempt < maxAttempts) {
+        if (deps.rerollContext && !rerollSimilarityRetried && rerollSimilarity >= 0.86 && attempt < maxAttempts) {
           rerollSimilarityRetried = true;
           void appendApiErrorReport({
             source: '重roll相似度校验',
@@ -2419,12 +2338,19 @@ export async function executeSendWorkflow(
       detail: `正文生成完成，用时 ${Math.round(duration)}s。`,
     });
     const cleanedParsed = sanitizeParsedResponse(result.parsed, state.gameSettings.额外功能);
-    const parsedBody = normalizePlayerSpeechInBody({
+    const normalizedPlayerSpeech = normalizePlayerSpeechBody({
       body: cleanedParsed.body?.trim() ?? '',
       playerName: state.旅人.姓名 || state.旅人.别名 || '你',
+      playerAliases: [state.旅人.姓名, state.旅人.别名].filter((name): name is string => Boolean(name?.trim())),
       userInput,
+      mode: resolvePlayerSpeechMode(state.gameSettings),
     });
-    let finalBody = stripLeakedHistoryMetaFromBody(sanitizeContaminatedText(parsedBody, state.gameSettings.额外功能));
+    let finalBody = stripLeakedHistoryMetaFromBody(sanitizeContaminatedText(normalizedPlayerSpeech.body, state.gameSettings.额外功能));
+    finalBody = serializeNarrativeBody(parseNarrativeBody(finalBody, {
+      traveler: state.旅人,
+      userInput,
+      partial: false,
+    }));
     const sanitizedRawText = replaceBodyInRawResponse(
       cleanedParsed.rawText || result.fullText || streamedText,
       finalBody,
@@ -2488,36 +2414,6 @@ export async function executeSendWorkflow(
       provider: config.provider,
       model: config.model,
     });
-    const zhikuRequestDifferenceReasons = [
-      actualMainRequestHash !== finalizedMainRequest.requestHash ? '重试或协议校验改变了最终消息链。' : '',
-      apiMessages.length !== finalizedMainRequest.messages.length ? `最终消息数从预测 ${finalizedMainRequest.messages.length} 变为实发 ${apiMessages.length}。` : '',
-      result.deepSeekRecovery?.fallbackModel && result.deepSeekRecovery.fallbackModel !== mainStoryConfig.model
-        ? `DeepSeek 降级切换模型：${mainStoryConfig.model} -> ${result.deepSeekRecovery.fallbackModel}。`
-        : '',
-    ].filter(Boolean);
-    const zhikuActualTrace = attachZhikuRequestReceipt(zhikuPreview.runTrace, {
-      kind: 'actual',
-      requestHash: actualMainRequestHash,
-      predictedRequestHash: finalizedMainRequest.requestHash,
-      provider: tokenUsage.provider ?? mainStoryConfig.provider,
-      model: tokenUsage.model ?? result.deepSeekRecovery?.fallbackModel ?? mainStoryConfig.model,
-      transport: finalizedMainRequest.capabilities.transport,
-      endpoint: finalizedMainRequest.capabilities.endpoint,
-      mode: finalizedMainRequest.capabilities.mode,
-      streaming: shouldStreamMainRequest,
-      prefixApplied: finalizedMainRequest.capabilities.prefixApplied,
-      finishReason: result.finishReason,
-      usage: {
-        source: tokenUsage.source,
-        inputTokens: tokenUsage.inputTokens,
-        outputTokens: tokenUsage.outputTokens,
-        totalTokens: tokenUsage.totalTokens,
-        cachedTokens: tokenUsage.cachedTokens,
-        uncachedTokens: tokenUsage.uncachedTokens,
-      },
-      durationSec: duration,
-      differenceReasons: zhikuRequestDifferenceReasons,
-    });
     const previousDebugContext = [...updatedHistory]
       .reverse()
       .find((msg) => msg.role === 'assistant' && msg.debugContext?.systemPrompt)?.debugContext;
@@ -2533,7 +2429,8 @@ export async function executeSendWorkflow(
         : undefined,
     });
     const aiMsg = 创建聊天消息('assistant', displayText, {
-      gameTime: `${state.turnCount}`,
+      turnId,
+      gameTime: [state.世界.当前日期, state.世界.当前时间].filter(Boolean).join(' ').trim() || `${state.turnCount}`,
       parsedResponse: parsedForDisplay,
       inputTokens: tokenUsage.inputTokens,
       outputTokens: tokenUsage.outputTokens,
@@ -2544,19 +2441,10 @@ export async function executeSendWorkflow(
         systemPrompt,
         messages: apiMessages.map((msg) => ({ role: msg.role, content: msg.content })),
         requestHash: actualMainRequestHash,
-        zhikuRunTrace: zhikuActualTrace,
-        zhikuCompileId: zhikuPreview.compileId,
-        zhikuCatalogVersion: zhikuPreview.catalogVersion,
-        zhikuCatalogRevision: zhikuPreview.catalogRevision,
-        zhikuActualProvider: tokenUsage.provider ?? mainStoryConfig.provider,
-        zhikuActualModel: tokenUsage.model ?? result.deepSeekRecovery?.fallbackModel ?? mainStoryConfig.model,
-        zhikuFinishReason: result.finishReason,
-        zhikuPredictionRequestHash: finalizedMainRequest.requestHash,
-        zhikuRequestDifferenceReasons,
         requestCapabilities: finalizedMainRequest.capabilities,
         deepSeekMainMode: deepSeekMainActive ? deepSeekMainMode : 'off',
         deepSeekCotFakeHistorySkipped: deepSeekMainActive && state.gameSettings.enableCotFakeHistory === true,
-        deepSeekPrefixMode: deepSeekLockFormat,
+        deepSeekPrefixMode: finalizedMainRequest.prefixMode,
         deepSeekProtocolIssues: deepSeekProtocolIssuesForTurn,
         deepSeekMainOriginalModel: result.deepSeekRecovery?.originalModel,
         deepSeekMainAdaptedModel: result.deepSeekRecovery?.fallbackModel
@@ -2566,6 +2454,9 @@ export async function executeSendWorkflow(
         stV2Attempted: shouldTryTavernV2,
         stV2Used: Boolean(tavernV2Messages),
         stV2FallbackReason: tavernV2Error instanceof Error ? tavernV2Error.message : tavernV2Error ? String(tavernV2Error) : undefined,
+        playerSpeechCorrections: normalizedPlayerSpeech.corrections.length
+          ? normalizedPlayerSpeech.corrections
+          : undefined,
         rerollSimilarity: rerollSimilarityForTurn,
         rerollSimilarityRetried,
         cachePrefixDiagnostics,
@@ -2620,34 +2511,32 @@ export async function executeSendWorkflow(
     state.setPendingVariable(true);
     pendingVariableStarted = true;
 
-    // 6. Update memory
+    // 6. Update memory（对标参考项目：回合记忆写入 = 即时条目【时间+玩家输入+正文】+ 短期条目【AI shortTerm】+ 写入四段记忆）
     pushQueueTask(state, 'memory', 'pending', { detail: '正在写入即时记忆并检查压缩阈值。' });
-    const rawMemory = buildImmediateMemory(userInput, [
-      parsedForDisplay.memory?.trim() ? `本回合小结：${parsedForDisplay.memory.trim()}` : '',
+    const memoryGameTime = [state.世界.当前日期, state.世界.当前时间].filter(Boolean).join(' ').trim();
+    // 开局系统回合省略玩家输入（触发指令不是玩家发言，对齐参考项目开局写入语义）
+    const 回合即时条目 = 构建即时记忆条目(
+      memoryGameTime,
+      isOpeningSystemTrigger ? '' : userInput,
       displayText,
-    ].filter(Boolean).join('\n\n'));
-    let mem = addImmediateMemory(state.记忆, rawMemory, state.turnCount);
-    const compression = await autoCompressMemorySystemWithArchivesAsync(
-      mem,
-      state.turnCount,
-      state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
-      config,
-      abortController.signal,
+      { 省略玩家输入: isOpeningSystemTrigger },
     );
-    assertWorkflowActive();
-    mem = compression.memory;
-    state.set记忆(mem);
-    const yitingWithCompression = state.忆庭;
-    const compressionDetail = compression.failures.length
-      ? `记忆总结有 ${compression.failures.length} 批 API 失败，已保留完整失败草稿；当前回合继续使用本地 fallback。`
-      : compression.usedModel
-        ? '即时/短期/中期/长期记忆已调用记忆总结 API 完成整理。'
-        : '即时/短期/中期/长期记忆已使用本地摘要完成整理。';
-    pushQueueTask(state, 'memory', compression.failures.length ? 'failed' : 'success', {
-      detail: compressionDetail,
-      failCount: compression.failures.length || undefined,
-      retryHint: compression.failures.length ? '打开记忆系统的“失败草稿”页重新总结。' : undefined,
+    const 回合短期条目 = 构建短期记忆条目(memoryGameTime, parsedForDisplay.memory ?? '', displayText);
+    const 记忆写入结果 = 写入四段记忆(state.记忆, 回合即时条目, 回合短期条目, {
+      immediateLimit: state.gameSettings.记忆系统?.即时转短期阈值 ?? 10,
+      recallRound: (state.忆庭?.回忆档案?.length ?? 0) + 1,
+      gameTime: memoryGameTime,
     });
+    let mem = 记忆写入结果.memory;
+    // 回忆条目（每回合一条，名称【回忆N】）在回合后段汇入忆庭档案（yitingBase 合并处）。
+    let pendingRecallEntry = 记忆写入结果.recallEntry;
+
+    // 阶段1主链压缩：阈值常量提前计算，压缩结算统一推迟到本回合所有会修改记忆的
+    // 步骤（剧情推进 / NPC 事实 / 忆庭入库）完成后，以最终记忆切片创建压缩请求。
+    const memorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
+    const shortThreshold = memorySettings.短期转中期阈值 ?? 30;
+    const middleThreshold = memorySettings.中期转长期阈值 ?? 50;
+    const yitingWithCompression = state.忆庭;
 
     // 7 / 7a / 7b. 世界 + 旅人 的本回合修改全部累计到本地变量,最后一次性 set。
     //     这样在 8.5 变量校准里能拿到这些修改作为 snapshot——否则变量模型 commit 时
@@ -2657,13 +2546,9 @@ export async function executeSendWorkflow(
     let worldAfter: typeof state.世界 = 归一化世界状态(effectiveWorld);
     let travelerAfter: typeof state.旅人 = state.旅人;
 
-    // 7. 全局事件
-    if (parsedForDisplay.worldEvents.length) {
-      worldAfter = {
-        ...worldAfter,
-        全局事件: appendWorldEvents(worldAfter.全局事件, parsedForDisplay.worldEvents),
-      };
-    }
+    // 7. 全局事件——R3 起移除 <动态世界> 的正式写入：parsedForDisplay.worldEvents 只作为世界演变线索
+    //    （见步骤 4 dynamicWorldClues）；世界.全局事件 仅保留兼容显示投影，只能由已提交事实生成
+    //    显示 label（见 R2/R3 提交点 displayLabels），label 不是事实 owner，不得反向生成事实。
 
     // 7a. 命途狭间·邀请发出 → 写入 世界.待触发狭间
     //     校验:必须是已踏上 + 待升阶 的命途,才允许邀请落地。AI 偶发误标(把已经过去的命途
@@ -2707,20 +2592,6 @@ export async function executeSendWorkflow(
       }
     }
 
-    // 天气解析：从 AI 响应中提取 <天气> 标签，写入世界状态
-    // 注意:此处 worldAfter.当前地点 仍是本回合开始前的旧地点,变量模型尚未运行。
-    // 如果 AI 同回合切地点+换天气(如 黑塔空间站→罗浮 + 星海潮汐),用旧地点校验会误拒。
-    // 因此只要天气 ID 合法(解析天气标签 已校验过中文→ID 映射)就直接接受,
-    // 地点白名单仅作 prompt 引导,不强制校验。
-    const rawResponseTextForTurn = result.fullText || displayText;
-    const 天气 = 解析天气标签(rawResponseTextForTurn);
-    if (天气) {
-      if (!验证天气合法性(天气, worldAfter.当前地点)) {
-        console.info('[天气] 天气与当前地点白名单不匹配，仍接受（地点可能在本回合由变量模型更新）:', 天气, '| 旧地点:', worldAfter.当前地点);
-      }
-      worldAfter = { ...worldAfter, 当前天气: 天气 };
-    }
-
     result.fullText = '';
     result.parsed = parseResponse('');
     result.usage = undefined;
@@ -2730,17 +2601,20 @@ export async function executeSendWorkflow(
     previewText = '';
     tavernV2Messages = null;
 
-    // 一次性 commit。直接传值不用 functional updater,因为 worldAfter / travelerAfter
-    // 已基于 state.世界 / state.旅人 派生,React 批处理后效果等价。
-    if (worldAfter !== state.世界) state.set世界(worldAfter);
+    // 旅人仍沿用既有变量校准前快照；剧情编织运行时切片的世界提交延后到 R2 唯一提交点。
     if (travelerAfter !== state.旅人) state.set旅人(travelerAfter);
 
     // 8.5 变量模型校准：主回复完成 → 调用独立的变量模型分析正文，把结构化命令落地。
     //     失败/超时不影响主流程，只在 console 报警。
     pushQueueTask(state, 'variable', state.gameSettings.enableVariableUpdate ? 'pending' : 'skipped', {
       detail: state.gameSettings.enableVariableUpdate ? '正在调用变量模型校准正文。' : '变量更新未启用，已跳过。',
+      turn: state.turnCount,
+      turnId,
+      targetMessageId: aiMsg.id,
+      targetUserMessageId: userMsg.id,
     });
     const variableOverrides = await runVariableCalibrationStep({
+      pathAwakeningTurn: isPathAwakeningTurn,
       state,
       mainApiConfig: config,
       userInput,
@@ -2753,36 +2627,62 @@ export async function executeSendWorkflow(
       // 把刚写入的 待触发狭间 / 应用狭间结果后的命途列表抹掉。
       travelerSnapshot: travelerAfter,
       worldSnapshot: worldAfter,
+      commitStrategy: 'main_turn',
       signal: abortController.signal,
-      allowYiting: yitingEnabled,
       shouldCommit: isCurrentWorkflow,
+      // 阶段1约定系统·写入环：把recall召回的通讯回忆拼成recallContext传给variableModel
+      // AI 从中提取玩家与NPC在手机里建立的约定，用 agreement 事实输出
+      recallContext: yitingPreview?.entries?.length
+        ? yitingPreview.entries
+            .filter((entry) => entry.分类 === '通讯')
+            .map((entry) => {
+              const title = entry.名称 || `第${entry.回合}回合回忆`;
+              const body = entry.摘要 || entry.原文 || '';
+              return `${title}：${body}`;
+            })
+            .join('\n\n')
+        : undefined,
+      turnId,
+      targetMessageId: aiMsg.id,
+      targetUserMessageId: userMsg.id,
+      sourceEvidenceId: `chat_history:${aiMsg.id}`,
       });
       assertWorkflowActive();
+      const variableBatchForSave = variableOverrides?.batch;
       if (state.gameSettings.enableVariableUpdate) {
-        const variableApplied = Boolean(variableOverrides && Object.keys(variableOverrides).some((key) => key !== 'batch' && key !== 'npcLedgerUpdate'));
-        pushQueueTask(state, 'variable', 'success', {
-          detail: variableApplied ? '变量命令已落地。' : '本回合没有可落地的变量命令，已记录变量报告。',
+        const variableApplied = Boolean(variableOverrides?.projection?.changedRoots.length);
+        const batchHasFailure = variableBatchHasFailure(variableOverrides?.batch);
+        const batchHasWarning = variableBatchHasWarning(variableOverrides?.batch);
+        const variableBatch = variableOverrides?.batch;
+        pushQueueTask(state, 'variable', batchHasFailure ? 'failed' : batchHasWarning ? 'warning' : 'success', {
+          detail: batchHasFailure
+            ? '变量结算存在解析或执行失败，请展开查看变量报告。'
+            : batchHasWarning
+                ? '变量命令已落地，但部分候选事实被规则层忽略，请展开查看变量报告。'
+                : variableApplied
+                  ? '变量命令已落地。'
+                  : '本回合没有可落地的变量命令，已记录变量报告。',
+          turn: variableBatch?.turn ?? state.turnCount,
+          turnId: variableBatch?.turnId ?? turnId,
+          targetMessageId: variableBatch?.targetMessageId ?? aiMsg.id,
+          targetUserMessageId: variableBatch?.targetUserMessageId ?? userMsg.id,
+          targetBatchId: variableBatch?.id,
         });
       }
 
       const npcSource = variableOverrides?.NPC ?? state.NPC;
-      const archiveEnrichment = enrichNpcArchives(npcSource, {
-        nsfwEnabled: state.gameSettings.enableNsfw,
-        maleNsfwArchiveEnabled: state.gameSettings.enableMaleNsfwArchive,
-      });
-
-      // NSFW 基线补建：开启 NSFW 后，把需要补建基线的 NPC 信息传给变量模型，
-      // 变量模型在变量更新那一次调用里顺带生成 NSFW 基线档案，走正常 nsfw_archive facts 落库链路。
+      const archiveEnrichment = enrichNpcArchives(npcSource);
       const npcSourceForCompression = archiveEnrichment.records;
-      const memorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
+      const npcSourceForCompressionReady = 整理NPC记录列表(npcSourceForCompression, state.turnCount + 1);
+      const npcMemorySettings = state.gameSettings.记忆系统 ?? 创建默认记忆系统设置();
       const npcCompressionSummaryTriggered: string[] = [];
-      let npcAfterCompression = npcSourceForCompression.map((npc) => {
+      let npcAfterCompression = npcSourceForCompressionReady.map((npc) => {
         const ledgerCompression = compressNpcMemoryLedger({
           npcId: npc.id,
           entries: npc.同行记忆 ?? [],
           summaries: npc.总结记忆 ?? [],
-          threshold: memorySettings.NPC记忆压缩阈值,
-          prompt: memorySettings.NPC记忆压缩提示词,
+          threshold: npcMemorySettings.NPC记忆压缩阈值,
+          prompt: npcMemorySettings.NPC记忆压缩提示词,
           turn: state.turnCount,
           source: '变量',
         });
@@ -2822,71 +2722,326 @@ export async function executeSendWorkflow(
         state.setChatHistory(finalHistory);
       }
 
-      let memoryAfterStoryProgress = variableOverrides?.记忆 ?? mem;
-      const storyAlignment = isOpeningSystemTrigger
-        ? { system: state.剧情编织, changed: false, progressed: false }
-        : autoAlignCanonStoryProgress({
-            storyWeaving: state.剧情编织,
-            turnCount: state.turnCount + 1,
-            userInput,
-            body: displayText,
-            currentLocation: variableOverrides?.世界?.当前地点 ?? worldAfter.当前地点 ?? effectiveWorld.当前地点,
-            gateSnapshot: storyWeavingGate,
-          });
-      const storyProgressMemoryLine = storyAlignment.progressed
-        ? buildStoryProgressMemoryLine(state.剧情编织, storyAlignment.system)
-        : '';
-      let storyWeavingForSave = storyAlignment.system;
+      let memoryAfterStoryProgress = mem;
+      // ═══ R2：联合裁决唯一提交点（计划 §6 R2 12 步：世界先处理、剧情再读取、一次提交）═══
+      // 步骤 0：回合前基线（只读，不修改正式状态）。运行时切片随普通存档/回合快照保存在 世界.剧情运行时。
+      const baselineSlice = effectiveWorld.剧情运行时;
+      const runtimeRevision = baselineSlice?.runtimeRevision ?? 0;
+      const runtimeBranchId = baselineSlice?.runtimeBranchId ?? 'branch:main';
+      const gameTime = gameTimeOf(effectiveWorld);
+      const runtimeProjection = isOpeningSystemTrigger ? null : buildStoryWeavingRuntimeProjection({
+        system: state.剧情编织,
+        legacyWorldEventStrings: worldAfter.全局事件,
+        historyArchives: state.剧情编织.当前进度?.历史归档,
+      });
+      const runtimeSeries = runtimeProjection
+        ? state.剧情编织.系列列表.find((item) => item.id === runtimeProjection.currentFocus.trackId)
+        : undefined;
+      const runtimeCurrentSegment = runtimeSeries
+        ?.分段列表.find((segment) => segment.id === runtimeProjection?.currentUnit.segmentId);
+      const continuityPreDecision = runtimeSeries
+        ? evaluateStoryContinuity({
+            phase: 'pre_request',
+            currentRegionId: worldAfter.当前区域ID,
+            currentLocation: worldAfter.当前地点,
+            openingRegionId: worldAfter.开局档案?.地区ID,
+            seriesRegionId: inferStorySeriesRegion(runtimeSeries),
+            seriesTitle: runtimeSeries.标题,
+            seriesLocations: runtimeSeries.涉及地点索引,
+          })
+        : { action: 'allow' as const, mode: 'stay' as const, reasons: [] };
+      let adjudication: StoryTurnAdjudication | null = null;
+      let worldEvolutionStatus: 'settled' | 'failed' | 'skipped' | undefined;
+      let worldEvolutionFailureReason: string | undefined;
+      let storyProgressMemoryLine = '';
+      let storyWeavingForSave = state.剧情编织;
       let storyWeavingConcurrentChange = false;
-      if (storyAlignment.changed) {
-        assertWorkflowActive();
-        const resolvedStory = await resolveStoryWeavingForBackgroundWrite({
-          workflowBase: state.剧情编织,
-          proposed: storyAlignment.system,
-        });
-        storyWeavingForSave = resolvedStory.system;
-        storyWeavingConcurrentChange = resolvedStory.concurrentChange;
-        if (!storyWeavingConcurrentChange) {
-          state.set剧情编织(storyWeavingForSave);
-          await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(storyWeavingForSave));
-        } else {
-          pushQueueTask(state, 'zhiku', 'success', {
-            detail: '检测到剧情编织面板已有更新，本回合后台未覆盖最新导入/分解结果。',
-          });
-        }
-        assertWorkflowActive();
-        if (storyProgressMemoryLine && !storyWeavingConcurrentChange) {
-          memoryAfterStoryProgress = addImmediateMemory(memoryAfterStoryProgress, storyProgressMemoryLine, state.turnCount + 1);
-          mem = memoryAfterStoryProgress;
-          state.set记忆(memoryAfterStoryProgress);
-          const npcAfterStoryProgress = applyStoryProgressNpcMemory(
-            npcAfterCompression,
-            storyWeavingForSave,
-            storyProgressMemoryLine,
-            state.turnCount + 1,
-          );
-          if (npcAfterStoryProgress !== npcAfterCompression) {
-            npcAfterCompression = npcAfterStoryProgress;
-            state.setNPC(npcAfterCompression);
+      // R3：统一事实视图（新闻/NPC/手机/记忆/智库/地图只消费这一份，不各自重新判断剧情是否发生）。
+      let turnFactView: StoryFactConsumerView | null = null;
+      // 工作包F 11.4：命途狭间两回合不执行剧情编织裁决/世界演变/事实物化（scope gate）
+      if (runtimeProjection && runtimeCurrentSegment && !isPathAwakeningTurn) {
+        // 步骤 0.5：方案C 独立 AI 语义判定（默认关闭）——与 AI 申报汇合后交给证据层。
+        let storyAdvanceInput = aiMsg.parsedResponse?.storyAdvance;
+        if (state.gameSettings.剧情编织系统?.剧情推进AI判定 === true) {
+          const judgeConfig = buildStoryAdvanceJudgeApiConfig(state.gameSettings, state.apiSettings);
+          if (judgeConfig) {
+            const judgement = await judgeStoryAdvance(judgeConfig, {
+              currentSegment: runtimeCurrentSegment,
+              body: displayText,
+              playerInput: userInput,
+            }, abortController.signal);
+            if (judgement) {
+              storyAdvanceInput = {
+                completed: judgement.completed || storyAdvanceInput?.completed === true,
+                targetSegment: judgement.actualSegmentId ?? storyAdvanceInput?.targetSegment,
+                basis: [storyAdvanceInput?.basis, judgement.reason].filter(Boolean).join('；') || undefined,
+              };
+            }
           }
+        }
+        // 步骤 1：从主剧情正文提取 confirmed evidence（命中明确结束状态）与提及（未来内容不入推进候选）。
+        const evidenceResult = await buildTurnEvidence({
+          body: displayText,
+          currentSegment: runtimeCurrentSegment,
+          futureSegments: runtimeSeries?.分段列表.filter((segment) => segment.组号 > runtimeCurrentSegment.组号),
+          // 剧情编织只消费自己的回合前世界基线；变量地点在变量批次中独立、静默提交。
+          currentLocation: worldAfter.当前地点,
+          projection: runtimeProjection,
+          gameTime,
+          turnCount: state.turnCount + 1,
+          responseId: aiMsg.id,
+          storyAdvance: storyAdvanceInput,
+        });
+        // R3：正文命中下一分段关键事件的事件结果（完成后的结果）→ 玩家提前解决候选（计划 4.2 规则 7）。
+        const runtimeNextSegment = runtimeSeries?.分段列表.find((segment) =>
+            segment.组号 === runtimeCurrentSegment.组号 + 1
+            && segment.启用注入 !== false
+            && segment.处理状态 === '已完成',
+          );
+        const earlyResolutionEvidence = runtimeNextSegment
+          ? await buildEarlyResolutionEvidence({
+              body: displayText,
+              scheduledSegment: runtimeNextSegment,
+              scheduledUnits: runtimeProjection.scheduledUnits,
+              gameTime,
+              turnCount: state.turnCount + 1,
+              responseId: aiMsg.id,
+            })
+          : [];
+        const allConfirmedEvidence = [...evidenceResult.confirmedEvidence, ...earlyResolutionEvidence];
+        // 步骤 2：合并持久化事件与下一分段投影（scheduled + 真实游戏时钟 dueAt）。
+        const timelineAnchors = Object.fromEntries(
+          runtimeProjection.scheduledUnits.map((unit) => [unit.unitId, unit.timelineAnchor]),
+        );
+        const mergedEvents = mergeProjectionEvents(
+          baselineSlice?.worldEvents ?? [],
+          runtimeProjection.scheduledEventInstances,
+          gameTime,
+          timelineAnchors,
+        );
+        // 步骤 3：dueEventScanner 按真实游戏时间扫描到期事件（后台先处理，不移动玩家焦点）。
+        const scanned = scanDueWorldEvents(mergedEvents, runtimeRevision, gameTime);
+        // 步骤 4：独立世界演变（<动态世界> 只作线索；只返回候选，不写任何状态）。
+        pushQueueTask(state, 'world_evolution', 'pending', {
+          detail: scanned.dueInstanceIds.length || parsedForDisplay.worldEvents.length
+            ? '正在处理到期事件与动态世界线索。'
+            : '正在检查本回合是否有待处理世界演变。',
+          cancellable: true,
+        });
+        const evolutionResult = await runWorldEvolutionStep({
+          config: buildStoryWeavingApiConfig(state.gameSettings, state.apiSettings),
+          events: scanned.events,
+          dueInstanceIds: scanned.dueInstanceIds,
+          dynamicWorldClues: parsedForDisplay.worldEvents,
+          legacyLabels: runtimeProjection.legacyLabels,
+          gameTime,
+          runtimeRevision,
+          signal: abortController.signal,
+        });
+        assertWorkflowActive();
+        worldEvolutionStatus = evolutionResult.ok ? (evolutionResult.skipped ? 'skipped' : 'settled') : 'failed';
+        if (!evolutionResult.ok) worldEvolutionFailureReason = evolutionResult.failureReason;
+        // 步骤 5：世界演变候选规范化/校验 → 只应用到内存 simulatedWorldState（非法候选整体拒绝，正式世界不变）。
+        let simulatedEvents = scanned.events;
+        let simulatedFacts = baselineSlice?.factLedger ?? [];
+        const worldCommittedFactIds: string[] = [];
+        if (evolutionResult.ok && evolutionResult.candidates.length > 0) {
+          const worldAdjudication = adjudicateWorldEvolution({
+            candidates: evolutionResult.candidates,
+            currentEvents: simulatedEvents,
+            dueInstanceIds: scanned.dueInstanceIds,
+            gameTime,
+            runtimeRevision,
+          });
+          if (worldAdjudication.ok) {
+            simulatedEvents = worldAdjudication.simulatedEvents;
+            for (const fact of worldAdjudication.factsToCommit) {
+              if (!isWorldFactDuplicate(fact, simulatedFacts)) {
+                simulatedFacts = [...simulatedFacts, fact];
+                worldCommittedFactIds.push(fact.factId);
+              }
+            }
+          } else {
+            worldEvolutionStatus = 'failed';
+            worldEvolutionFailureReason = worldAdjudication.message;
+          }
+        }
+        const worldEvolutionQueueStatus: 队列任务状态 = worldEvolutionStatus === 'settled' ? 'success' : worldEvolutionStatus;
+        pushQueueTask(state, 'world_evolution', worldEvolutionQueueStatus, {
+          detail: worldEvolutionFailureReason
+            ?? (worldEvolutionStatus === 'skipped' ? '没有到期事件或世界演变线索，已跳过。' : '世界演变候选已在内存模拟并纳入本回合裁决。'),
+        });
+        // 步骤 6：当前剧情焦点/剧情规划读取 simulatedWorldState（用更新后的模拟世界裁决，不扫描未来段自动对齐）。
+        adjudication = adjudicateStoryTurn({
+          currentFocus: runtimeProjection.currentFocus,
+          currentSegment: runtimeCurrentSegment,
+          committedFacts: simulatedFacts,
+          eventInstances: simulatedEvents,
+          confirmedEvidence: allConfirmedEvidence,
+          gameTime,
+          runtimeRevision,
+        });
+        if (continuityPreDecision.action === 'hold') {
+          adjudication = {
+            ...adjudication,
+            decision: 'pause',
+            completedUnitIds: [],
+            committedFactIds: [],
+            targetSegmentId: undefined,
+            reasons: [
+              ...adjudication.reasons,
+              ...continuityPreDecision.reasons,
+            ],
+          };
+        }
+        // R3 唯一事实入口：按回执 committedFactIds 精确物化玩家事实并应用事件迁移。
+        // advance_one 只提交当前单元完成事实；resolve_early 结算目标为 player_early、后续原定事件 superseded（不反向取消前置）。
+        const materialized = materializeAdjudicatedFacts({
+          adjudication,
+          evidenceCandidates: allConfirmedEvidence,
+          events: simulatedEvents,
+          committedFacts: simulatedFacts,
+          gameTime,
+          runtimeRevision,
+        });
+        simulatedEvents = materialized.events;
+        simulatedFacts = materialized.facts;
+        const turnCommittedFactIds = mergeNewFactIds(worldCommittedFactIds, materialized.newlyCommittedFactIds);
+        turnFactView = buildStoryFactConsumerView({
+          factLedger: simulatedFacts,
+          worldEvents: simulatedEvents,
+          newFactIds: turnCommittedFactIds,
+        });
+        // R3 兼容显示投影：世界.全局事件 只能由已提交事实生成显示 label（label 不是事实 owner）。
+        const playerKnownIdSet = new Set(turnFactView.playerKnownFacts.map((fact) => fact.factId));
+        const displayLabels = turnFactView.turnCommittedFacts
+          .filter((fact) => playerKnownIdSet.has(fact.factId))
+          .map(formatFactBrief);
+        if (displayLabels.length) {
+          worldAfter = { ...worldAfter, 全局事件: appendWorldEvents(worldAfter.全局事件, displayLabels) };
+        }
+        // 步骤 7：唯一正式提交——按回执一次更新剧情编织 / 运行时切片 / 兼容世界投影。
+        const storyAdvance = applyAdjudicatedStoryProgress({
+          storyWeaving: state.剧情编织,
+          turnCount: state.turnCount + 1,
+          decision: adjudication.decision,
+          completedUnitIds: adjudication.completedUnitIds,
+          reasons: adjudication.reasons,
+          targetSegmentId: adjudication.targetSegmentId,
+        });
+        if (storyAdvance.changed) {
+          assertWorkflowActive();
+          const resolvedStory = await resolveStoryWeavingForBackgroundWrite({
+            workflowBase: state.剧情编织,
+            proposed: storyAdvance.system,
+            worldId: state.worldId,
+          });
+          storyWeavingForSave = resolvedStory.system;
+          storyWeavingConcurrentChange = resolvedStory.concurrentChange;
+          if (!storyWeavingConcurrentChange) {
+            state.set剧情编织(storyWeavingForSave);
+          } else {
+            pushQueueTask(state, 'zhiku', 'success', {
+              detail: '检测到剧情编织面板已有更新，本回合后台未覆盖最新导入/分解结果。',
+            });
+          }
+        } else {
+          storyWeavingForSave = 归一化剧情编织系统(storyAdvance.system);
+        }
+        // 步骤 8：记忆/NPC 链消费同一回执（计划流程表第 10 步；本阶段只更新记忆与 NPC，不新建新闻/手机/智库/地图投影）。
+        if (adjudication.decision === 'advance_one' && !storyWeavingConcurrentChange) {
+          storyProgressMemoryLine = buildStoryProgressMemoryLine(state.剧情编织, storyWeavingForSave);
+        } else if (adjudication.decision === 'resolve_early') {
+          storyProgressMemoryLine = `剧情事件提前解决：${adjudication.supersededEventIds.join('、') || '无后续原定事件'} 已被取代，不补演原剧情。`;
+        }
+        // 步骤 9：一次更新运行时切片（随 worldAfter 一次 set世界；自动存档每回合只写一次裁决后唯一状态）。
+        const postAdjudicationProjection = buildStoryWeavingRuntimeProjection({
+          system: storyWeavingForSave,
+          legacyWorldEventStrings: worldAfter.全局事件,
+          historyArchives: storyWeavingForSave.当前进度?.历史归档,
+          enteredAtRevision: runtimeRevision + 1,
+        });
+        const nextSlice = 归一化剧情编织运行时切片({
+          schemaVersion: 1,
+          runtimeBranchId,
+          runtimeRevision: runtimeRevision + 1,
+          focus: postAdjudicationProjection?.currentFocus ?? runtimeProjection.currentFocus,
+          worldEvents: simulatedEvents,
+          factLedger: simulatedFacts,
+          lastDecision: adjudication.decision,
+          lastReasons: adjudication.reasons,
+          worldEvolutionStatus,
+          worldEvolutionFailureReason,
+          updatedAt: Date.now(),
+        });
+        worldAfter = { ...worldAfter, 剧情运行时: nextSlice };
+      } else {
+        storyWeavingForSave = 归一化剧情编织系统(state.剧情编织);
+        if (baselineSlice) worldAfter = { ...worldAfter, 剧情运行时: baselineSlice };
+        pushQueueTask(state, 'world_evolution', 'skipped', { detail: '开局系统回合不执行剧情编织世界演变。' });
+      }
+      if (variableOverrides?.世界) {
+        worldAfter = {
+          ...variableOverrides.世界,
+          全局事件: appendWorldEvents(variableOverrides.世界.全局事件, worldAfter.全局事件),
+          剧情运行时: worldAfter.剧情运行时,
+        };
+      }
+      // R2 唯一正式世界提交点：变量模型只返回覆盖，运行时切片和兼容世界投影在此合并后一次写回。
+      if (worldAfter !== state.世界) state.set世界(worldAfter);
+      if (variableBatchForSave && variableOverrides?.commitReceipt?.batchRecorded !== true) {
+        state.setVariableBatches((prev) => compactVariableBatchHistory([
+          ...prev.filter((batch) => batch.id !== variableBatchForSave?.id),
+          variableBatchForSave!,
+        ]));
+      }
+      assertWorkflowActive();
+      if (storyProgressMemoryLine) {
+        memoryAfterStoryProgress = addImmediateMemory(memoryAfterStoryProgress, storyProgressMemoryLine, state.turnCount + 1);
+        mem = memoryAfterStoryProgress;
+        state.set记忆(memoryAfterStoryProgress);
+        const npcAfterStoryProgress = applyStoryProgressNpcMemory(
+          npcAfterCompression,
+          storyWeavingForSave,
+          storyProgressMemoryLine,
+          state.turnCount + 1,
+        );
+        if (npcAfterStoryProgress !== npcAfterCompression) {
+          npcAfterCompression = npcAfterStoryProgress;
+          state.setNPC(npcAfterCompression);
+        }
+      }
+      // R3：NPC 只消费统一事实视图中的明确参与者/知情者事实（npcKnownFacts 来自 participantIds 或 payload 明确 NPC ID，
+      // 不猜测名字、不批量广播；后台世界事件不写玩家功劳）。
+      if (turnFactView && turnFactView.npcKnownFacts.length) {
+        const npcAfterFactMemories = applyNpcFactMemories(
+          npcAfterCompression,
+          turnFactView.npcKnownFacts,
+          turnFactView.turnCommittedFacts,
+          state.turnCount + 1,
+        );
+        if (npcAfterFactMemories !== npcAfterCompression) {
+          npcAfterCompression = npcAfterFactMemories;
+          state.setNPC(npcAfterCompression);
         }
       }
       let zhikuAfterRuntimeUnlock = state.智库;
-      if (storyAlignment.progressed && !storyWeavingConcurrentChange) {
+      let zhikuUnlockCandidate: {
+        unlocked: Array<{ id: string; title: string; status: string; reason: string }>;
+      } | null = null;
+      if (adjudication?.decision === 'advance_one' && !storyWeavingConcurrentChange) {
         const zhikuUnlock = applyStoryArchiveZhikuRuntimeUnlock({
           zhiku: state.智库,
           storyWeaving: storyWeavingForSave,
         });
         if (zhikuUnlock.changed) {
+          // 只计算本回合候选 patch；主回合完全成功收尾前不得立刻 set智库 / updateSetting，
+          // 重 Roll / 失败 / 中止时由回合快照恢复到回合前智库运行态。
           assertWorkflowActive();
+          zhikuUnlockCandidate = { unlocked: zhikuUnlock.unlocked };
           zhikuAfterRuntimeUnlock = mergeZhikuRuntimeUnlockPatch(state.智库, zhikuUnlock.unlocked);
-          state.set智库((current) => mergeZhikuRuntimeUnlockPatch(current, zhikuUnlock.unlocked));
-          await updateSetting<import('@/models/zhiku').智库系统>('zhikuSystem', (current) => (
-            buildPersistedZhikuSystem(mergeZhikuRuntimeUnlockPatch(current ?? state.智库, zhikuUnlock.unlocked))
-          ));
-          assertWorkflowActive();
-          pushQueueTask(state, 'zhiku', 'success', {
-            detail: `剧情归档已更新智库门禁：${zhikuUnlock.unlocked.slice(0, 3).map((item) => `${item.title}→${item.status}`).join('、')}${zhikuUnlock.unlocked.length > 3 ? ` 等 ${zhikuUnlock.unlocked.length} 项` : ''}。`,
+          pushQueueTask(state, 'zhiku', 'pending', {
+            detail: `剧情归档已更新智库门禁（待回合收尾提交）：${zhikuUnlock.unlocked.slice(0, 3).map((item) => `${item.title}→${item.status}`).join('、')}${zhikuUnlock.unlocked.length > 3 ? ` 等 ${zhikuUnlock.unlocked.length} 项` : ''}。`,
           });
         }
       }
@@ -2895,24 +3050,15 @@ export async function executeSendWorkflow(
       const newsInterval = Math.max(5, Math.min(10, Math.trunc(newsSettings?.generateIntervalTurns ?? 5) || 5));
       const newsTurn = state.turnCount + 1;
       const shouldRunOpeningNews = isOpeningSystemTrigger && newsEnabled;
-      const shouldRunNews = newsEnabled && ((shouldRunOpeningNews && !openingNewsPreprocessed) || (newsTurn > 0 && newsTurn % newsInterval === 0));
-      const yitingBase = mergeYitingSystems(yitingWithCompression, variableOverrides?.忆庭);
-      const turnRecallSource = {
-        turn: state.turnCount,
-        userInput,
-        body: displayText,
-        memory: parsedForDisplay.memory,
-        worldEvents: storyProgressMemoryLine
-          ? [...parsedForDisplay.worldEvents, storyProgressMemoryLine]
-          : parsedForDisplay.worldEvents,
-        actionOptions: parsedForDisplay.actionOptions,
-        gameTime: effectiveWorld?.当前日期 || undefined,
-        gameClock: effectiveWorld?.当前时间 || undefined,
-        location: effectiveWorld?.当前地点 || undefined,
-      };
+      // 工作包F 11.4：命途狭间回合不生成新闻
+      const shouldRunNews = newsEnabled && !isPathAwakeningTurn && ((shouldRunOpeningNews && !openingNewsPreprocessed) || (newsTurn > 0 && newsTurn % newsInterval === 0));
+      const yitingBase = yitingWithCompression;
+      // 对标参考项目：本回合回忆条目（写入四段记忆 生成，名称【回忆N】）汇入忆庭档案。
+      let yitingAfterTurnRecall = pendingRecallEntry
+        ? { ...yitingBase, 回忆档案: [...yitingBase.回忆档案, pendingRecallEntry] }
+        : yitingBase;
       let newsAfterGeneration: 新闻条目[] | null = openingNewsForSave;
-      let yitingAfterTurnRecall = yitingBase;
-      let phoneAfterFallbackSeed = variableOverrides?.手机 ?? state.手机;
+      const phoneAfterVariable = variableOverrides?.手机 ?? state.手机;
       let finalHistoryForSave = finalHistory;
 
       const runNewsBackgroundJob = async (): Promise<void> => {
@@ -2940,36 +3086,39 @@ export async function executeSendWorkflow(
           userInput,
           recentTurns: buildRecentTurnWindowForNews(finalHistory, userInput, displayText, newsInterval),
           storyWeavingSnapshot: storyWeavingForSave,
+          // R3：新闻只消费统一事实视图（已提交 public/broadcast 事实；scheduled 事件最多预告）。
+          factView: turnFactView,
           signal: abortController.signal,
           shouldCommit: isCurrentWorkflow,
         });
         assertWorkflowActive();
         newsAfterGeneration = newsGenerationResult?.news ?? state.新闻;
-        pushQueueTask(state, 'news', 'success', {
-          detail: newsGenerationResult?.changed
-            ? `星际和平周报已更新，当前共 ${newsAfterGeneration.length} 条新闻记录。`
-            : newsGenerationResult
-              ? '星际和平周报本回合没有可写新闻变化。'
-              : '星际和平周报未生成有效结果。',
-        });
+        if (!newsGenerationResult && !abortController.signal.aborted) {
+          // R3 失败边界：新闻生成失败在新闻任务内部隔离——已提交剧情/世界事实不回滚，新闻保持旧可信状态，队列 failed。
+          pushQueueTask(state, 'news', 'failed', {
+            detail: '星际和平周报生成失败，新闻保持旧可信状态，本回合已提交事实不回滚。',
+            failCount: newsSettings.api.retryCount ?? 2,
+            retryHint: '可在新闻设置中检查 API 配置后重试。',
+          });
+        } else {
+          pushQueueTask(state, 'news', 'success', {
+            detail: newsGenerationResult?.changed
+              ? `星际和平周报已更新，当前共 ${newsAfterGeneration.length} 条新闻记录。`
+              : newsGenerationResult
+                ? '星际和平周报本回合没有可写新闻变化。'
+                : '星际和平周报未生成有效结果。',
+          });
+        }
       };
 
       const runYitingArchiveJob = async (): Promise<void> => {
-        // 忆庭入库始终执行；这里的开关只控制“是否召回并注入正文”。
-        const turnRecallEntryResult = await buildYitingArchiveEntry(
-          turnRecallSource,
-          memorySettings,
-          config,
-          abortController.signal,
-          memorySettings.忆庭召回API.retryCount ?? 2,
-          state.gameSettings.promptModules,
-        );
+        // 对标参考项目：回忆档案 = 即时推导——本回合回忆条目（【回忆N】）已在
+        // yitingAfterTurnRecall 初始化时由「写入四段记忆」生成并汇入，不再独立精炼回合纪要。
+        // 这里只提交忆庭状态与召回提示。
         assertWorkflowActive();
-        const turnRecallEntry = turnRecallEntryResult.entry;
-        yitingAfterTurnRecall = upsertRecallEntry(yitingBase, turnRecallEntry);
         state.set忆庭(yitingAfterTurnRecall);
         pushQueueTask(state, 'memory', 'success', {
-          detail: turnRecallEntryResult.usedFallback ? '忆庭纪要已使用主回复小总结入库。' : '忆庭纪要已由独立模型压缩并入库。',
+          detail: '回合记忆已按即时/短期合体写入回忆档案。',
         });
         if (!yitingEnabled) {
           pushQueueTask(state, 'yiting', 'skipped', {
@@ -2987,31 +3136,6 @@ export async function executeSendWorkflow(
           pushQueueTask(state, 'yiting', 'success', {
             detail: '忆庭已检索，本回合没有命中相关档案。',
           });
-        }
-      };
-
-      const runPhoneFallbackJob = async (): Promise<void> => {
-        if (state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds) {
-          const fallbackSeed = buildFallbackPhoneSeed({
-            phone: phoneAfterFallbackSeed,
-            npcs: npcAfterCompression,
-            turn: state.turnCount + 1,
-            userInput,
-            body: displayText,
-            maxSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
-            contactCooldownTurns: state.gameSettings.手机系统.contactCooldownTurns,
-          });
-          if (fallbackSeed) {
-            phoneAfterFallbackSeed = {
-              ...phoneAfterFallbackSeed,
-              messageSeeds: [...phoneAfterFallbackSeed.messageSeeds, fallbackSeed],
-              unreadTotal: phoneAfterFallbackSeed.unreadTotal + 1,
-            };
-            state.set手机(phoneAfterFallbackSeed);
-            pushQueueTask(state, 'phone', 'success', {
-              detail: `已补充低频主动来信种子：${fallbackSeed.title}。`,
-            });
-          }
         }
       };
 
@@ -3055,73 +3179,163 @@ export async function executeSendWorkflow(
         await Promise.all([
           runNewsBackgroundJob(),
           runYitingArchiveJob(),
-          runPhoneFallbackJob(),
           runNarrativeImageJob(),
         ]);
       } else {
         await runNewsBackgroundJob();
         await runYitingArchiveJob();
-        await runPhoneFallbackJob();
         await runNarrativeImageJob();
       }
 
+      // 记忆压缩结算：主回合所有会修改记忆的步骤（剧情推进 / NPC 事实 / 忆庭入库）
+      // 全部完成后，以最终记忆切片静默压缩（达阈值自动执行，不弹确认窗）。
+      mem = memoryAfterStoryProgress;
+      {
+        // 即时层是滑动窗口、不调 AI 压缩；短期→中期、中期→长期达阈值时静默压缩
+        // （AI 总结失败自动回退本地，失败草稿保留并弹重试提示）。
+        const compression = await autoCompressMemorySystemWithArchivesAsync(
+          mem,
+          state.turnCount,
+          memorySettings,
+          config,
+          abortController.signal,
+        );
+        assertWorkflowActive();
+        mem = compression.memory;
+        memoryAfterStoryProgress = mem;
+        state.set记忆(mem);
+        if (compression.failures.length > 0) {
+          state.set记忆压缩失败({ 条数: compression.failures.length });
+          pushQueueTask(state, 'memory', 'failed', {
+            detail: `${compression.failures.length} 条记忆总结失败，原始材料已保留，可重试。`,
+            failCount: compression.failures.length,
+          });
+        }
+        // F6·对标既定方案：长期记忆超限归档条目（【长期纪要】）幂等汇入忆庭，可检索召回。
+        const mergedYiting = appendLongTermArchivesToYiting(compression.archives, yitingAfterTurnRecall);
+        if (mergedYiting !== yitingAfterTurnRecall) {
+          yitingAfterTurnRecall = mergedYiting;
+          state.set忆庭(mergedYiting);
+        }
+          const compressionDetail = compression.failures.length
+            ? `记忆总结有 ${compression.failures.length} 批 API 失败，已保留完整失败草稿；当前回合继续使用本地 fallback。`
+            : compression.usedModel
+              ? '即时/短期/中期/长期记忆已调用记忆总结 API 完成整理。'
+              : '即时/短期/中期/长期记忆已使用本地摘要完成整理。';
+          pushQueueTask(state, 'memory', compression.failures.length ? 'failed' : 'success', {
+            detail: compressionDetail,
+            failCount: compression.failures.length || undefined,
+            retryHint: compression.failures.length ? '打开记忆系统的“失败草稿”页重新总结。' : undefined,
+          });
+      }
+
+      // 回合成功收尾：宏全局变量 / 世界书触发状态统一提交。
+      // 智库运行时解锁保持候选，只在主回合正式存档成功之后才提交 React 状态与持久化
+      // （见下方 auto-save 块），自动存档失败时由回合快照连同持久化一起回滚。
+      const turnFinalGameSettings: typeof state.gameSettings = {
+        ...state.gameSettings,
+        ...(macroGlobalVarsAfter !== prevGlobalSnapshot ? { macroGlobalVars: macroGlobalVarsAfter } : {}),
+        ...(worldbookTriggerStatesAfter !== state.gameSettings.worldbookTriggerStates
+          ? { worldbookTriggerStates: worldbookTriggerStatesAfter }
+          : {}),
+      };
+      if (turnFinalGameSettings.macroGlobalVars !== state.gameSettings.macroGlobalVars
+        || turnFinalGameSettings.worldbookTriggerStates !== state.gameSettings.worldbookTriggerStates) {
+        state.setGameSettings(turnFinalGameSettings);
+      }
+
+      /** 主回合正式存档成功后，才提交 React 智库状态与持久化智库运行态。 */
+      const commitZhikuAfterAutoSave = async (): Promise<void> => {
+        if (!zhikuUnlockCandidate) return;
+        state.set智库(zhikuAfterRuntimeUnlock);
+        await updateSetting<import('@/models/zhiku').智库系统>('zhikuSystem', (current) => (
+          buildPersistedZhikuSystem(mergeZhikuRuntimeUnlockPatch(
+            current ?? zhikuAfterRuntimeUnlock,
+            zhikuUnlockCandidate.unlocked,
+          ))
+        ));
+        assertWorkflowActive();
+        pushQueueTask(state, 'zhiku', 'success', {
+          detail: `剧情归档已更新智库门禁：${zhikuUnlockCandidate.unlocked.slice(0, 3).map((item) => `${item.title}→${item.status}`).join('、')}${zhikuUnlockCandidate.unlocked.length > 3 ? ` 等 ${zhikuUnlockCandidate.unlocked.length} 项` : ''}。`,
+        });
+      };
+
       // 10. Auto-save —— 每回合只在后台队列收尾写一次，避免正文/变量阶段重复生成多条自动存档。
+      // 持久化容错：回合内容已生成后，本地保存失败不得让整回合被判失败（中断语义仍保留给外层）。
       const persistFailures: string[] = [];
-    try {
-      if (state.gameSettings.enableAutoSaveEveryTurn) {
+      try {
+        if (state.gameSettings.enableAutoSaveEveryTurn) {
         recoveryJournal = updateWorkflowRecoveryJournal(recoveryJournal, { phase: 'autosave' });
         await persistWorkflowRecoveryJournal(recoveryJournal);
         pushQueueTask(state, 'autosave', 'pending', { detail: '正在写入本回合自动存档。' });
-        const variableBatchesForSave = compactVariableBatchHistory(variableOverrides?.batch
-          ? [...state.variableBatches, variableOverrides.batch]
+        const variableBatchesForSave = compactVariableBatchHistory(variableBatchForSave
+          ? [
+              ...state.variableBatches.filter((batch) => batch.id !== variableBatchForSave?.id),
+              variableBatchForSave,
+            ]
           : state.variableBatches);
+        // R2：存档必须携带裁决后的唯一运行时切片；变量模型返回的世界缺少切片时用 worldAfter 补齐。
+        const worldForAutoSave = worldAfter;
         const saveData = buildSavePayload(state, 'auto', {
           chatHistory: finalHistoryForSave,
           记忆: memoryAfterStoryProgress,
           忆庭: yitingAfterTurnRecall,
-          手机: phoneAfterFallbackSeed,
+          手机: phoneAfterVariable,
           旅人: variableOverrides?.旅人,
-          世界: variableOverrides?.世界,
+          世界: worldForAutoSave,
           NPC: npcAfterCompression,
-          新闻: newsAfterGeneration ?? variableOverrides?.新闻,
-          剧情: variableOverrides?.剧情,
+          新闻: newsAfterGeneration ?? state.新闻,
           剧情编织: storyWeavingForSave,
           智库: zhikuAfterRuntimeUnlock,
+          // 自动存档使用本回合最终 gameSettings（宏变量 / 世界书触发状态 / 智库解锁已含其中）。
+          gameSettings: turnFinalGameSettings,
           variableBatches: variableBatchesForSave,
           queueTasks: state.queueTasks,
           turnCount: state.turnCount + 1,
         });
         assertWorkflowActive();
         await saveGame(saveData);
+        turnStateCommitted = true;
         commitActiveSaveTreeMeta(saveData);
         assertWorkflowActive();
         pushQueueTask(state, 'autosave', 'success', { detail: '本回合自动存档完成。' });
         state.setHasSave(true);
+        // 正式存档成功后才提交智库运行态（React + IndexedDB）。
+        await commitZhikuAfterAutoSave();
       }
 
-    await saveSetting('theme', state.currentTheme);
-    await saveSetting('apiSettings', state.apiSettings);
-    await saveSetting('gameSettings', state.gameSettings);
-    await saveSetting('worldbooks', state.worldbooks);
-    } catch (persistError) {
-      // 中断语义保留给外层（用户停止生成）
-      if (abortController.signal.aborted || (persistError instanceof Error && persistError.name === 'AbortError')) {
-        throw persistError;
+      if (!state.gameSettings.enableAutoSaveEveryTurn) {
+        turnStateCommitted = true;
+        // 无自动存档：本回合所有阻断操作成功后才提交智库运行态。
+        await commitZhikuAfterAutoSave();
       }
-      persistFailures.push(persistError instanceof Error ? persistError.message : String(persistError));
-      console.warn('[persist] 回合内容已生成，但本地保存失败', persistFailures);
-      pushQueueTask(state, 'autosave', 'failed', { detail: persistFailures.join('；') });
-      state.setWorkflowHint(`回合内容已生成，但本地保存失败：${persistFailures.join('；')}`);
-    }
-    await clearWorkflowRecoveryJournal(recoveryJournal.workflowId).catch((journalError) => {
-      console.warn('[persist] 清理恢复日志失败（可忽略，下次启动仍可恢复）', journalError);
-    });
+
+        await saveSetting('theme', state.currentTheme);
+        await saveSetting('apiSettings', state.apiSettings);
+        // 与自动存档使用同一个最终 gameSettings 对象，不读闭包旧 state。
+        await saveSetting('gameSettings', turnFinalGameSettings);
+        await saveSetting(世界存储键('worldbooks', state.worldId), state.worldbooks);
+      } catch (persistError) {
+        // 中断语义保留给外层（用户停止生成）。
+        if (abortController.signal.aborted || (persistError instanceof Error && persistError.name === 'AbortError')) {
+          throw persistError;
+        }
+        persistFailures.push(persistError instanceof Error ? persistError.message : String(persistError));
+        console.warn('[persist] 回合内容已生成，但本地保存失败', persistFailures);
+        pushQueueTask(state, 'autosave', 'failed', { detail: persistFailures.join('；') });
+        state.setWorkflowHint(`回合内容已生成，但本地保存失败：${persistFailures.join('；')}`);
+      }
+      await clearWorkflowRecoveryJournal(recoveryJournal.workflowId).catch((journalError) => {
+        console.warn('[persist] 清理恢复日志失败（可忽略，下次启动仍可恢复）', journalError);
+      });
   } catch (err: unknown) {
     if ((err as Error).name === 'AbortError' || abortController.signal.aborted) {
-      state.setChatHistory(rollbackHistoryOnAbort);
-      if (rollbackSnapshotOnAbort) {
-        const rollbackStoryWeaving = restorePreTurnSnapshot(state, rollbackSnapshotOnAbort);
-        await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(rollbackStoryWeaving));
+      if (!turnStateCommitted) {
+        state.setChatHistory(rollbackHistoryOnAbort);
+        if (rollbackSnapshotOnAbort) {
+          // React 与持久化智库运行态一起回滚：刷新后不会重新出现被撤销的解锁。
+          await restorePreTurnSnapshotPersisted(state, rollbackSnapshotOnAbort, updateSetting);
+        }
       }
       await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
       state.setWorkflowHint('已停止生成，本次输入已回到输入框，可修改后重新发送。');
@@ -3129,6 +3343,11 @@ export async function executeSendWorkflow(
       keepWorkflowHint = true;
     } else {
       console.error('Send workflow error:', err);
+      if (!turnStateCommitted && rollbackSnapshotOnAbort) {
+        state.setChatHistory(rollbackHistoryOnAbort);
+        await restorePreTurnSnapshotPersisted(state, rollbackSnapshotOnAbort, updateSetting);
+        await clearWorkflowRecoveryJournal(recoveryJournal.workflowId);
+      }
       keepWorkflowHint = true;
       const detail = err instanceof Error ? err.message : '主流程调用失败。';
       const alreadyReportedByApiLayer = Boolean(
@@ -3182,14 +3401,24 @@ interface VariableCalibrationParams {
   variableDraft?: string;
   /** 主流程结束后的回合数(已 +1)。 */
   turnAfter: number;
+  /** 稳定的 user → assistant 回合身份与目标消息。 */
+  turnId?: string;
+  targetMessageId?: string;
+  targetUserMessageId?: string;
+  sourceEvidenceId?: string;
+  mode?: 'normal' | 'retry' | 'repair' | 'history_repair' | 'reroll';
+  supersedesBatchId?: string;
   memorySystemSnapshot: import('@/models/memory').记忆系统;
   /** 7/7a/7b 后的旅人快照(包含 应用狭间结果 写入的命途列表变化)。 */
   travelerSnapshot?: import('@/models/character').角色数据结构;
   /** 7/7a/7b 后的世界快照(包含全局事件追加、待触发狭间写入、进行中狭间清空)。 */
   worldSnapshot?: import('@/models/world').世界状态;
+  /** 主回合延后世界 root 与批次封口；retry/reroll 直接完成全部提交。 */
+  commitStrategy?: 'immediate' | 'main_turn';
   signal?: AbortSignal;
-  allowYiting?: boolean;
   shouldCommit?: () => boolean;
+  /** 阶段1约定系统·写入环：recall 召回的历史通讯回忆拼接文本，传给 variableModel 提取约定 */
+  recallContext?: string;
 }
 
 interface VariableCalibrationOverrides {
@@ -3200,16 +3429,16 @@ interface VariableCalibrationOverrides {
   智库?: import('@/models/zhiku').智库系统;
   手机?: import('@/models/phone').手机系统;
   NPC?: import('@/models/npc').NPC记录[];
-  新闻?: import('@/models/news').新闻条目[];
-  剧情?: import('@/models/plot').剧情节点[];
   batch?: 变量命令批次;
+  projection?: VariableTurnProjection;
+  commitReceipt?: VariableProjectionCommitReceipt;
   npcLedgerUpdate?: NpcLedgerUpdateDebug;
 }
 
 /** 执行一次变量模型校准：调用独立 API → 解析命令 → 落地 → 推入 variableBatches。
  *  失败不抛错（不影响主流程的存档）。 */
 async function runVariableCalibrationStep(
-  params: VariableCalibrationParams,
+  params: VariableCalibrationParams & { pathAwakeningTurn?: boolean },
 ): Promise<VariableCalibrationOverrides | null> {
   const { state, mainApiConfig } = params;
   if (!state.gameSettings.enableVariableUpdate) return null;
@@ -3225,8 +3454,24 @@ async function runVariableCalibrationStep(
     baseUrl: override.baseUrl.trim() || mainApiConfig.baseUrl,
     apiKey: override.apiKey.trim() || mainApiConfig.apiKey,
     model: override.model.trim() || mainApiConfig.model,
-    maxTokens: override.maxTokens ?? mainApiConfig.maxTokens,
+    // 未单独设置变量 API 输出上限时，不继承主剧情接口过小的限制。
+    maxTokens: override.maxTokens ?? Math.max(mainApiConfig.maxTokens ?? 0, 3200),
     temperature: override.temperature ?? mainApiConfig.temperature,
+  };
+  const sourceEvidenceId = params.sourceEvidenceId
+    ?? (params.targetMessageId
+      ? `chat_history:${params.targetMessageId}`
+      : params.turnId ? `turn:${params.turnId}` : undefined);
+
+  let failureStage: 变量批次诊断['stage'] = 'request';
+  const appendVariableBatch = (batch: 变量命令批次): boolean => {
+    try {
+      state.setVariableBatches((prev) => compactVariableBatchHistory([...prev, batch]));
+      return true;
+    } catch (error) {
+      console.warn('[variable-model] 变量批次记录失败：', error);
+      return false;
+    }
   };
 
   // 构造当前状态快照(用主流程已更新过的切片)。
@@ -3243,133 +3488,80 @@ async function runVariableCalibrationStep(
   });
 
   try {
-    // NSFW 基线候选：开启时，为缺少实质内容的 NPC 在变量更新那一次调用里生成基线。
-    const nsfwBaselineCandidates: NsfwBaselineCandidate[] = [];
-    if (state.gameSettings.enableNsfw) {
-      const npcRecords = (stateSnapshot.NPC ?? []) as NPC记录[];
-      for (const npc of npcRecords) {
-        if (nsfwBaselineCandidates.length >= 2) break;
-        if (needsNsfwBaseline(npc, undefined, {
-          nsfwEnabled: true,
-          maleNsfwArchiveEnabled: state.gameSettings.enableMaleNsfwArchive,
-        })) {
-          nsfwBaselineCandidates.push({
-            npcId: npc.id,
-            npcName: npc.姓名 ?? npc.别名 ?? '',
-            gender: npc.性别,
-            appearance: typeof npc.外貌 === 'string' ? npc.外貌 : undefined,
-            personality: typeof npc.性格 === 'string' ? npc.性格 : undefined,
-            intro: typeof npc.介绍 === 'string' ? npc.介绍 : undefined,
-          });
-        }
-      }
-    }
     const { rawText } = await callVariableModel(variableConfig, {
       body: params.body,
       variableDraft: params.variableDraft,
       userInput: params.userInput,
       turnCount: params.turnAfter - 1, // 这条变量是给「刚结束的那回合」用的
+      mode: params.mode,
+      sourceEvidenceId,
+      targetTurn: params.turnAfter - 1,
+      targetTurnId: params.turnId,
+      targetMessageId: params.targetMessageId,
+      targetUserMessageId: params.targetUserMessageId,
       state: stateSnapshot,
+      phoneSeedsEnabled: state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds && !params.pathAwakeningTurn,
+      maxPhoneSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
       nsfwEnabled: state.gameSettings.enableNsfw,
       maleNsfwArchiveEnabled: state.gameSettings.enableMaleNsfwArchive,
-      nsfwBaselineCandidates,
       signal: params.signal,
       retryCount: state.gameSettings.variableApi.retryCount ?? 2,
       promptModules: state.gameSettings.promptModules,
+      recallContext: params.recallContext,
     });
+    failureStage = 'parse';
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    const parsedFacts = parseVariableFacts(rawText);
-    const factCommands = factsToVariableCommands(parsedFacts.facts, stateSnapshot, params.turnAfter - 1, {
-      phoneSeedsEnabled: state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds,
+    const projection = linkVariableTurn({
+      rawText,
+      current: splitVariableRuntimeState(stateSnapshot),
+      turn: params.turnAfter - 1,
+      operationSourceId: params.turnId ?? params.targetMessageId,
+      sourceTurnId: params.turnId,
+      sourceMessageId: params.targetMessageId,
+      sourceEvidenceId,
+      factSource: '正文',
+      bodyText: params.body,
+      recallContext: params.recallContext,
+      phoneSeedsEnabled: state.gameSettings.手机系统.enabled && state.gameSettings.手机系统.autoGenerateSeeds && !params.pathAwakeningTurn,
       maxPhoneSeedsPerTurn: state.gameSettings.手机系统.maxSeedsPerTurn,
-    });
-    const parsedLegacyCommands = parseVariableCommands(rawText);
-    const filteredLegacyCommands = parsedLegacyCommands.commands.filter((command) => !isTravelerPlayerAuthoredVariablePath(command.key));
-    const skippedTravelerProfileLegacyCount = parsedLegacyCommands.commands.length - filteredLegacyCommands.length;
-    const commands = [...factCommands.commands, ...filteredLegacyCommands];
-    const parseErrors = [
-      ...parsedFacts.parseErrors.map((reason) => `变量事实：${reason}`),
-      ...parsedLegacyCommands.parseErrors.map((reason) => `变量命令：${reason}`),
-    ];
-    const { allowedCommands, rejectedCommands } = applyNsfwVariablePolicy(commands, {
       nsfwEnabled: state.gameSettings.enableNsfw,
       maleNsfwArchiveEnabled: state.gameSettings.enableMaleNsfwArchive,
-    }, stateSnapshot.NPC as NPC记录[]);
-    const { results, nextState } = reduceVariableCommands(allowedCommands, stateSnapshot);
+      mode: params.mode,
+    });
+    failureStage = 'commit';
+    const { analysis, npcLedgerUpdate } = projection;
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 解析错误也合并进 results，让玩家在面板里看到
-    const errResults = parseErrors.map((reason) => ({
-      command: { action: 'set' as const, key: '(解析失败)', value: null },
-      ok: false,
-      kind: 'error' as const,
-      reason,
-    }));
-    const warningResults = factCommands.warnings.map((reason) => ({
-      command: { action: 'set' as const, key: '(事实忽略)', value: null },
-      ok: false,
-      kind: 'warning' as const,
-      reason,
-    }));
-    const rejectedResults = rejectedCommands.map((item) => ({ ...item, kind: 'rejected' as const }));
-    const commandResults = results.map((item) => ({ ...item, kind: 'command' as const }));
-    const allResults = [...errResults, ...warningResults, ...rejectedResults, ...commandResults];
-    const npcLedgerUpdate = buildNpcLedgerUpdateDebug({
-      facts: parsedFacts.facts,
-      commands,
-      results: allResults,
-      warnings: [
-        ...parseErrors,
-        ...factCommands.warnings,
-        ...rejectedCommands.map((item) => item.reason),
-      ],
-    });
-
-    // 把整个 batch 推入历史
-    const batch: 变量命令批次 = {
-      id: `vbatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    const batch = buildVariableBatchFromProjection(projection, {
       turn: params.turnAfter - 1,
-      timestamp: Date.now(),
+      turnId: params.turnId,
+      targetMessageId: params.targetMessageId,
+      targetUserMessageId: params.targetUserMessageId,
+      supersedesBatchId: params.supersedesBatchId,
       source: overrodeAny ? 'calibration' : 'main',
       modelName: variableConfig.model,
-      results: allResults,
-      report: [
-        `变量事实：${parsedFacts.facts.length} 条，生成内部命令 ${factCommands.commands.length} 条。`,
-        filteredLegacyCommands.length ? `兼容旧命令：${filteredLegacyCommands.length} 条。` : '兼容旧命令：0 条。',
-        skippedTravelerProfileLegacyCount ? `已静默忽略旅人核心档案旧命令：${skippedTravelerProfileLegacyCount} 条。` : '',
-        factCommands.warnings.length ? `事实警告：${factCommands.warnings.length} 条。` : '事实警告：0 条。',
-        ...factCommands.notes,
-      ].filter(Boolean).join('\n'),
-      rawText,
-    };
-    if (params.shouldCommit?.() === false) return null;
-    state.setVariableBatches((prev) => compactVariableBatchHistory([...prev, batch]));
-
+    });
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
 
-    // 没有任何成功命令时，无需 setState；返回空 overrides 让 save 用主流程的值
-    const anyApplied = results.some((r) => r.ok);
-    const worldSelfHealed = nextState.世界 !== stateSnapshot.世界;
-    if (!anyApplied && !worldSelfHealed) return { batch, npcLedgerUpdate };
-    if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
-
-    // 一次性提交所有切片到 React state。传 stateSnapshot 作 initialState,
-    // commitVariableState 内部用引用相等过滤——变量模型没改的 root 不会 setState,
-    // 避免覆盖玩家在校准这几秒里在 UI 上做的交互(比如点了「踏入命途狭间」)。
-    commitVariableState(nextState, stateSnapshot, {
-      set旅人: state.set旅人,
-      set世界: state.set世界,
-      set记忆: state.set记忆,
-      set忆庭: params.allowYiting === false ? (() => {}) : state.set忆庭,
-      set智库: state.set智库,
-      set手机: state.set手机,
-      setNPC: state.setNPC,
-      set新闻: state.set新闻,
-      set剧情: state.set剧情,
+    const roots = params.commitStrategy === 'main_turn'
+      ? projection.changedRoots.filter((root) => root !== '世界')
+      : projection.changedRoots;
+    const commitReceipt = commitVariableProjection({
+      projection,
+      setters: {
+        set旅人: state.set旅人,
+        set世界: state.set世界,
+        set手机: state.set手机,
+        setNPC: state.setNPC,
+      },
+      roots,
+      batch,
+      ...(params.commitStrategy === 'main_turn' ? {} : { appendBatch: appendVariableBatch }),
     });
 
-    return { ...unpackVariableState(nextState), batch, npcLedgerUpdate };
+    const overrides = projection.changedRoots.length ? unpackVariableProjection(projection) : {};
+    return { ...overrides, batch, projection, commitReceipt, npcLedgerUpdate };
   } catch (err) {
     if ((err as Error).name === 'AbortError') return null;
     if (params.signal?.aborted || params.shouldCommit?.() === false) return null;
@@ -3378,20 +3570,37 @@ async function runVariableCalibrationStep(
       detail: (err as Error).message ?? '变量模型校准失败。',
     });
     // 失败也记一条 batch 让玩家知道
+    const diagnosticStage = failureStage;
+    const diagnosticCode = diagnosticStage === 'request'
+      ? 'VARIABLE_MODEL_REQUEST_FAILED'
+      : diagnosticStage === 'commit'
+        ? 'VARIABLE_BATCH_COMMIT_FAILED'
+        : 'VARIABLE_ANALYSIS_FAILED';
+    const failureMessage = err instanceof Error ? err.message : String(err ?? '变量处理失败');
     const batch: 变量命令批次 = {
       id: `vbatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      schemaVersion: 3,
       turn: params.turnAfter - 1,
+      turnId: params.turnId,
+      targetMessageId: params.targetMessageId,
+      targetUserMessageId: params.targetUserMessageId,
+      mode: params.mode ?? 'normal',
+      sourceEvidenceId,
+      supersedesBatchId: params.supersedesBatchId,
       timestamp: Date.now(),
       source: overrodeAny ? 'calibration' : 'main',
       modelName: variableConfig.model,
-      results: [{
-        command: { action: 'set', key: '(变量模型调用失败)', value: null },
-        ok: false,
-        reason: (err as Error).message ?? '未知错误',
+      results: [],
+      diagnostics: [{
+        code: diagnosticCode,
+        severity: 'error',
+        stage: diagnosticStage,
+        message: failureMessage,
       }],
-      rawText: err instanceof Error ? err.message : String(err ?? '变量模型调用失败'),
+      report: `变量处理失败（${diagnosticStage}）：${failureMessage}`,
+      rawText: '',
     };
-    state.setVariableBatches((prev) => compactVariableBatchHistory([...prev, batch]));
+    appendVariableBatch(batch);
     return {
       batch,
       npcLedgerUpdate: {
@@ -3399,7 +3608,7 @@ async function runVariableCalibrationStep(
         memoryAppended: [],
         ledgerFieldsUpdated: [],
         summaryTriggered: [],
-        warnings: [(err as Error).message ?? '变量模型校准失败。'],
+        warnings: [failureMessage],
       },
     };
   }

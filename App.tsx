@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '@/hooks/useGame';
 import { LandingPage } from '@/components/layout/LandingPage';
 import { GameView } from '@/components/layout/GameView';
@@ -10,6 +10,8 @@ import { MobileQuickMenu } from '@/components/layout/MobileQuickMenu';
 import { ChatList } from '@/components/features/Chat/ChatList';
 import { InputArea } from '@/components/features/Chat/InputArea';
 import { VariableDrawer } from '@/components/features/Variable/VariableDrawer';
+import { VariableRepairPreviewModal } from '@/components/features/Variable/VariableRepairPreviewModal';
+import type { VariableRepairPlan } from '@/utils/variableRepair';
 import type { SettingsTab } from '@/components/features/Settings/SettingsModal';
 import { PathAwakeningInvitation } from '@/components/features/Path/PathAwakeningInvitation';
 import { Modal } from '@/components/ui/Modal';
@@ -22,6 +24,7 @@ import type { 世界状态 } from '@/models/world';
 import type { NPC记录 } from '@/models/npc';
 import type { 记忆失败草稿 } from '@/models/memory';
 import type { MemoryRebuildProgress, MemoryRebuildTask } from '@/services/memoryRebuild';
+import type { VariableHistoryRepairProgress } from '@/services/variableHistoryRepair';
 import { lazyWithRetry } from '@/utils/lazyWithRetry';
 import { setStreamingMessage } from '@/utils/streamingMessageStore';
 
@@ -54,6 +57,74 @@ function LazySurfaceFallback({ label = '系统载入中' }: { label?: string }) 
     <div className="flex min-h-[180px] items-center justify-center p-6 text-sm" style={{ color: 'rgba(var(--tj-text-secondary),0.82)' }}>
       {label}
     </div>
+  );
+}
+
+function MemoryCompressRetryModal({ failedCount, onRetry, onClose }: { failedCount: number; onRetry: () => void; onClose: () => void }) {
+  return (
+    <Modal onClose={onClose} title="记忆压缩失败" className="max-w-md">
+      <div className="px-4 py-3 text-sm" style={{ color: "rgba(var(--tj-text-primary), 0.9)" }}>
+        <p className="mb-3">有 {failedCount} 条记忆总结未能通过 AI 生成摘要，原始材料已保留在记忆系统的「失败草稿」中。</p>
+        <p className="mb-3 text-xs" style={{ color: "rgba(var(--tj-text-secondary), 0.75)" }}>可立即重试，或稍后到记忆面板的失败草稿页手动重试。</p>
+      </div>
+      <div className="flex justify-end gap-2 px-4 pb-3">
+        <button onClick={onClose} className="rounded-sm px-4 py-2 text-sm" style={{ color: "rgba(var(--tj-text-secondary), 0.85)", background: "rgba(var(--tj-surface), 0.6)" }}>稍后</button>
+        <button onClick={() => { onRetry(); onClose(); }} className="rounded-sm px-4 py-2 text-sm" style={{ color: "#fff", background: "rgb(var(--tj-accent-primary))" }}>立即重试</button>
+      </div>
+    </Modal>
+  );
+}
+
+function VariableRepairBatchProgressModal({
+  progress,
+  onCancel,
+}: {
+  progress: VariableHistoryRepairProgress;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal onClose={onCancel} title="批量重新解析变量" className="max-w-md">
+      <div className="space-y-3 px-4 py-3">
+        <div className="text-sm" style={{ color: 'rgba(var(--tj-text-primary),0.9)' }}>
+          正在串行解析历史回合，完成后会合并成一次修复预览。
+        </div>
+        <div className="text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.76)' }}>
+          已完成 {progress.completed} / {progress.total}{progress.currentMessageId ? ` · 当前 ${progress.currentMessageId.slice(0, 8)}` : ''}
+        </div>
+        <div className="h-1.5 overflow-hidden" style={{ background: 'rgba(var(--tj-accent-primary),0.14)' }}>
+          <div className="h-full transition-all" style={{ width: `${progress.total ? Math.round(progress.completed / progress.total * 100) : 0}%`, background: 'rgb(var(--tj-accent-primary))' }} />
+        </div>
+        <div className="flex justify-end">
+          <button type="button" onClick={onCancel} className="px-3 py-2 text-xs" style={{ color: 'rgba(255,145,145,0.94)', boxShadow: 'inset 0 0 0 1px rgba(255,145,145,0.36)' }}>暂停并保留草稿</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function StoryContinuityConfirmationModal({
+  confirmation,
+  onAccept,
+  onReject,
+}: {
+  confirmation: { kind: string; proposal: Record<string, unknown>; reasons: string[] };
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <Modal onClose={onReject} title="剧情跨区确认" className="max-w-lg">
+      <div className="space-y-3 px-4 py-3">
+        <div className="text-sm" style={{ color: 'rgba(var(--tj-text-primary),0.92)' }}>检测到剧情可能跨越当前区域，系统暂未自动切换世界位置。</div>
+        <div className="space-y-1 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.78)' }}>
+          {confirmation.reasons.map((reason) => <div key={reason}>· {reason}</div>)}
+        </div>
+        <div className="font-mono text-xs" style={{ color: 'rgba(var(--tj-tech-cyan),0.86)' }}>{JSON.stringify(confirmation.proposal)}</div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onReject} className="px-3 py-2 text-xs" style={{ color: 'rgba(var(--tj-text-secondary),0.86)', boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border),0.55)' }}>保持当前区域</button>
+          <button type="button" onClick={onAccept} className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--tj-on-accent))', background: 'rgb(var(--tj-accent-primary))' }}>确认转场</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -487,7 +558,12 @@ export default function App() {
   const [showCharacter, setShowCharacter] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
   const [showMemoryRebuild, setShowMemoryRebuild] = useState(false);
+  const [variableRepairPlan, setVariableRepairPlan] = useState<VariableRepairPlan | null>(null);
+  const [variableRepairingMessageId, setVariableRepairingMessageId] = useState<string | null>(null);
+  const [variableRepairBatchProgress, setVariableRepairBatchProgress] = useState<VariableHistoryRepairProgress | null>(null);
+  const variableRepairBatchAbortRef = useRef<AbortController | null>(null);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('api');
+  const [settingsInitialVariableWorkspace, setSettingsInitialVariableWorkspace] = useState<'state' | 'repair'>('state');
   const [activeSystem, setActiveSystem] = useState<GameSystemId | null>(null);
   const [launchingJourney, setLaunchingJourney] = useState(false);
   const [homeJourneyTransitioning, setHomeJourneyTransitioning] = useState(false);
@@ -512,8 +588,21 @@ export default function App() {
   const handleOpenProfile = useCallback(() => setShowCharacter(true), []);
   const handleOpenPhone = useCallback(() => setShowPhone(true), []);
   const handleOpenMemoryRebuild = useCallback(() => setShowMemoryRebuild(true), []);
+  // 主链压缩手动入口：记忆面板点击"立即压缩记忆"直接静默压缩（不弹确认窗），
+  // 失败草稿保留并弹重试提示。
+  const handleTriggerManualCompress = useCallback(() => {
+    void actions.handleSilentMemoryCompress();
+  }, [actions]);
   const handleOpenSaveLoad = useCallback(() => setShowSaveLoad(true), []);
-  const handleOpenSettings = useCallback(() => setShowSettings(true), []);
+  const handleOpenSettings = useCallback(() => {
+    setSettingsInitialVariableWorkspace('state');
+    setShowSettings(true);
+  }, []);
+  const handleOpenVariableRepairCenter = useCallback(() => {
+    setSettingsInitialTab('variables');
+    setSettingsInitialVariableWorkspace('repair');
+    setShowSettings(true);
+  }, []);
   const handleCloseSystemDrawer = useCallback(() => setActiveSystem(null), []);
   const handleToggleStreaming = useCallback(() => {
     state.setGameSettings((prev) => ({
@@ -534,6 +623,38 @@ export default function App() {
       ),
     );
   }, [state.setChatHistory]);
+  const handleReparseVariables = useCallback(async (messageId: string) => {
+    if (state.loading || state.pendingVariable || variableRepairingMessageId) return;
+    setVariableRepairingMessageId(messageId);
+    try {
+      setVariableRepairPlan(await actions.buildVariableRepairPlan(messageId));
+    } catch (error) {
+      state.setWorkflowHint(error instanceof Error ? error.message : '变量重新解析失败。');
+    } finally {
+      setVariableRepairingMessageId(null);
+    }
+  }, [actions, state.loading, state.pendingVariable, state.setWorkflowHint, variableRepairingMessageId]);
+  const handleBatchReparseVariables = useCallback(async (messageIds: string[]) => {
+    if (state.loading || state.pendingVariable || variableRepairBatchAbortRef.current) return;
+    const controller = new AbortController();
+    variableRepairBatchAbortRef.current = controller;
+    setVariableRepairBatchProgress({ total: messageIds.length, completed: 0 });
+    try {
+      const plan = await actions.buildVariableRepairBatch(messageIds, {
+        signal: controller.signal,
+        onProgress: setVariableRepairBatchProgress,
+      });
+      setVariableRepairPlan(plan);
+    } catch (error) {
+      if (!controller.signal.aborted) state.setWorkflowHint(error instanceof Error ? error.message : '批量变量重新解析失败。');
+    } finally {
+      variableRepairBatchAbortRef.current = null;
+      setVariableRepairBatchProgress(null);
+    }
+  }, [actions, state.loading, state.pendingVariable, state.setWorkflowHint]);
+  const handleCancelBatchReparse = useCallback(() => {
+    variableRepairBatchAbortRef.current?.abort();
+  }, []);
   const handleCancelTask = useCallback((id: 队列任务ID) => {
     const title = CANCELLABLE_TASK_TITLES[id];
     if (!title) return;
@@ -586,7 +707,7 @@ export default function App() {
     try {
       await actions.handleSave();
     } catch (err) {
-      console.warn('[world] 切换世界前自动保存失败:', err);
+      console.warn('[world] 切换世界前自动保存失败', err);
     }
   }, [actions]);
 
@@ -764,6 +885,7 @@ export default function App() {
         pending={state.pendingVariable}
         onRetryTask={actions.handleRetryQueueTask}
         onCancelTask={handleCancelTask}
+        onOpenRepairCenter={handleOpenVariableRepairCenter}
       />
       <ChatList
         messages={state.chatHistory}
@@ -774,9 +896,12 @@ export default function App() {
         album={state.相册}
         showInnerVoice={state.gameSettings.enableInnerVoice}
         visualTextSettings={state.gameSettings.visualTextSettings}
+        devMode={state.gameSettings.devMode}
         onRegenerateNarrativeImage={actions.handleRegenerateNarrativeImage}
         narrativeImageManualEnabled={narrativeImageManualEnabled}
         onEditBody={handleEditBody}
+        onReparseVariables={handleReparseVariables}
+        variableRepairingMessageId={variableRepairingMessageId}
       />
       <PathAwakeningInvitation
         world={state.世界}
@@ -789,6 +914,8 @@ export default function App() {
         onAbort={actions.handleAbort}
         loading={state.loading}
         disabled={state.pendingVariable}
+        inputText={state.inputText}
+        onInputTextChange={state.setInputText}
         canRestartOpening={state.turnCount <= 5}
         canReroll={canReroll}
         onRestartOpening={actions.handleRestartOpening}
@@ -828,6 +955,7 @@ export default function App() {
             onRetryFailedDraft: (draft) => void actions.handleRetryMemoryFailureDraft(draft.id),
             onIgnoreFailedDraft: (draft) => void actions.handleIgnoreMemoryFailureDraft(draft.id),
             onOpenMemoryRebuild: handleOpenMemoryRebuild,
+            onTriggerManualCompress: handleTriggerManualCompress,
             yitingSystem: state.忆庭,
             zhikuSystem: state.智库,
             memorySettings: state.gameSettings.记忆系统 ?? 创建默认记忆系统设置(),
@@ -900,7 +1028,6 @@ export default function App() {
               zhikuSystem={state.智库}
               storyWeavingSystem={state.剧情编织}
               onZhikuSystemChange={state.set智库}
-              settings={state.gameSettings.智库系统}
               onClose={() => setShowZhikuManager(false)}
             />
           </Suspense>
@@ -951,6 +1078,7 @@ export default function App() {
               onContinue={actions.handleContinue}
               onLoadSave={(id) => handleLoadById(id, state)}
               initialTab={settingsInitialTab}
+              initialVariableWorkspace={settingsInitialVariableWorkspace}
               旅人={state.旅人}
               世界={state.世界}
               on世界Change={state.set世界}
@@ -973,8 +1101,6 @@ export default function App() {
                 saveSetting(世界存储键('worldbooks', state.worldId), books);
 
               }}
-              activeWorldId={state.worldId}
-              onEnterWorld={handleEnterWorld}
               variableSetters={{
                 set旅人: state.set旅人,
                 set世界: state.set世界,
@@ -987,6 +1113,10 @@ export default function App() {
                 set剧情: state.set剧情,
               }}
               variableEditingLocked={state.loading || state.pendingVariable}
+              chatHistory={state.chatHistory}
+              variableBatches={state.variableBatches}
+              onRepairMessage={handleReparseVariables}
+              onBatchRepair={handleBatchReparseVariables}
             />
           </Suspense>
         )}
@@ -1055,8 +1185,6 @@ export default function App() {
             currentTheme={state.currentTheme}
             openingArchiveApiConfig={getActiveApiConfig()}
             onGenerateTravelerTemplate={handleGenerateTravelerTemplate}
-            worldId={state.worldId}
-            worldName={activeWorldName}
           />
         </Suspense>
         {homeJourneyTransitioning ? <HomeJourneyOverlay /> : null}
@@ -1105,6 +1233,7 @@ export default function App() {
             onContinue={actions.handleContinue}
             onLoadSave={(id) => handleLoadById(id, state)}
             initialTab={settingsInitialTab}
+            initialVariableWorkspace={settingsInitialVariableWorkspace}
             旅人={state.旅人}
             世界={state.世界}
             on世界Change={state.set世界}
@@ -1122,8 +1251,6 @@ export default function App() {
               state.setWorldbooks(books);
               saveSetting(世界存储键('worldbooks', state.worldId), books);
             }}
-            activeWorldId={state.worldId}
-            onEnterWorld={handleEnterWorld}
             variableSetters={{
               set旅人: state.set旅人,
               set世界: state.set世界,
@@ -1136,6 +1263,10 @@ export default function App() {
               set剧情: state.set剧情,
             }}
             variableEditingLocked={state.loading || state.pendingVariable}
+            chatHistory={state.chatHistory}
+            variableBatches={state.variableBatches}
+            onRepairMessage={handleReparseVariables}
+            onBatchRepair={handleBatchReparseVariables}
           />
         </Suspense>
       )}
@@ -1169,9 +1300,18 @@ export default function App() {
             onMemoryChange={state.set记忆}
             onYitingChange={state.set忆庭}
             onNpcRecordsChange={state.setNPC}
+            onCommitPhoneMemory={actions.commitPhoneMemory}
             onClose={() => setShowPhone(false)}
           />
         </Suspense>
+      )}
+
+      {state.记忆压缩失败 && (
+        <MemoryCompressRetryModal
+          failedCount={state.记忆压缩失败.条数}
+          onRetry={() => { void actions.handleSilentMemoryCompress(); }}
+          onClose={() => state.set记忆压缩失败(null)}
+        />
       )}
 
       {showMemoryRebuild && (
@@ -1180,6 +1320,34 @@ export default function App() {
           onClose={() => setShowMemoryRebuild(false)}
           onAbort={actions.handleAbort}
           onRun={actions.handleBatchMemoryRebuild}
+        />
+      )}
+
+      {variableRepairPlan && (
+        <VariableRepairPreviewModal
+          plan={variableRepairPlan}
+          onClose={() => setVariableRepairPlan(null)}
+          onCommit={(confirmedItemIds) => actions.commitVariableRepairPlan(variableRepairPlan, confirmedItemIds)}
+        />
+      )}
+
+      {variableRepairBatchProgress && (
+        <VariableRepairBatchProgressModal progress={variableRepairBatchProgress} onCancel={handleCancelBatchReparse} />
+      )}
+
+      {state.storyContinuityConfirmation && (
+        <StoryContinuityConfirmationModal
+          confirmation={state.storyContinuityConfirmation}
+          onReject={() => state.setStoryContinuityConfirmation(null)}
+          onAccept={() => {
+            const proposal = state.storyContinuityConfirmation?.proposal;
+            if (proposal?.location && typeof proposal.location === 'string') {
+              state.set世界((world) => ({ ...world, 当前地点: proposal.location as string, 当前区域ID: String(proposal.toRegionId ?? world.当前区域ID) }));
+              // setter 发布后再落一个独立存档，避免确认转场只停留在 React 内存里。
+              window.setTimeout(() => { void actions.handleSave(); }, 0);
+            }
+            state.setStoryContinuityConfirmation(null);
+          }}
         />
       )}
 
@@ -1202,7 +1370,6 @@ export default function App() {
             zhikuSystem={state.智库}
             storyWeavingSystem={state.剧情编织}
             onZhikuSystemChange={state.set智库}
-            settings={state.gameSettings.智库系统}
             onClose={() => setShowZhikuManager(false)}
           />
         </Suspense>
@@ -1218,7 +1385,7 @@ export default function App() {
               return ok;
             }}
             worldId={state.worldId}
-            onClose={() => setShowSaveLoad(false)}
+              onClose={() => setShowSaveLoad(false)}
           />
         </Suspense>
       )}
@@ -1255,6 +1422,8 @@ function renderSystemPanel(
     onRetryFailedDraft?: (draft: 记忆失败草稿) => void;
     onIgnoreFailedDraft?: (draft: 记忆失败草稿) => void;
     onOpenMemoryRebuild?: () => void;
+    /** 阶段1·主链压缩手动入口：触发三阶段压缩弹窗 */
+    onTriggerManualCompress?: () => void;
     yitingSystem: 忆庭系统;
     zhikuSystem: 智库系统;
     memorySettings: import('@/models/settings').记忆系统设置;
@@ -1299,7 +1468,6 @@ function renderSystemPanel(
           album={ctx.album}
           turnCount={ctx.turnCount}
           nsfwEnabled={ctx.gameSettings.enableNsfw}
-          maleNsfwArchiveEnabled={ctx.gameSettings.enableMaleNsfwArchive}
           devMode={ctx.gameSettings.devMode}
         />
       );
@@ -1354,6 +1522,7 @@ function renderSystemPanel(
           onRetryFailedDraft={ctx.onRetryFailedDraft}
           onIgnoreFailedDraft={ctx.onIgnoreFailedDraft}
           onOpenBatchRebuild={ctx.onOpenMemoryRebuild}
+          onTriggerManualCompress={ctx.onTriggerManualCompress}
         />
       );
     default:

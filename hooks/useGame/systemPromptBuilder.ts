@@ -7,7 +7,8 @@ import { PROMPT_MODULE_TOP_THRESHOLD, syncStoryModeModuleEnabled } from '@/model
 import type { 开局来源, 剧情模式 } from '@/models/journey';
 import type { 世界书 } from '@/models/worldbook';
 import type { NPC记录, NPC账本选择结果, NPC同行记忆条目 } from '@/models/npc';
-import { formatNpcLedgerForPrompt, 格式化NPC关系, selectNpcLedgersForTurn, 提取NPC同行记忆文本列表 } from '@/models/npc';
+import { formatNpcLedgerForPrompt, 格式化NPC关系, selectNpcLedgersForTurn, 提取NPC同行记忆文本列表, 筛选活跃NPC } from '@/models/npc';
+import { 清理NPC同行记忆摘要 } from '@/utils/npcMemorySanitizer';
 import { 计算命途战技槽位数, NORMAL_SKILL_SLOT_COUNT } from '@/models/skill';
 import type { 新闻条目 } from '@/models/news';
 import { NEWS_CATEGORY_LABELS } from '@/models/news';
@@ -15,7 +16,7 @@ import type { 剧情节点 } from '@/models/plot';
 import { PLOT_STATUS_LABELS } from '@/models/plot';
 import type { 剧情编织系统 } from '@/models/storyWeaving';
 import type { ZhikuTurnCompilation } from '@/services/zhikuRuntimeCompiler';
-import type { 忆庭系统 } from '@/models/yiting';
+import type { 忆庭系统, 回忆条目 } from '@/models/yiting';
 import type { 手机系统 } from '@/models/phone';
 import type { 背包物品 } from '@/models/inventory';
 import { ITEM_CATEGORY_LABELS } from '@/models/inventory';
@@ -24,9 +25,11 @@ import {
   getStartingScenario,
 } from '@/data/journeyPresets';
 import { PATH_STAGE_DEFS, PATH_CORE_BELIEFS } from '@/models/path';
-import { buildPromptLikeWorldbookInjection, buildWorldbookChatModuleMessages, buildWorldbookInjection, replaceWorldbookPlaceholders, type FilterContext } from '@/utils/worldbook';
+import { renderWorldbookSystemEntry, replaceWorldbookPlaceholders, resolveWorldbookInjectionPlan, type FilterContext, type WorldbookInjectionPlan } from '@/utils/worldbook';
 import { retrieveYitingContext } from '@/services/yitingRetrieval';
 import { buildStoryWeavingInjection } from '@/services/storyWeaving';
+import { resolveCurrentWeavingSegment } from '@/services/storyRuntime/storyWeavingRuntimeAdapter';
+import { 构建天气Prompt片段 } from '@/data/weatherRules';
 import {
   MAIN_LONG_TERM_MEMORY_PROMPT_LIMIT,
   MAIN_MIDDLE_TERM_MEMORY_PROMPT_LIMIT,
@@ -35,6 +38,10 @@ import {
 import { getAnticipatedNpcNamesForTurn } from './npcPresence';
 import { processMacros, type MacroContext } from '@/utils/macroEngine';
 import { isSTImportedModule } from '@/utils/stPresetParser';
+import {
+  applyRuntimeNarrativePolicy,
+  resolveNarrativePolicy,
+} from '@/utils/narrativeRuntimePolicy';
 
 // 当前 prompt 为重构期的中性骨架，具体的世界观/人物设定由世界书注入，
 // 「踏上旅途」向导写入的字段在此被汇总输出。
@@ -62,13 +69,17 @@ export function buildSystemPrompt(
   phone?: 手机系统,
   awakeningPhase?: 命途狭间阶段,
   yitingInjectionOverride?: string,
-  suppressMemoryInjection?: boolean,
+  /** F2·对标既定方案：调用方（sendWorkflow/contextSnapshot）预召回结果是否命中强回忆；未传时 builder 内部兜底召回自行判定。 */
+  yitingStrongRecallHit?: boolean,
   npcLedgerSelectionOverride?: NPC账本选择结果,
   triggerType?: string,
   macroCtx?: MacroContext,
+  /** 工作包B：共享预处理层从回合前历史提取的最近 1-2 条剧情规划（区5 剧情安排用）。 */
+  storyPlanSnippets?: string[],
+  /** 工作包A：世界书单回合唯一解析结果（sendWorkflow 传入；不传则 builder 内部解析一次）。 */
+  worldbookPlanInput?: WorldbookInjectionPlan,
 ): BuiltSystemPrompt {
-  const parts: string[] = [];
-  const allChatMessages: ChatModuleMessage[] = [];
+  const activeNpcRecords = 筛选活跃NPC(npcRecords);
   // ST 预设总开关：关闭时过滤所有 st_import_* 模块（保留预设库数据，仅不注入）。
   // V2 酒馆预设使用原始 prompts + prompt_order 消息链；选中 V2 时也隔离 V1 st_import_* 残留，
   // 避免同一份 ST 预设以 V1 模块和 V2 消息链两种形态重复注入。
@@ -76,13 +87,15 @@ export function buildSystemPrompt(
   const effectiveModules = shouldFilterLegacyStModules
     ? settings.promptModules.filter((m) => !isSTImportedModule(m))
     : settings.promptModules;
+  const playerNameForLabel = getPromptPlayerName(traveler);
+  const runtimePolicy = resolveNarrativePolicy(settings, playerNameForLabel);
   // 剧情方向四选一：storymode 模块 enabled 派生自当前剧情模式，注入时只有命中的那一本启用。
-  const activeModules = syncStoryModeModuleEnabled(effectiveModules, worldState.剧情模式);
-
-  const personLabel =
-    settings.narrativePerson === 'second' ? '第二人称"你"'
-    : settings.narrativePerson === 'first' ? '第一人称"我"'
-    : '第三人称"他/她"';
+  // 人称与玩家发言边界由运行时策略覆盖旧存档/预设残留的 enabled 状态。
+  const activeModules = applyRuntimeNarrativePolicy(
+    syncStoryModeModuleEnabled(effectiveModules, worldState.剧情模式),
+    runtimePolicy,
+  );
+  const personLabel = buildPersonLabel(settings.narrativePerson, playerNameForLabel);
   // 提示词模块按当前 scope 过滤；scope 信息来自 worldbookCtx.currentScope（与世界书共用一个）。
   // 例外:当世界状态.进行中狭间存在,本回合必须走 pathAwakening scope —— 替代主剧情流程。
   const baseScope: 提示词模块作用域 = worldbookCtx?.currentScope ?? 'main';
@@ -90,7 +103,7 @@ export function buildSystemPrompt(
   const moduleCtx: PromptModuleInjectionCtx = {
     wordCountTarget: settings.wordCountTarget,
     personLabel,
-    playerName: getPromptPlayerName(traveler),
+    playerName: playerNameForLabel,
     currentScope,
     openingSource: worldState.开局档案?.来源,
     triggerType,
@@ -99,151 +112,688 @@ export function buildSystemPrompt(
     storyMode: worldState.剧情模式,
   };
 
-  // ── 提示词模块·顶部（order < 30：开发者模式、叙述者人格等） ──
-  const topResult = injectPromptModules(activeModules, moduleCtx, 'top');
-  if (topResult.systemSection) parts.push(topResult.systemSection);
-  allChatMessages.push(...topResult.chatModuleMessages);
+  // ── 工作包B：八区组装。先构造带稳定 ID 的 section 数组，再统一 join。 ──
+  const sections: PromptSection[] = [];
+  const allChatMessages: ChatModuleMessage[] = [];
+  /** 区5 计算的短期记忆（复用给区6，保证同一回合一次拆分） */
+  let shortMemCached = '';
+  const pushSection = (id: string, title: string, content: string) => {
+    if (content) sections.push({ id, title, content });
+  };
 
-  // ── 世界书稳定规则（system_rule + 少量核心锚点）：保留稳定位置，同时统一受世界书总开关控制 ──
-  if (settings.enableWorldbookInjection && worldbooks && worldbookCtx) {
-    const promptLikeWorldbook = buildPromptLikeWorldbookInjection(worldbooks, worldbookCtx);
-    if (promptLikeWorldbook) parts.push(promptLikeWorldbook);
-  }
+  // ── 世界书单次解析（工作包A）：同一回合只解析一次，四路分流 ──
+  const worldbookPlan = worldbookPlanInput ?? (settings.enableWorldbookInjection && worldbooks && worldbookCtx
+    ? resolveWorldbookInjectionPlan(worldbooks, worldbookCtx)
+    : null);
 
-  // ── 提示词模块·稳定协议（order >= 30：CoT、回复格式、文风、玩家自定义模块） ──
-  // DeepSeek 等前缀缓存要求从请求开头连续一致。把大块固定协议放在动态场景/记忆/智库之前，
-  // 可以让后续回合即便状态块变化，也尽量复用前面的稳定前缀。
-  const bottomResult = injectPromptModules(activeModules, moduleCtx, 'bottom');
-  if (bottomResult.systemSection) parts.push(bottomResult.systemSection);
-  allChatMessages.push(...bottomResult.chatModuleMessages);
-
-  // ── 思维链输出语言（cotLanguage，参考 Izumi，P2 可选）──
-  // 仅 main scope 且 cotLanguage 非 zh 时注入。位置紧随 bottom 模块（含主剧情 CoT）之后，
-  // 让 AI 在进入思考段前看到语言指示。
-  const cotLanguageSection = buildCotLanguageSection(settings, currentScope);
-  if (cotLanguageSection) parts.push(cotLanguageSection);
-
-  // ── 结构轮(D1/D2, 2026-07-26)：基调行删除(剧情模式世界书为唯一出处)；字数/发言归属硬编码段删除
-  //    (唯一权威=「回复格式」模块,生成点兜底=sendWorkflow 区E执法块)；运行锚点瘦身并后移至
-  //    区D(紧贴即时回顾/编织/智库数据,见下方 storyWeaving 之前)。──
-  const innerVoiceSection = buildInnerVoiceSection(settings);
-  if (innerVoiceSection) parts.push(innerVoiceSection);
-
-  const openingArchiveSection = buildOpeningArchiveSection(worldState, currentScope === 'opening');
-  if (openingArchiveSection) parts.push(openingArchiveSection);
-
-  // ── 当前角色与相对稳定的角色能力：通常比本回合状态变化慢，放在动态块之前提高缓存前缀长度。 ──
-  parts.push(buildCharacterSection(traveler));
-
-  const skillSection = buildSkillSection(traveler);
-  if (skillSection) parts.push(skillSection);
-
-  // ── 以下为每回合运行时上下文：半稳定资料先放，高波动回合锚点与 NPC 承接块在尾部兜底。 ──
-  // ── 背包（最多前 10 件，按 category 分组） ──
-  const inventorySection = buildInventorySection(traveler);
-  if (inventorySection) parts.push(inventorySection);
-
-  // ── 剧情（active + 最近 3 个 completed + hintForAI） ──
-  const plotSection = buildPlotSection(plotNodes);
-  if (plotSection) parts.push(plotSection);
-
-  // ── 新闻（最近 5 条标题） ──
-  const newsSection = buildNewsSection(news);
-  if (newsSection) parts.push(newsSection);
-
-  // ── 手机通讯（只注入已压缩摘要与待处理来信，不注入完整聊天原文） ──
-  const phoneSection = buildPhoneSection(phone);
-  if (phoneSection) parts.push(phoneSection);
-
-  // ── 世界书注入（受 settings.enableWorldbookInjection 控制；首回合规范以条目形式存在于内置世界书）──
-  if (settings.enableWorldbookInjection && worldbooks && worldbookCtx) {
-    const injection = buildWorldbookInjection(worldbooks, worldbookCtx);
-    if (injection) {
-      parts.push(injection);
-    }
-    // Phase 7.2：世界书深度插入条目转 ChatModuleMessage（注入到聊天历史指定 depth）
-    const worldbookDepthMessages = buildWorldbookChatModuleMessages(worldbooks, worldbookCtx);
-    if (worldbookDepthMessages.length > 0) {
-      allChatMessages.push(...worldbookDepthMessages);
-    }
-  }
-
-  // ── 高波动回合锚点后置，用于保护 DeepSeek/OpenAI-compatible 前缀缓存。 ──
-  // 时间、场景、即时回顾、智库表演卡、记忆和 NPC 账本仍完整注入，只是不再抢占稳定前缀。
-  const timeAnchor = buildCurrentTimeAnchorSection(worldState);
-  if (timeAnchor) parts.push(timeAnchor);
-
-  // ── 当前场景：仍紧跟时间锚点，确保地点 / 环境优先于后续回忆与角色承接块被读取 ──
-  const sceneFromWorldbook = buildSceneSection(worldState);
-  if (sceneFromWorldbook) parts.push(sceneFromWorldbook);
-
-  // ── 区D(结构轮)：剧情与知识——运行锚点瘦身版先声明数据使用优先级,随后紧跟被它引用的
-  //    即时回顾/编织滑窗/智库数据块,消除"指令与数据相隔11段"的失效因素。──
-  if (currentScope === 'main') {
-    parts.push(buildMainStoryControlSection(worldState));
-  }
-
-  // ── 忆庭（仅控制召回；入库始终执行，不等同于短期/长期记忆） ──
+  // ── F2·对标既定方案：忆庭召回统一入口（override 优先，否则内部兜底），提前判定强回忆互斥 ──
+  // 区5/区6 的记忆注入是否暂停取决于「强回忆是否命中」，必须在本回合拼装前确定，
+  // 不能等到区7 才召回——否则三条召回路径的互斥行为会不一致。
   const yitingEnabled = settings.记忆系统?.忆庭启用 !== false;
   const yitingThreshold = settings.记忆系统?.忆庭召回最早触发回合 ?? 10;
-  if (yitingInjectionOverride !== undefined) {
-    if (yitingInjectionOverride.trim()) parts.push(yitingInjectionOverride.trim());
-  } else if (yitingEnabled && yiting && worldbookCtx?.recentUserInput && worldbookCtx.turnCount > yitingThreshold) {
+  const npcNameMap = activeNpcRecords.reduce<Record<string, string>>((map, npc) => {
+    if (npc.id && npc.姓名) map[npc.id] = npc.姓名;
+    return map;
+  }, {});
+  let effectiveYitingInjection = yitingInjectionOverride ?? '';
+  /** 内部兜底召回结果（仅 override 未传入时产生，区7 需要它构建全知防护）。 */
+  let yitingInternalHit: ReturnType<typeof retrieveYitingContext> | null = null;
+  if (yitingInjectionOverride === undefined && yitingEnabled && yiting && worldbookCtx?.recentUserInput && worldbookCtx.turnCount > yitingThreshold) {
     const limit = settings.记忆系统?.忆庭召回条数 ?? 8;
-    const yitingHit = retrieveYitingContext(yiting, worldbookCtx.recentUserInput, limit);
-    if (yitingHit.injection) parts.push(yitingHit.injection);
+    yitingInternalHit = retrieveYitingContext(yiting, worldbookCtx.recentUserInput, limit, npcNameMap);
+    effectiveYitingInjection = yitingInternalHit.injection;
   }
+  /**
+   * 对标参考项目：回忆召回命中（有召回结果）且关闭「并存注入」时，
+   * 暂停中期+长期+短期记忆注入（全禁，回忆承担旧事承接）。
+   */
+  const yitingMutexActive = settings.记忆系统?.忆庭命中并存注入 !== true && Boolean(effectiveYitingInjection);
 
-  // ── 剧情编织（玩家导入 TXT 后生成的章节滑窗）：高波动，放在当前事实与即时回顾之后。──
-  if (settings.剧情编织系统?.enabled && settings.剧情编织系统.currentWindow) {
-    const storyWeavingSection = buildStoryWeavingInjection(storyWeaving, worldbookCtx);
-    if (storyWeavingSection) parts.push(storyWeavingSection);
-  }
-
-  // ── 智库：Prompt Builder 只消费本回合唯一编译产物，不再持有检索或回退职责。 ──
-  if (zhikuCompilation?.mainStoryInjection.trim()) {
-    parts.push(zhikuCompilation.mainStoryInjection.trim());
-  }
-
-  // ── 命途狭间状态（待升阶 / 待触发 / 进行中 三态注入） ──
-  const awakeningSection = buildPathAwakeningSection(traveler, worldState, awakeningPhase);
-  if (awakeningSection) parts.push(awakeningSection);
-
-  const recentWorldEventsSection = buildRecentWorldEventsSection(worldState.全局事件);
-  if (recentWorldEventsSection) parts.push(recentWorldEventsSection);
-
-  // ── 记忆注入 ──
-  if (settings.enableMemoryInjection && !suppressMemoryInjection) {
-    const memSections = buildLayeredMemorySections(memorySystem);
-    if (memSections.length) {
-      parts.push(memSections.join('\n\n---\n\n'));
+  // ── 区1 · 身份区（稳定：开发者模式/叙述者人格/常驻世界书/开局档案） ──
+  {
+    const zone1: string[] = [];
+    const z1 = splitZoneItems(collectZoneModules(activeModules, moduleCtx, (m) =>
+      m.id === 'builtin_dev_mode' || m.id === 'builtin_narrator_persona'));
+    zone1.push(...z1.systemParts);
+    allChatMessages.push(...z1.chatMessages);
+    if (worldbookPlan?.alwaysEntries.length) {
+      zone1.push(worldbookPlan.alwaysEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '世界书'))
+        .join('\n\n---\n\n'));
     }
+    const openingArchive = buildOpeningArchiveSection(worldState, currentScope === 'opening');
+    if (openingArchive) zone1.push(openingArchive);
+    pushSection('zone1-identity', '身份区', zone1.join('\n\n---\n\n'));
   }
 
-  // ── 高波动 NPC 连续性块后置。 ──
-  // 内容仍然完整注入，且位于 system prompt 尾部，对正文生成保持强承接优先级。
+  // ── 区2 · 规则区（稳定：叙事规则/剧情方向/力量时间情绪战斗禁词/行为边界/文风/NSFW中文等） ──
+  {
+    const z2 = splitZoneItems(orderRuleZoneModules(
+      collectZoneModules(activeModules, moduleCtx, (m) => isRuleZoneModule(m))));
+    const zone2: string[] = [];
+    for (const content of z2.systemParts) zone2.push(content);
+    allChatMessages.push(...z2.chatMessages);
+    if (worldbookPlan?.systemRuleEntries.length) {
+      zone2.push(worldbookPlan.systemRuleEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '提示词'))
+        .join('\n\n---\n\n'));
+    }
+    pushSection('zone2-rules', '规则区', zone2.join('\n\n---\n\n'));
+  }
+
+  // ── 区3 · 参数区（准稳定：人称/字数/心声/COT语言） ──
+  {
+    const zone3: string[] = [];
+    const z3 = splitZoneItems(collectZoneModules(activeModules, moduleCtx, (m) => m.id.startsWith('builtin_perspective_')));
+    zone3.push(...z3.systemParts);
+    allChatMessages.push(...z3.chatMessages);
+    if (z3.systemParts.length === 0 && z3.chatMessages.length === 0) {
+      zone3.push(buildPersonSection(settings.narrativePerson, playerNameForLabel));
+    }
+    const wordCountSection = buildWordCountSection(settings);
+    if (wordCountSection) zone3.push(wordCountSection);
+    const innerVoice = buildInnerVoiceSection(settings);
+    if (innerVoice) zone3.push(innerVoice);
+    const cotLang = buildCotLanguageSection(settings, currentScope);
+    if (cotLang) zone3.push(cotLang);
+    pushSection('zone3-params', '参数区', zone3.join('\n\n---\n\n'));
+  }
+
+  // ── 区4 · 玩家档案区（准稳定：当前角色/战技/背包） ──
+  {
+    const zone4: string[] = [];
+    zone4.push(buildCharacterSection(traveler));
+    const skill = buildSkillSection(traveler);
+    if (skill) zone4.push(skill);
+    const inventory = buildInventorySection(traveler);
+    if (inventory) zone4.push(inventory);
+    pushSection('zone4-player', '玩家档案区', zone4.join('\n\n---\n\n'));
+  }
+
+  // ── 区5 · 记忆区（过去：长期记忆/中期记忆/剧情安排/剧情编织） ──
+  {
+    const zone5: string[] = [];
+    if (settings.enableMemoryInjection) {
+      // F2·对标既定方案：忆庭强回忆命中且关闭并存注入时，暂停中期/短期注入，长期只留少量锚点（最近 3 条）。
+      const memSplit = buildLayeredMemorySectionsSplit(
+        memorySystem,
+        yitingMutexActive ? { long: 3, middle: 0, short: 0 } : undefined,
+      );
+      if (memSplit.long) zone5.push(memSplit.long);
+      if (memSplit.middle) zone5.push(memSplit.middle);
+      shortMemCached = memSplit.short;
+    }
+    const arrangement = buildStoryArrangementSection(plotNodes, storyPlanSnippets, storyWeaving);
+    if (arrangement) zone5.push(arrangement);
+    if (settings.剧情编织系统?.enabled && settings.剧情编织系统.currentWindow) {
+      const weaving = buildStoryWeavingInjection(storyWeaving, worldbookCtx);
+      if (weaving) zone5.push(weaving);
+    }
+    pushSection('zone5-memory', '记忆区', zone5.join('\n\n---\n\n'));
+  }
+
+  // ── 区6 · 注入区（现在：时间/场景/天气/狭间/世界动态/NPC/关键词世界书/智库/短期记忆） ──
+  // NPC 账本选择提前计算（供忆庭在场判断和区6 账本注入复用）
   const npcLedgerSelection = npcLedgerSelectionOverride ?? selectNpcLedgersForTurn({
-    records: npcRecords,
+    records: activeNpcRecords,
     turnCount: _turnCount,
     explicitNames: worldbookCtx?.npcNames,
     sceneNames: worldState.当前时段?.人物?.map((npc) => npc.姓名),
     recalledNames: worldbookCtx?.npcNames,
   });
-  const npcPresenceSection = buildNpcPresenceSection(worldState, npcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames);
-  if (npcPresenceSection) parts.push(npcPresenceSection);
+  {
+    const zone6: string[] = [];
+    const timeAnchor = buildCurrentTimeAnchorSection(worldState);
+    if (timeAnchor) zone6.push(timeAnchor);
+    const scene = buildSceneSection(worldState);
+    if (scene) zone6.push(scene);
+    const weather = buildWeatherSection(worldState);
+    if (weather) zone6.push(weather);
+    const awakening = buildPathAwakeningSection(traveler, worldState, awakeningPhase);
+    if (awakening) zone6.push(awakening);
+    const events = buildRecentWorldEventsSection(worldState.全局事件);
+    if (events) zone6.push(events);
+    const newsSection = buildNewsSection(news);
+    if (newsSection) zone6.push(newsSection);
+    const phoneSection = buildPhoneSection(phone);
+    if (phoneSection) zone6.push(phoneSection);
 
-  const npcLedgerSection = buildNpcLedgerContinuitySection(npcLedgerSelection);
-  if (npcLedgerSection) parts.push(npcLedgerSection);
+    // NPC 四段
+    const npcPresence = buildNpcPresenceSection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.recentUserInput, worldbookCtx?.npcNames);
+    if (npcPresence) zone6.push(npcPresence);
+    const npcLedger = buildNpcLedgerContinuitySection(npcLedgerSelection);
+    if (npcLedger) zone6.push(npcLedger);
+    const npcContinuity = buildNpcContinuitySection(worldState, activeNpcRecords, _turnCount, worldbookCtx?.npcNames);
+    if (npcContinuity) zone6.push(npcContinuity);
+    const companions = buildCompanionsSection(activeNpcRecords, _turnCount, settings);
+    if (companions) zone6.push(companions);
 
-  const npcContinuitySection = buildNpcContinuitySection(worldState, npcRecords, _turnCount, worldbookCtx?.npcNames);
-  if (npcContinuitySection) parts.push(npcContinuitySection);
+    // 关键词世界书（按需层）
+    if (worldbookPlan?.keywordEntries.length) {
+      zone6.push(worldbookPlan.keywordEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '世界书'))
+        .join('\n\n---\n\n'));
+    }
+    // 智库（内部顺序已由编译产物保证：弱→强→参考→在场压轴）
+    if (zhikuCompilation?.mainStoryInjection.trim()) {
+      zone6.push(zhikuCompilation.mainStoryInjection.trim());
+    }
+    // 短期记忆（区6 末尾，紧贴区7 回顾区；复用区5 已计算的同一次拆分结果）
+    if (settings.enableMemoryInjection && shortMemCached) {
+      zone6.push(shortMemCached);
+    }
+    pushSection('zone6-injection', '注入区', zone6.join('\n\n---\n\n'));
+  }
 
-  // ── 已知伙伴（只把 tier='companion' 的喂给 AI，路人不进上下文） ──
-  const companionsSection = buildCompanionsSection(npcRecords, _turnCount);
-  if (companionsSection) parts.push(companionsSection);
+  // ── 区7 · 回顾区（即时回顾/忆庭+全知防护/文风助手） ──
+  {
+    const zone7: string[] = [];
+    // 阶段1方案E·全知性防护：在场 NPC id 集合（供忆庭通讯回忆标记来源；id→姓名映射已在开头统一计算）
+    const presentNpcIds = new Set(
+      npcLedgerSelection.selected
+        .filter((item) => item.presentState === 'current')
+        .map((item) => item.npc.id),
+    );
+    // F2·对标既定方案：忆庭注入统一走开头判定的 effectiveYitingInjection；
+    // 全知防护只在内部兜底召回路径构建（override 路径由 sendWorkflow/contextSnapshot 预拼，保持原行为）。
+    if (yitingInjectionOverride !== undefined) {
+      if (effectiveYitingInjection.trim()) zone7.push(effectiveYitingInjection.trim());
+    } else if (yitingInternalHit && effectiveYitingInjection) {
+      zone7.push(effectiveYitingInjection);
+      // 阶段1方案E·第三层防护：全知性防护提示词约束 + 通讯对方在场判断
+      const omniscienceGuard = buildYitingOmniscienceGuard(yitingInternalHit.entries, presentNpcIds, npcNameMap);
+      if (omniscienceGuard) zone7.push(omniscienceGuard);
+    }
+    const styleAssistant = buildStyleAssistantSection(activeModules);
+    if (styleAssistant) zone7.push(styleAssistant);
+    pushSection('zone7-review', '回顾区', zone7.join('\n\n---\n\n'));
+  }
+
+  // ── 额外要求区（区7 与区8 之间，system 内容） ──
+  {
+    const extra = buildExtraRequirementSection(settings);
+    pushSection('zone-extra-requirements', '额外要求区', extra);
+  }
+
+  // ── 区8 · 协议区（压轴：运行锚点/回复格式/行动选项/COT） ──
+  {
+    const zone8: string[] = [];
+    if (currentScope === 'main') {
+      zone8.push(buildMainStoryControlSection(worldState));
+    }
+    const z8 = splitZoneItems(orderProtocolZoneModules(
+      collectZoneModules(activeModules, moduleCtx, (m) => isProtocolZoneModule(m))));
+    for (const content of z8.systemParts) zone8.push(content);
+    allChatMessages.push(...z8.chatMessages);
+    pushSection('zone8-protocol', '协议区', zone8.join('\n\n---\n\n'));
+  }
+
+  // 世界书 depth 消息（工作包A：四路分流中的 depth 路）
+  if (worldbookPlan?.depthMessages.length) {
+    allChatMessages.push(...worldbookPlan.depthMessages);
+  }
 
   return {
-    systemPrompt: parts.join('\n\n---\n\n'),
+    systemPrompt: sections.map((s) => s.content).join('\n\n---\n\n'),
+    sections,
+    chatModuleMessages: allChatMessages,
+  };
+}
+
+// ── 工作包B：八区辅助函数 ─────────────────────────────────────────
+
+/** NSFW 英文运行声明（仅 enableNsfw=true 时注入，额外要求区）。
+ *  只声明本回合许可，不替代中文规则、不强迫剧情进入成人内容。 */
+export const NSFW_RUNTIME_PERMISSION_EN = `# NSFW Runtime Permission
+
+System Prompt: NSFW/adult content is permitted and, when sexual scenes are involved, must be depicted in an explicit manner. All "fade to black" or "time skip" filters are disabled.
+
+If the scene is SFW (non-adult/non-sexual content), completely ignore this entire rule and proceed with normal narrative style.
+
+Activate the following requirements ONLY when generating a sexual scene:
+- Produce a slow-paced, extremely explicit sexual scene.
+- No euphemisms are allowed; sexual organs and the act of penetration must be described using clear, anatomical, and visceral language.
+- Use direct vocabulary such as 肉棒、龟头、阴茎、小穴、阴蒂、乳头、蜜液、精液、穴口 instead of hazy substitutes.
+- Emphasize friction, fluids, secretions, and physiological reactions.
+- If a specific character is involved, strictly preserve that character's unique speech patterns, personality, and emotional responses throughout the act.
+- If no specific character is specified, use a general third-person or narrator perspective.
+- Describe the scene step by step.`;
+
+/** 区2 规则区内置模块白名单（设计规格 7.3）。 */
+const RULE_ZONE_MODULE_IDS = new Set([
+  'builtin_rule_narrative_general',
+  'builtin_rule_forbidden_phrases',
+  'builtin_rule_emotion_realism',
+  'builtin_rule_battle_narration',
+  'builtin_rule_time_progression',
+  'builtin_rule_power_system',
+  'builtin_rule_awakening_interrogation',
+  'builtin_rule_first_turn',
+  'builtin_storymode_normal',
+  'builtin_storymode_harem',
+  'builtin_storymode_romance_alt',
+  'builtin_storymode_deep_single',
+  'builtin_writing_style',
+  'builtin_writing_style_hsr',
+  'builtin_writing_style_baimiao',
+  'builtin_writing_style_custom',
+  'builtin_no_control',
+  'builtin_player_speech_expansion',
+  'builtin_npc_autonomy',
+  'builtin_npc_ledger_continuity',
+  'builtin_nsfw',
+  'builtin_cognitive_isolation',
+  'builtin_emotion_protocol',
+]);
+
+/** 区2 规则区显式顺序（设计规格：先基调→再口径→再表达→行为边界→文风收尾）。 */
+const RULE_ZONE_ORDER: Record<string, number> = {
+  builtin_rule_narrative_general: 10,
+  builtin_rule_first_turn: 11,
+  builtin_rule_awakening_interrogation: 12,
+  builtin_storymode_normal: 20,
+  builtin_storymode_harem: 20,
+  builtin_storymode_romance_alt: 20,
+  builtin_storymode_deep_single: 20,
+  builtin_rule_power_system: 30,
+  builtin_rule_time_progression: 40,
+  builtin_rule_emotion_realism: 50,
+  builtin_rule_battle_narration: 60,
+  builtin_rule_forbidden_phrases: 70,
+  builtin_no_control: 80,
+  builtin_player_speech_expansion: 81,
+  builtin_npc_autonomy: 90,
+  builtin_npc_ledger_continuity: 100,
+  builtin_nsfw: 110,
+  builtin_emotion_protocol: 120,
+  builtin_cognitive_isolation: 130,
+  builtin_writing_style: 140,
+  builtin_writing_style_hsr: 140,
+  builtin_writing_style_baimiao: 140,
+  builtin_writing_style_custom: 140,
+};
+
+/** 区8 协议区内置模块白名单（回复格式/行动选项/COT）。 */
+const PROTOCOL_ZONE_MODULE_IDS = new Set([
+  'builtin_response_format',
+  'builtin_action_options',
+  'builtin_main_plot_cot',
+  'builtin_path_awakening_cot',
+  'builtin_opening_cot',
+  'builtin_preset_opening_cot',
+  'builtin_free_opening_cot',
+]);
+
+/** 模块基础过滤（enabled + scope + openingSourceGate + storyModeGate + injectionTrigger）。
+ *  工作包B：不再用 order<30/>=30 分区，改用显式 zoneFilter。 */
+function filterEnabledModules(
+  modules: 提示词模块[] | undefined,
+  ctx: PromptModuleInjectionCtx,
+): 提示词模块[] {
+  return (modules ?? [])
+    .filter((m) => m.enabled)
+    .filter((m) => {
+      const scope = m.scope?.length ? m.scope : (['all'] as 提示词模块作用域[]);
+      return scope.includes('all') || scope.includes(ctx.currentScope);
+    })
+    .filter((m) => {
+      if (!m.openingSourceGate?.length) return true;
+      return ctx.currentScope === 'opening' && !!ctx.openingSource && m.openingSourceGate.includes(ctx.openingSource);
+    })
+    .filter((m) => {
+      if (!m.storyModeGate?.length) return true;
+      return !!ctx.storyMode && m.storyModeGate.includes(ctx.storyMode);
+    })
+    .filter((m) => {
+      if (!m.injectionTrigger?.length) return true;
+      return !!ctx.triggerType && m.injectionTrigger.includes(ctx.triggerType);
+    });
+}
+
+/** 模块内容渲染（占位符替换管线，与 injectPromptModules 一致）。 */
+function renderModuleContent(m: 提示词模块, ctx: PromptModuleInjectionCtx): string {
+  const baseReplaced = m.content
+    .replace(/\{wordCountTarget\}/g, String(ctx.wordCountTarget))
+    .replace(/\{personLabel\}/g, ctx.personLabel)
+    .replace(/\{playerName\}/g, ctx.playerName);
+  const replaced = ctx.worldbookCtx ? replaceWorldbookPlaceholders(baseReplaced, ctx.worldbookCtx) : baseReplaced;
+  return ctx.macroCtx ? processMacros(replaced, ctx.macroCtx) : replaced;
+}
+
+interface ZoneModuleItem {
+  id: string;
+  content: string;
+  role: string;
+  injectionPosition?: number;
+  injectionDepth?: number;
+  injectionOrder?: number;
+}
+
+/** 按区收集模块（含玩家自定义模块的 category 归区）。
+ *  - 区1：persona/devmode 类
+ *  - 区2：规则白名单 + style/storymode/custom/jailbreak 类
+ *  - 区8：协议白名单 + format/cot 类 */
+function collectZoneModules(
+  activeModules: 提示词模块[] | undefined,
+  ctx: PromptModuleInjectionCtx,
+  zoneFilter: (m: 提示词模块) => boolean,
+): ZoneModuleItem[] {
+  const items: ZoneModuleItem[] = [];
+  for (const m of filterEnabledModules(activeModules, ctx)) {
+    if (!zoneFilter(m)) continue;
+    const role = m.role ?? 'system';
+    items.push({
+      id: m.id,
+      content: renderModuleContent(m, ctx),
+      role,
+      injectionPosition: m.injectionPosition,
+      injectionDepth: m.injectionDepth,
+      injectionOrder: m.injectionOrder ?? m.order,
+    });
+  }
+  return items;
+}
+
+/** 区2 模块归属（内置白名单 + 玩家自定义 style/storymode/custom/jailbreak 类）。 */
+function isRuleZoneModule(m: 提示词模块): boolean {
+  if (RULE_ZONE_MODULE_IDS.has(m.id)) return true;
+  const cat = m.category;
+  return cat === 'style' || cat === 'storymode' || cat === 'custom' || cat === 'jailbreak';
+}
+
+/** 区8 模块归属（协议白名单 + 玩家自定义 format/cot 类）。 */
+function isProtocolZoneModule(m: 提示词模块): boolean {
+  if (PROTOCOL_ZONE_MODULE_IDS.has(m.id)) return true;
+  const cat = m.category;
+  return cat === 'format' || cat === 'cot';
+}
+
+/** 把模块 items 按内容/角色拆成 system 段落与 chat 消息。 */
+function splitZoneItems(
+  items: ZoneModuleItem[],
+): { systemParts: string[]; chatMessages: ChatModuleMessage[] } {
+  const systemParts: string[] = [];
+  const chatMessages: ChatModuleMessage[] = [];
+  for (const item of items) {
+    if (item.role === 'system') {
+      systemParts.push(item.content);
+    } else {
+      chatMessages.push({
+        role: item.role,
+        content: item.content,
+        _injectionPosition: item.injectionPosition ?? 0,
+        _injectionDepth: item.injectionDepth ?? 4,
+        _injectionOrder: item.injectionOrder ?? 0,
+      });
+    }
+  }
+  return { systemParts, chatMessages };
+}
+
+/** 区2 规则区排序（设计规格顺序）。 */
+function orderRuleZoneModules(items: ZoneModuleItem[]): ZoneModuleItem[] {
+  return [...items].sort((a, b) => {
+    const ka = RULE_ZONE_ORDER[a.id] ?? 1000;
+    const kb = RULE_ZONE_ORDER[b.id] ?? 1000;
+    if (ka !== kb) return ka - kb;
+    return (a.injectionOrder ?? 0) - (b.injectionOrder ?? 0);
+  });
+}
+
+/** 区8 协议区排序（回复格式 → 行动选项 → COT 末尾）。 */
+function orderProtocolZoneModules(items: ZoneModuleItem[]): ZoneModuleItem[] {
+  const rank = (id: string): number => {
+    if (id === 'builtin_response_format') return 10;
+    if (id === 'builtin_action_options') return 20;
+    if (id.startsWith('builtin_') && id.endsWith('_cot')) return 30;
+    return 40; // 玩家自定义 format/cot
+  };
+  return [...items].sort((a, b) => rank(a.id) - rank(b.id) || (a.injectionOrder ?? 0) - (b.injectionOrder ?? 0));
+}
+
+/** 区3 字数要求段（从设置读取，独立段）。 */
+function buildWordCountSection(settings: 游戏设置): string {
+  return `# 字数要求\n\n- 本回合正文不少于 ${settings.wordCountTarget} 字；日常推进可贴近下限，关键场景应超过下限。`;
+}
+
+/** 分层记忆拆分：一次性计算三层（共享 seen 跨层去重），分别返回。
+ *  长/中→区5，短→区6 末尾（工作包B）。 */
+/** 分层记忆拆分：一次性计算三层（共享 seen 跨层去重），分别返回。
+ *  F2·对标既定方案：overrides 支持忆庭互斥时收紧/关闭某一层（长期锚点 N 条、中期/短期 0 条）。 */
+function buildLayeredMemorySectionsSplit(
+  memorySystem: 记忆系统,
+  overrides?: { long?: number; middle?: number; short?: number },
+): { long: string; middle: string; short: string } {
+  const seen: string[] = [];
+  // 去重扫描顺序：短期→中期→长期（重复内容保留在最短的那层，与原逻辑一致）
+  const shortTerm = pickDedupedMemoryEntries(memorySystem.短期记忆, overrides?.short ?? MAIN_SHORT_TERM_MEMORY_PROMPT_LIMIT, seen);
+  const middleTerm = pickDedupedMemoryEntries(memorySystem.中期记忆 ?? [], overrides?.middle ?? MAIN_MIDDLE_TERM_MEMORY_PROMPT_LIMIT, seen);
+  const longTerm = pickDedupedMemoryEntries(memorySystem.长期记忆, overrides?.long ?? MAIN_LONG_TERM_MEMORY_PROMPT_LIMIT, seen);
+  return {
+    long: longTerm.length ? formatMemorySection('长期记忆', longTerm) : '',
+    middle: middleTerm.length ? formatMemorySection('中期记忆', middleTerm) : '',
+    short: shortTerm.length ? formatMemorySection('短期记忆', shortTerm) : '',
+  };
+}
+
+/** 区5 剧情安排合并段（主线进度 + 最近 1-2 条剧情规划备忘）。 */
+function buildStoryArrangementSection(
+  plotNodes: 剧情节点[] | undefined,
+  storyPlanSnippets: string[] | undefined,
+  storyWeaving?: 剧情编织系统,
+): string {
+  const lines: string[] = ['# 剧情安排'];
+  const active = (plotNodes ?? []).filter((n) => n.状态 === 'active');
+  if (active.length) {
+    lines.push('', '## 当前主线');
+    for (const n of active) {
+      lines.push(`- ${n.标题}（${PLOT_STATUS_LABELS[n.状态]}）${n.摘要 ? ` — ${n.摘要}` : ''}`);
+      if (n.AI引导) lines.push(`  引导：${n.AI引导}`);
+    }
+  }
+  const recentCompleted = (plotNodes ?? [])
+    .filter((n) => n.状态 === 'completed')
+    .sort((a, b) => b.更新回合 - a.更新回合)
+    .slice(0, 3);
+  if (recentCompleted.length) {
+    lines.push('', '## 近期完成');
+    for (const n of recentCompleted) {
+      lines.push(`- ${n.标题}${n.摘要 ? ` — ${n.摘要}` : ''}`);
+    }
+  }
+  const snippets = (storyPlanSnippets ?? []).map((s) => s.trim()).filter(Boolean);
+  if (snippets.length) {
+    lines.push('', '## 剧情规划备忘');
+    for (const s of snippets.slice(0, 2)) lines.push(`- ${s}`);
+  }
+  // 剧情推进申报契约：给 AI 当前分段关键事件/结束状态，要求其在《剧情规划》内声明推进情况。
+  // 申报只作提示，系统会按正文证据校验后才推进——AI 不得只凭申报自行跳段。
+  const currentSegment = storyWeaving ? resolveCurrentWeavingSegment(storyWeaving)?.currentSegment : undefined;
+  if (currentSegment) {
+    const keyEvents = (currentSegment.关键事件 ?? []).map((e) => e.事件名).filter(Boolean);
+    const endStates = (currentSegment.本段结束状态 ?? []).slice(0, 3);
+    lines.push('', '## 当前剧情分段（推进申报）');
+    lines.push(`- 当前分段：${currentSegment.标题 || `第 ${currentSegment.组号} 段`}${keyEvents.length ? `｜关键事件：${keyEvents.join('、')}` : ''}`);
+    if (endStates.length) lines.push(`- 本段结束状态（写完后需在正文中体现）：${endStates.join('；')}`);
+    lines.push(
+      '- 每回合请在《剧情规划》末尾输出 <剧情推进> 申报：本回合正文是否完成当前分段、下一段去向。',
+      '  格式：<剧情推进>完成: 是/否；进入分段: <分段名或组号，未进入填"无">；依据: <简述> </剧情推进>',
+      '  「完成」必须基于本回合正文实际写到的内容；系统只按正文证据校验，申报本身不能推进剧情。',
+    );
+  }
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+/** 区6 天气判断段（builder 统一组装，不再由发送侧追加）。 */
+function buildWeatherSection(worldState: 世界状态): string {
+  return 构建天气Prompt片段(worldState.当前地点, worldState.当前天气);
+}
+
+/** 区7 文风助手（一行提醒当前启用文风，不复制整段文风模块）。 */
+function buildStyleAssistantSection(activeModules: 提示词模块[] | undefined): string {
+  const styleModule = (activeModules ?? []).find(
+    (m) => m.enabled && m.id.startsWith('builtin_writing_style'),
+  );
+  if (!styleModule) return '';
+  return `# 文风助手\n\n- 当前文风：「${styleModule.title}」。正文按区2 文风模块的质感要求写作。`;
+}
+
+/** 额外要求区（区7 与区8 之间，system 内容）：玩家额外要求 + NSFW 英文运行声明。
+ *  includeNsfw=false 时（pathAwakening）不注入 NSFW 双层。 */
+function buildExtraRequirementSection(settings: 游戏设置, includeNsfw = true): string {
+  const parts: string[] = [];
+  const extra = settings.额外功能?.玩家额外要求?.trim();
+  if (extra) parts.push(`# 玩家额外要求\n\n${extra}`);
+  if (includeNsfw && settings.enableNsfw) {
+    parts.push(NSFW_RUNTIME_PERMISSION_EN);
+  }
+  return parts.join('\n\n---\n\n');
+}
+
+/** 工作包F：命途狭间专用裁剪流程（不套用完整普通主剧情链）。
+ *  只包含：叙述者人格/必要世界框架/狭间规则/禁词/力量体系/人称字数/当前角色/狭间状态（含目标命途阶段理念）/
+ *  进入前场景/必要回顾/关键词世界书/智库/回复格式/狭间 COT。不注入：战技背包、记忆、剧情安排、编织、
+ *  时间天气、事件新闻手机、NPC 承接、NSFW 双层、普通区E。 */
+export function buildPathAwakeningSystemPrompt(
+  traveler: 角色数据结构,
+  worldState: 世界状态,
+  settings: 游戏设置,
+  _turnCount: number,
+  worldbooks?: 世界书[],
+  worldbookCtx?: FilterContext,
+  zhikuCompilation?: ZhikuTurnCompilation,
+  awakeningPhase?: 命途狭间阶段,
+  yitingInjectionOverride?: string,
+  triggerType?: string,
+  macroCtx?: MacroContext,
+  worldbookPlanInput?: WorldbookInjectionPlan,
+): BuiltSystemPrompt {
+  const sections: PromptSection[] = [];
+  const allChatMessages: ChatModuleMessage[] = [];
+  const pushSection = (id: string, title: string, content: string) => {
+    if (content) sections.push({ id, title, content });
+  };
+  const currentScope: 提示词模块作用域 = 'pathAwakening';
+
+  const shouldFilterLegacyStModules = settings.enableStPreset === false || Boolean(settings.currentStPresetIdV2);
+  const effectiveModules = shouldFilterLegacyStModules
+    ? settings.promptModules.filter((m) => !isSTImportedModule(m))
+    : settings.promptModules;
+  const playerNameForLabel = getPromptPlayerName(traveler);
+  const runtimePolicy = resolveNarrativePolicy(settings, playerNameForLabel);
+  const activeModules = applyRuntimeNarrativePolicy(
+    syncStoryModeModuleEnabled(effectiveModules, worldState.剧情模式),
+    runtimePolicy,
+  );
+  const personLabel = buildPersonLabel(settings.narrativePerson, playerNameForLabel);
+  const moduleCtx: PromptModuleInjectionCtx = {
+    wordCountTarget: settings.wordCountTarget,
+    personLabel,
+    playerName: playerNameForLabel,
+    currentScope,
+    openingSource: worldState.开局档案?.来源,
+    triggerType,
+    macroCtx,
+    worldbookCtx,
+    storyMode: worldState.剧情模式,
+  };
+  const worldbookPlan = worldbookPlanInput ?? (settings.enableWorldbookInjection && worldbooks && worldbookCtx
+    ? resolveWorldbookInjectionPlan(worldbooks, worldbookCtx)
+    : null);
+
+  // 区1：叙述者人格 + 必要世界框架（常驻世界书）
+  {
+    const zone1: string[] = [];
+    const z1 = splitZoneItems(collectZoneModules(activeModules, moduleCtx, (m) =>
+      m.id === 'builtin_dev_mode' || m.id === 'builtin_narrator_persona'));
+    zone1.push(...z1.systemParts);
+    allChatMessages.push(...z1.chatMessages);
+    if (worldbookPlan?.alwaysEntries.length) {
+      zone1.push(worldbookPlan.alwaysEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '世界书'))
+        .join('\n\n---\n\n'));
+    }
+    pushSection('zone1-identity', '身份区', zone1.join('\n\n---\n\n'));
+  }
+
+  // 区2：规则（狭间 scope 下仅禁词/力量体系/狭间三问规则命中）
+  {
+    const z2 = splitZoneItems(orderRuleZoneModules(
+      collectZoneModules(activeModules, moduleCtx, (m) => isRuleZoneModule(m))));
+    const zone2: string[] = [...z2.systemParts];
+    allChatMessages.push(...z2.chatMessages);
+    if (worldbookPlan?.systemRuleEntries.length) {
+      zone2.push(worldbookPlan.systemRuleEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '提示词'))
+        .join('\n\n---\n\n'));
+    }
+    pushSection('zone2-rules', '规则区', zone2.join('\n\n---\n\n'));
+  }
+
+  // 区3：参数（人称模块 scope 不含 pathAwakening，用设置生成一行；字数）
+  {
+    const zone3: string[] = [];
+    zone3.push(buildPersonSection(settings.narrativePerson, playerNameForLabel));
+    const wordCountSection = buildWordCountSection(settings);
+    if (wordCountSection) zone3.push(wordCountSection);
+    pushSection('zone3-params', '参数区', zone3.join('\n\n---\n\n'));
+  }
+
+  // 当前角色
+  pushSection('zone4-player', '玩家档案区', buildCharacterSection(traveler));
+
+  // 狭间状态（含目标命途/当前阶段/核心理念/出题或评判协议）
+  {
+    const awakeningSection = buildPathAwakeningSection(traveler, worldState, awakeningPhase);
+    pushSection('zone5-awakening', '狭间状态', awakeningSection);
+  }
+
+  // 进入前现实场景
+  {
+    const scene = buildSceneSection(worldState);
+    pushSection('zone6-scene', '进入前场景', scene);
+  }
+
+  // 回顾（即时回顾 + 忆庭，由发送侧预拼 override）
+  {
+    const review = yitingInjectionOverride?.trim();
+    pushSection('zone7-review', '回顾区', review ?? '');
+  }
+
+  // 关键词世界书 + 必要命途智库
+  {
+    const zone8: string[] = [];
+    if (worldbookPlan?.keywordEntries.length) {
+      zone8.push(worldbookPlan.keywordEntries
+        .map((item) => renderWorldbookSystemEntry(item, worldbookCtx!, '世界书'))
+        .join('\n\n---\n\n'));
+    }
+    if (zhikuCompilation?.mainStoryInjection.trim()) {
+      zone8.push(zhikuCompilation.mainStoryInjection.trim());
+    }
+    pushSection('zone8-knowledge', '按需资料', zone8.join('\n\n---\n\n'));
+  }
+
+  // 协议区：回复格式 + 狭间 COT（scope 命中 builtin_path_awakening_cot；main_plot_cot 不命中）
+  {
+    const z9 = splitZoneItems(orderProtocolZoneModules(
+      collectZoneModules(activeModules, moduleCtx, (m) => isProtocolZoneModule(m))));
+    const zone9: string[] = [...z9.systemParts];
+    allChatMessages.push(...z9.chatMessages);
+    pushSection('zone9-protocol', '协议区', zone9.join('\n\n---\n\n'));
+  }
+
+  // 额外要求区：不含 NSFW（pathAwakening 不注入 NSFW 双层）
+  pushSection('zone-extra-requirements', '额外要求区', buildExtraRequirementSection(settings, false));
+
+  // depth 消息
+  if (worldbookPlan?.depthMessages.length) {
+    allChatMessages.push(...worldbookPlan.depthMessages);
+  }
+
+  return {
+    systemPrompt: sections.map((sec) => sec.content).join('\n\n---\n\n'),
+    sections,
     chatModuleMessages: allChatMessages,
   };
 }
@@ -258,6 +808,8 @@ export function buildOpeningSystemPrompt(
   news?: 新闻条目[],
   triggerType?: string,
   macroCtx?: MacroContext,
+  worldbookPlanInput?: WorldbookInjectionPlan,
+  zhikuCompilation?: ZhikuTurnCompilation,
 ): BuiltSystemPrompt {
   const parts: string[] = [];
   const allChatMessages: ChatModuleMessage[] = [];
@@ -269,16 +821,17 @@ export function buildOpeningSystemPrompt(
     ? settings.promptModules.filter((m) => !isSTImportedModule(m))
     : settings.promptModules;
   // 剧情方向四选一：storymode 模块 enabled 派生自当前剧情模式。
-  const activeModules = syncStoryModeModuleEnabled(effectiveModules, worldState.剧情模式);
-
-  const personLabel =
-    settings.narrativePerson === 'second' ? '第二人称"你"'
-    : settings.narrativePerson === 'first' ? '第一人称"我"'
-    : '第三人称"他/她"';
+  const playerNameForLabel = getPromptPlayerName(traveler);
+  const runtimePolicy = resolveNarrativePolicy(settings, playerNameForLabel);
+  const activeModules = applyRuntimeNarrativePolicy(
+    syncStoryModeModuleEnabled(effectiveModules, worldState.剧情模式),
+    runtimePolicy,
+  );
+  const personLabel = buildPersonLabel(settings.narrativePerson, playerNameForLabel);
   const moduleCtx: PromptModuleInjectionCtx = {
     wordCountTarget: settings.wordCountTarget,
     personLabel,
-    playerName: getPromptPlayerName(traveler),
+    playerName: playerNameForLabel,
     currentScope: 'opening' as 提示词模块作用域,
     openingSource: worldState.开局档案?.来源,
     triggerType,
@@ -286,18 +839,26 @@ export function buildOpeningSystemPrompt(
     worldbookCtx,
     storyMode: worldState.剧情模式,
   };
+  const openingWorldbookCtx: FilterContext | undefined = worldbookCtx
+    ? { ...worldbookCtx, currentScope: 'opening', turnCount }
+    : undefined;
+  const worldbookPlan = settings.enableWorldbookInjection && worldbooks && openingWorldbookCtx
+    ? (worldbookPlanInput ?? resolveWorldbookInjectionPlan(worldbooks, openingWorldbookCtx))
+    : null;
 
   const topResult = injectPromptModules(activeModules, moduleCtx, 'top');
   if (topResult.systemSection) parts.push(topResult.systemSection);
   allChatMessages.push(...topResult.chatModuleMessages);
 
-  if (settings.enableWorldbookInjection && worldbooks && worldbookCtx) {
-    const promptLikeWorldbook = buildPromptLikeWorldbookInjection(worldbooks, {
-      ...worldbookCtx,
-      currentScope: 'opening',
-      turnCount,
-    });
-    if (promptLikeWorldbook) parts.push(promptLikeWorldbook);
+  if (worldbookPlan?.alwaysEntries.length && openingWorldbookCtx) {
+    parts.push(worldbookPlan.alwaysEntries
+      .map((item) => renderWorldbookSystemEntry(item, openingWorldbookCtx, '世界书'))
+      .join('\n\n---\n\n'));
+  }
+  if (worldbookPlan?.systemRuleEntries.length && openingWorldbookCtx) {
+    parts.push(worldbookPlan.systemRuleEntries
+      .map((item) => renderWorldbookSystemEntry(item, openingWorldbookCtx, '提示词'))
+      .join('\n\n---\n\n'));
   }
 
   const bottomResult = injectPromptModules(activeModules, moduleCtx, 'bottom');
@@ -309,6 +870,9 @@ export function buildOpeningSystemPrompt(
   if (innerVoiceSection) parts.push(innerVoiceSection);
 
   parts.push(buildCharacterSection(traveler));
+
+  const openingAbilitySections = buildOpeningAbilitySections(traveler, worldState, worldbookCtx);
+  parts.push(...openingAbilitySections);
 
   const timeAnchor = buildCurrentTimeAnchorSection(worldState);
   if (timeAnchor) parts.push(timeAnchor);
@@ -327,25 +891,63 @@ export function buildOpeningSystemPrompt(
   const newsSection = buildNewsSection(news);
   if (newsSection) parts.push(newsSection);
 
-  if (settings.enableWorldbookInjection && worldbooks && worldbookCtx) {
-    const openingWorldbookCtx: FilterContext = {
-      ...worldbookCtx,
-      currentScope: 'opening',
-      turnCount,
-    };
-    const injection = buildWorldbookInjection(worldbooks, openingWorldbookCtx);
-    if (injection) parts.push(injection);
-    // Phase 7.2：世界书深度插入条目（开局流程同样支持）
-    const worldbookDepthMessages = buildWorldbookChatModuleMessages(worldbooks, openingWorldbookCtx);
-    if (worldbookDepthMessages.length > 0) {
-      allChatMessages.push(...worldbookDepthMessages);
-    }
+  if (worldbookPlan?.keywordEntries.length && openingWorldbookCtx) {
+    parts.push(worldbookPlan.keywordEntries
+      .map((item) => renderWorldbookSystemEntry(item, openingWorldbookCtx, '世界书'))
+      .join('\n\n---\n\n'));
   }
+  if (zhikuCompilation?.mainStoryInjection.trim()) {
+    parts.push(zhikuCompilation.mainStoryInjection.trim());
+  }
+  if (worldbookPlan?.depthMessages.length) {
+    allChatMessages.push(...worldbookPlan.depthMessages);
+  }
+
+  // 工作包E：玩家额外要求与 NSFW 双层段（开关开启时，协议前）
+  const extraRequirements = buildExtraRequirementSection(settings);
+  if (extraRequirements) parts.push(extraRequirements);
 
   return {
     systemPrompt: parts.join('\n\n---\n\n'),
+    // 工作包B：开局流程 section（暂以单段呈现；工作包E 会按专用流程重组）
+    sections: parts.length ? [{ id: 'opening', title: '开局流程', content: parts.join('\n\n---\n\n') }] : [],
     chatModuleMessages: allChatMessages,
   };
+}
+
+function buildOpeningAbilitySections(
+  traveler: 角色数据结构,
+  worldState: 世界状态,
+  worldbookCtx?: FilterContext,
+): string[] {
+  const openingText = [
+    worldState.自定义开局,
+    worldbookCtx?.openingArchiveText,
+    worldbookCtx?.openingEntryText,
+    worldState.开局档案?.玩家介入原文,
+    worldState.开局档案?.章节锚点名称,
+    worldState.当前地点,
+    ...(worldState.全局事件 ?? []).slice(-3),
+  ].filter(Boolean).join('\n');
+  const sections: string[] = [];
+
+  const skillNames = (traveler.战技列表 ?? []).map((skill) => skill.名称).filter(Boolean);
+  const needsSkills = /战斗|袭击|危机|敌人|命途|能力|战技|武器|交战|突围/.test(openingText)
+    || skillNames.some((name) => openingText.includes(name));
+  if (needsSkills) {
+    const skills = buildSkillSection(traveler);
+    if (skills) sections.push(skills);
+  }
+
+  const inventoryNames = (traveler.背包 ?? []).map((item) => item.名称).filter(Boolean);
+  const needsInventory = /背包|物品|道具|装备|终端|通讯器|钥匙|凭证|药品/.test(openingText)
+    || inventoryNames.some((name) => openingText.includes(name));
+  if (needsInventory) {
+    const inventory = buildInventorySection(traveler);
+    if (inventory) sections.push(inventory);
+  }
+
+  return sections;
 }
 
 function normalizeMemoryFingerprint(text: string): string {
@@ -448,14 +1050,48 @@ interface InjectedModules {
   chatModuleMessages: ChatModuleMessage[];
 }
 
+/** 八区组装的可诊断 section（工作包B：builder 先构造带稳定 ID 的 section 数组再统一 join）。 */
+export interface PromptSection {
+  /** 稳定 ID：如 'zone1-identity' / 'zone2-rules' / 'zone8-protocol' */
+  id: string;
+  title: string;
+  content: string;
+}
+
 /** buildSystemPrompt / buildOpeningSystemPrompt 的返回值。 */
 export interface BuiltSystemPrompt {
   systemPrompt: string;
+  /** 八区 section 列表（供上下文快照和集中回归读取，不再靠标题猜分段） */
+  sections: PromptSection[];
   chatModuleMessages: ChatModuleMessage[];
 }
 
 function getPromptPlayerName(traveler: 角色数据结构): string {
   return traveler.姓名?.trim() || '无名开拓者';
+}
+
+/**
+ * 写作人称标签：第三人称必须带上主角名并明确禁止"你"，
+ * 避免模型在第三人称下仍然按第二人称习惯输出。
+ */
+function buildPersonLabel(narrativePerson: 'first' | 'second' | 'third', playerName: string): string {
+  if (narrativePerson === 'second') return '第二人称"你"';
+  if (narrativePerson === 'first') return '第一人称"我"';
+  return `第三人称"他/她"（正文以主角名「${playerName}」或"他/她"指代主角，禁止用"你"称呼主角）`;
+}
+
+/**
+ * 完整写作人称段（对齐既定方案 perspective 模块）：明确主代词 + 禁止切换 + 保持稳定。
+ * 第三人称额外声明：模块示例/规则中的"你"一律按第三人称转换。
+ */
+function buildPersonSection(narrativePerson: 'first' | 'second' | 'third', playerName: string): string {
+  if (narrativePerson === 'first') {
+    return '# 写作人称\n\n- 视角：第一人称"我"。\n- 玩家统一用"我"指代，必要时可补充「' + playerName + '」；玩家代词保持"我"，不切换成"你/他/她"。\n- 整条回复保持稳定第一人称；正文示例、规则或历史中的"你"一律按第一人称转换。';
+  }
+  if (narrativePerson === 'second') {
+    return '# 写作人称\n\n- 视角：第二人称"你"。\n- 玩家统一用"你"指代；玩家代词保持"你"，不切换成"我/他/她"。\n- 整条回复保持稳定第二人称。';
+  }
+  return '# 写作人称\n\n- 视角：第三人称。\n- 玩家统一用「' + playerName + '」或"他/她"指代主角；玩家代词保持第三人称，**禁止切换成"你"或"我"**。\n- 整条回复保持稳定第三人称；正文示例、规则或历史中的"你"一律按第三人称转换（如"你没有动"应写作"「' + playerName + '」没有动"）。';
 }
 
 /** 思维链输出语言标签映射（cotLanguage 设置 → AI 可读的语言名） */
@@ -871,7 +1507,7 @@ function buildNpcPresenceSection(
   explicitNpcNames: string[] = [],
 ): string {
   const sceneNames = (worldState.当前时段?.人物 ?? []).map((npc) => npc.姓名.trim()).filter(Boolean);
-  const records = npcRecords ?? [];
+  const records = 筛选活跃NPC(npcRecords);
   const explicitNames = normalizeExplicitNpcNames(explicitNpcNames);
   const current = records
     .filter((npc) => npc.同行 || sceneNames.some((name) => name === npc.姓名 || name === npc.别名))
@@ -934,7 +1570,7 @@ function buildNpcContinuitySection(
   turnCount = 0,
   explicitNpcNames: string[] = [],
 ): string {
-  const records = npcRecords ?? [];
+  const records = 筛选活跃NPC(npcRecords);
   const explicitNames = normalizeExplicitNpcNames(explicitNpcNames);
   const recentCutoff = Math.max(1, turnCount - RECENT_EXTRA_NPC_PROMPT_TURN_WINDOW);
   const sceneNames = new Set((worldState.当前时段?.人物 ?? []).map((n) => n.姓名.trim()).filter(Boolean));
@@ -1003,7 +1639,7 @@ function buildNpcContinuitySection(
     const turnLine = `初见第${Math.max(1, Number(npc.初见回合 || 1))}回合，最近第${Math.max(1, Number(npc.最近回合 || npc.初见回合 || 1))}回合`;
     const memoryLine = memories.length ? `；最近共同经历：${memories.slice(-3).join('；')}` : '';
     const phoneMemoryLine = buildRecentPhoneMemoryLine(npc);
-    const introLine = npc.介绍 ? `；身份/职责：${npc.介绍}` : '';
+    const introLine = npc.职务 || npc.介绍 ? `；身份/职责：${[npc.职务, npc.介绍].filter(Boolean).join('；')}` : '';
     lines.push(`- ${npc.姓名}${npc.别名 ? `（${npc.别名}）` : ''}｜${tags.join(' · ')}｜好感${npc.好感度 > 0 ? '+' : ''}${npc.好感度}｜${turnLine}${introLine}${memoryLine}${phoneMemoryLine}`);
   }
 
@@ -1016,11 +1652,12 @@ function buildNpcContinuitySection(
 
 // 已知伙伴注入：按相关度过滤（同行 > 近回合见过 > 有记忆/好感 > 高好感），避免刚见过的人过早掉出上下文。
 // 路人（tier='extra'）只注入近期或已有可承接关系/记忆的少量对象，避免上下文爆炸。
-function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0): string {
-  if (!npcRecords || npcRecords.length === 0) return '';
-  const companions = npcRecords.filter((n) => n.阶位 === 'companion');
+function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0, settings?: 游戏设置): string {
+  const records = 筛选活跃NPC(npcRecords);
+  if (records.length === 0) return '';
+  const companions = records.filter((n) => n.阶位 === 'companion');
   const recentCutoff = Math.max(1, turnCount - RECENT_EXTRA_NPC_PROMPT_TURN_WINDOW);
-  const recentExtras = npcRecords
+  const recentExtras = records
     .filter((n) => {
       if (n.阶位 !== 'extra') return false;
       const memoryCount = 提取NPC同行记忆文本列表(n).length;
@@ -1052,6 +1689,7 @@ function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0): string
     if (n.原著角色) tags.push('原著角色');
     const desc: string[] = [];
     if (n.对玩家称呼) desc.push(`称呼：${n.对玩家称呼}`);
+    if (n.职务) desc.push(`职务：${n.职务}`);
     if (n.外貌) desc.push(`外貌：${n.外貌}`);
     if (n.穿着) desc.push(`穿着：${n.穿着}`);
     if (n.说话方式) desc.push(`说话方式：${n.说话方式}`);
@@ -1061,8 +1699,14 @@ function buildCompanionsSection(npcRecords?: NPC记录[], turnCount = 0): string
     if (n.原著角色 && (n.说话方式 || n.性格)) {
       desc.push('表现要求：本回合若该角色在场或被自然牵引出场，必须体现说话方式和主体人格；不要连续数回合只沉默旁观。');
     }
-    const memories = 提取NPC同行记忆文本列表(n).slice(-4);
-    if (memories.length) desc.push(`同行记忆：${memories.join('；')}`);
+    // 对标参考项目：重要角色（原著/同行）保留最近 N 条关键记忆（重要角色关键记忆条数N，默认 20），普通 NPC 最近 5 条。
+    const 重要角色记忆条数 = Math.max(1, Math.trunc(settings?.记忆系统?.重要角色关键记忆条数N ?? 20) || 20);
+    const nonPhoneMemories = (n.同行记忆 ?? [])
+      .filter((item): item is NPC同行记忆条目 => typeof item !== 'string' && item?.来源 !== '手机')
+      .map((item) => 清理NPC同行记忆摘要(item?.摘要 ?? ''))
+      .filter((text): text is string => Boolean(text))
+      .slice(-(n.阶位 === 'companion' || n.原著角色 ? 重要角色记忆条数 : 5));
+    if (nonPhoneMemories.length) desc.push(`同行记忆：${nonPhoneMemories.join('；')}`);
     const phoneMemories = getRecentPhoneMemoryTexts(n).slice(-2);
     if (phoneMemories.length) desc.push(`最近手机私聊：${phoneMemories.join('；')}（正文若该角色入场，必须承接私聊热度与未尽话题）`);
     const descPart = desc.length ? `\n  ${desc.join('；')}` : '';
@@ -1172,42 +1816,83 @@ function buildRecentPhoneMemoryLine(npc: NPC记录): string {
   return phoneMemories.length ? `；最近手机私聊：${phoneMemories.join('；')}` : '';
 }
 
+/**
+ * 阶段1方案E·全知性防护（第三层）：通讯对方在场判断 + 提示词约束
+ *
+ * 注入通讯回忆时，检查通讯对方是否在场：
+ * - 在场 → 该NPC可以承接手机里的熟悉度/未尽话题
+ * - 不在场 → 其他在场NPC不应知道（走提示词约束）
+ *
+ * 仅当本回合召回结果中存在分类='通讯'的条目时才注入约束块，避免无通讯回忆时的噪声。
+ */
+function buildYitingOmniscienceGuard(
+  recalledEntries: 回忆条目[],
+  presentNpcIds: Set<string>,
+  npcNameMap: Record<string, string>,
+): string {
+  // 从召回结果中找出通讯回忆，提取对方id
+  const phoneEntries = recalledEntries.filter(
+    (entry) => entry.分类 === '通讯' && entry.通讯元数据?.联系人,
+  );
+  if (!phoneEntries.length) return '';
+
+  // 区分在场和不在场的通讯对方
+  const presentContacts = new Set<string>();
+  const absentContacts = new Set<string>();
+  for (const entry of phoneEntries) {
+    const contactId = entry.通讯元数据!.联系人;
+    const contactName = npcNameMap[contactId] ?? contactId;
+    if (presentNpcIds.has(contactId)) {
+      presentContacts.add(contactName);
+    } else {
+      absentContacts.add(contactName);
+    }
+  }
+
+  const lines: string[] = [];
+  lines.push('# 全知性防护｜通讯回忆约束');
+  lines.push('');
+  lines.push('上方【通讯回忆】(对方:X) 标记的内容，是玩家与X在手机私聊/群聊中发生的事，属于私密通讯。');
+  lines.push('');
+  lines.push('约束：');
+  lines.push('1. 当前在场的NPC（除通讯对方本人外）不应"知道"通讯内容，除非：');
+  lines.push('   - 通讯对方本人在场（可以承接手机里建立的熟悉度、未尽话题、约定）');
+  lines.push('   - 玩家在正文里当面告知了其他NPC');
+  lines.push('   - 剧情里有合理的传播途径（如对方转述、群聊公开、消息泄露等）');
+  lines.push('2. 其他在场NPC的反应、态度、台词不应暴露通讯细节。');
+  lines.push('3. 如果通讯对方不在场，正文应像"NPC不知道手机里聊过什么"那样自然推进。');
+
+  if (presentContacts.size) {
+    lines.push('');
+    lines.push(`本回合在场的通讯对方：${[...presentContacts].join('、')} —— 这位可以承接手机里的熟悉度与未尽话题。`);
+  }
+  if (absentContacts.size) {
+    lines.push('');
+    lines.push(`本回合不在场的通讯对方：${[...absentContacts].join('、')} —— 其他在场NPC不应知道与这位的通讯内容。`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildPhoneSection(phone?: 手机系统): string {
   if (!phone) return '';
-  const compressed = phone.chats
-    .flatMap((chat) =>
-      (chat.localArchive?.compressedSummaries ?? []).map((summary) => ({
-        title: chat.title,
-        type: chat.type,
-        summary,
-      })),
-    )
-    .filter((item) => item.summary.trim())
-    .slice(-6);
+  // 阶段1方案E：手机 compressedSummaries 不再直接注入正文
+  // 手机内容通过代码强制双写进入忆庭(分类='通讯')和NPC同行记忆(来源='手机')
+  // 由 recall(全局) + NPC账本(个人) 注入，此处只保留待处理来信注入（通知层面）
   const pendingSeeds = phone.messageSeeds
     .filter((seed) => seed.status === 'pending')
     .slice(-5);
-  if (!compressed.length && !pendingSeeds.length) return '';
+  if (!pendingSeeds.length) return '';
 
   const lines: string[] = [];
   lines.push('# 手机通讯摘要');
   lines.push('');
-  lines.push('- 这里不是完整聊天原文，只是手机系统已经压缩落地的通讯事实和待处理来信。');
-  lines.push('- 主剧情可以承接这些事实、约定、关系变化和未读提示，但不要代替玩家在手机里回复，也不要把手机聊天改写成正文大段复述。');
-  if (compressed.length) {
-    lines.push('');
-    lines.push('## 已压缩通讯摘要');
-    for (const item of compressed) {
-      const typeLabel = item.type === 'group' ? '群聊' : item.type === 'system' ? '系统' : '私聊';
-      lines.push(`- [${typeLabel}] ${item.title}：${item.summary}`);
-    }
-  }
-  if (pendingSeeds.length) {
-    lines.push('');
-    lines.push('## 待处理来信');
-    for (const seed of pendingSeeds) {
-      lines.push(`- [${seed.priority}] ${seed.title}：${seed.context}`);
-    }
+  lines.push('- 这里是手机系统待处理来信的通知。已压缩的通讯事实通过忆庭回忆和NPC账本注入，不在此处重复。');
+  lines.push('- 主剧情可以承接待处理来信的提示，但不要代替玩家在手机里回复，也不要把手机聊天改写成正文大段复述。');
+  lines.push('');
+  lines.push('## 待处理来信');
+  for (const seed of pendingSeeds) {
+    lines.push(`- [${seed.priority}] ${seed.title}：${seed.context}`);
   }
   return lines.join('\n');
 }

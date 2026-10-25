@@ -1,6 +1,7 @@
 ﻿import { useMemo, useState } from 'react';
-import type { 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
+import type { 变量批次诊断, 变量命令批次, 变量命令结果, 变量命令动作 } from '@/models/variableCommand';
 import type { 队列任务ID, 队列任务记录, 队列任务状态 } from '@/models/queueTask';
+import { variableBatchHasFailure, variableBatchHasWarning } from '@/utils/variableBatchStatus';
 
 interface Props {
   batches: 变量命令批次[];
@@ -9,12 +10,13 @@ interface Props {
   pending?: boolean;
   onCancelTask?: (id: 队列任务ID) => void;
   onRetryTask?: (task: 队列任务记录, mode: 'retry' | 'reroll') => void | Promise<void>;
+  onOpenRepairCenter?: () => void;
 }
 
 const smallClip =
   'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)';
 
-// 命令 action → 颜色标签（参考墨色项目的配色风格）
+// 命令 action → 颜色标签（沿用既有配色风格）
 const ACTION_STYLE: Record<变量命令动作, { bg: string; border: string; color: string; label: string }> = {
   set:    { bg: 'rgba(62, 112, 156, 0.12)',  border: 'rgba(62, 112, 156, 0.38)',  color: 'rgb(43, 88, 128)', label: 'SET' },
   add:    { bg: 'rgba(54, 111, 74, 0.12)', border: 'rgba(54, 111, 74, 0.38)', color: 'rgb(42, 94, 61)', label: 'ADD' },
@@ -25,7 +27,7 @@ const ACTION_STYLE: Record<变量命令动作, { bg: string; border: string; col
 
 type TaskStatus = 队列任务状态;
 
-export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryTask }: Props) {
+export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryTask, onOpenRepairCenter }: Props) {
   const [open, setOpen] = useState(false);
 
   const latest = batches.length > 0 ? batches[batches.length - 1] : null;
@@ -35,12 +37,16 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
     return map;
   }, [tasks]);
 
+  const latestHasError = variableBatchHasFailure(latest);
+  const latestHasWarning = variableBatchHasWarning(latest);
   const variableStatus: TaskStatus = pending
     ? 'pending'
     : latest
-      ? latest.results.some((r) => !r.ok)
+      ? latestHasError
         ? 'failed'
-        : 'success'
+        : latestHasWarning
+          ? 'warning'
+          : 'success'
       : latestTaskById.get('variable')?.status ?? 'idle';
 
   const queueRows = [
@@ -195,6 +201,22 @@ export function VariableDrawer({ batches, tasks, pending, onCancelTask, onRetryT
               onRetry={onRetryTask}
             />
           ))}
+          {onOpenRepairCenter && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onOpenRepairCenter(); }}
+              className="w-full px-4 py-3 text-left transition-colors"
+              style={{
+                color: 'rgba(var(--tj-tech-cyan),0.96)',
+                background: 'rgba(var(--tj-tech-cyan),0.08)',
+                boxShadow: 'inset 0 0 0 1px rgba(var(--tj-tech-cyan),0.28)',
+                clipPath: smallClip,
+              }}
+            >
+              <div className="font-serif text-sm font-semibold tracking-[0.16em]">打开变量修复中心</div>
+              <div className="mt-1 text-[11px]" style={{ color: 'rgba(var(--tj-text-secondary),0.68)' }}>扫描久远回合、查看差异与保护存档</div>
+            </button>
+          )}
         </div>
       </aside>
     </>
@@ -223,14 +245,15 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
   const [view, setView] = useState<'raw' | 'commands' | null>(null);
 
   const canViewRaw = !!batch?.rawText || !!task?.rawText;
-  const canViewCommands = !!batch && batch.results.length > 0;
+  const canViewCommands = !!batch && (batch.results.length > 0 || Boolean(batch.diagnostics?.length));
 
   const turnLabel = batch ? `第 ${batch.turn} 回合` : task?.turn ? `第 ${task.turn} 回合` : '尚未运行';
   const summary = batch
     ? (() => {
         const ok = batch.results.filter((r) => r.ok).length;
         const fail = batch.results.length - ok;
-        return `${batch.results.length} 条 · ✓ ${ok}${fail > 0 ? ` · ✗ ${fail}` : ''}`;
+        const diagnosticCount = batch.diagnostics?.length ?? 0;
+        return `${batch.results.length} 条 · ✓ ${ok}${fail > 0 ? ` · ✗ ${fail}` : ''}${diagnosticCount > 0 ? ` · 诊断 ${diagnosticCount}` : ''}`;
       })()
     : task?.detail ?? '';
   const retrySummary = task?.retrying && task.failCount
@@ -248,6 +271,8 @@ function TaskRow({ index, title, subtitle, status, batch, task, onCancel, onRetr
         boxShadow: `inset 0 0 0 1px ${
           status === 'pending'
             ? 'rgba(var(--tj-accent-primary), 0.45)'
+            : status === 'warning'
+              ? 'rgba(176, 126, 52, 0.42)'
             : status === 'failed'
               ? 'rgba(var(--tj-danger),0.35)'
               : 'rgba(var(--tj-border), 0.7)'
@@ -399,6 +424,21 @@ function StatusIcon({ status }: { status: TaskStatus }) {
         }}
       >
         ✓
+      </span>
+    );
+  }
+  if (status === 'warning') {
+    return (
+      <span
+        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm"
+        title="部分写入异常"
+        style={{
+          color: 'rgb(132, 84, 36)',
+          background: 'rgba(176, 126, 52, 0.12)',
+          boxShadow: 'inset 0 0 0 1px rgba(176, 126, 52, 0.45)',
+        }}
+      >
+        !
       </span>
     );
   }
@@ -571,7 +611,7 @@ function CommandsPanel({ batch }: { batch: 变量命令批次 }) {
           {batch.report}
         </div>
       )}
-      {batch.results.length === 0 && (
+      {batch.results.length === 0 && !batch.diagnostics?.length && (
         <div className="text-[10px] text-center py-2" style={{ color: 'rgba(var(--tj-text-primary), 0.72)' }}>
           本回合无变量变化
         </div>
@@ -579,12 +619,25 @@ function CommandsPanel({ batch }: { batch: 变量命令批次 }) {
       {batch.results.map((result, i) => (
         <CommandRow key={i} result={result} />
       ))}
+      {batch.diagnostics?.map((diagnostic, i) => (
+        <DiagnosticRow key={`diagnostic-${i}`} diagnostic={diagnostic} />
+      ))}
     </div>
   );
 }
 
 function CommandRow({ result }: { result: 变量命令结果 }) {
   const { command, ok, reason } = result;
+  if (!command) return <DiagnosticRow diagnostic={{
+    code: 'VARIABLE_RESULT_WITHOUT_COMMAND',
+    severity: ok ? 'warning' : 'error',
+    stage: result.stage ?? 'reduce',
+    message: reason ?? '该变量结果没有对应的可执行命令。',
+    factGroupId: result.factGroupId,
+    factIndex: result.factIndex,
+    entityKey: result.entityKey,
+  }} />;
+
   const style = ACTION_STYLE[command.action];
   const isNotice = result.kind === 'warning' || result.kind === 'error' || result.kind === 'rejected';
 
@@ -639,6 +692,55 @@ function CommandRow({ result }: { result: 变量命令结果 }) {
           ✗ {reason}
         </div>
       )}
+    </div>
+  );
+}
+
+function DiagnosticRow({ diagnostic }: { diagnostic: 变量批次诊断 }) {
+  const label = diagnostic.severity === 'error' ? '错误' : diagnostic.severity === 'warning' ? '提示' : '信息';
+  const color = diagnostic.severity === 'error'
+    ? 'rgba(176, 72, 68, 0.9)'
+    : diagnostic.severity === 'warning'
+      ? 'rgba(145, 99, 42, 0.9)'
+      : 'rgba(var(--tj-accent-primary), 0.9)';
+  const badgeBackground = diagnostic.severity === 'error'
+    ? 'rgba(176, 72, 68, 0.12)'
+    : diagnostic.severity === 'warning'
+      ? 'rgba(145, 99, 42, 0.12)'
+      : 'rgba(var(--tj-accent-primary), 0.12)';
+  const badgeBorder = diagnostic.severity === 'error'
+    ? 'rgba(176, 72, 68, 0.34)'
+    : diagnostic.severity === 'warning'
+      ? 'rgba(145, 99, 42, 0.34)'
+      : 'rgba(var(--tj-accent-primary), 0.34)';
+  const trace = [diagnostic.stage, diagnostic.code, diagnostic.factGroupId].filter(Boolean).join(' · ');
+  return (
+    <div
+      className="px-2 py-1.5 text-[11px]"
+      style={{
+        background: diagnostic.severity === 'error' ? 'rgba(176, 72, 68, 0.1)' : 'rgb(var(--tj-bubble))',
+        boxShadow: `inset 0 0 0 1px ${diagnostic.severity === 'error' ? 'rgba(176, 72, 68, 0.34)' : 'rgba(var(--tj-border), 0.68)'}`,
+        clipPath: smallClip,
+      }}
+      title={trace || diagnostic.code}
+    >
+      <div className="flex items-start gap-1.5">
+        <span
+          className="font-mono font-bold text-[9px] px-1.5 py-0.5 flex-shrink-0 mt-0.5"
+          style={{
+            background: badgeBackground,
+            color,
+            boxShadow: `inset 0 0 0 1px ${badgeBorder}`,
+            clipPath: 'polygon(2px 0, 100% 0, 100% calc(100% - 2px), calc(100% - 2px) 100%, 0 100%, 0 2px)',
+          }}
+        >
+          {label}
+        </span>
+        <span className="font-mono break-all min-w-0 flex-1" style={{ color: 'rgba(var(--tj-text-primary), 0.94)' }}>
+          {diagnostic.message}
+        </span>
+      </div>
+      {trace && <div className="mt-1 text-[9px] pl-1" style={{ color: 'rgba(var(--tj-text-secondary), 0.72)' }}>{trace}</div>}
     </div>
   );
 }

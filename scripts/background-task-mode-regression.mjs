@@ -29,15 +29,16 @@ assert(gameState.includes('backgroundTaskMode: savedGame.backgroundTaskMode ?? d
 assert(saveLoad.includes('backgroundTaskMode: localSettings.backgroundTaskMode ?? 创建默认游戏设置().backgroundTaskMode'), 'loaded saves must preserve local backgroundTaskMode preference.');
 assert(saveLoad.includes('state.setGameSettings(preserveLocalApiGameSettings(nextGameSettingsFromSave, state.gameSettings))'), 'save load must apply local-preference preservation when importing save settings.');
 
-const recallStart = sendWorkflow.indexOf('const [yitingPreview, zhikuPreview] = await Promise.all([');
-assert(recallStart >= 0, 'pre-main yiting/zhiku recall must remain parallel with Promise.all.');
-const recallBlock = sendWorkflow.slice(recallStart, recallStart + 1800);
-assert(recallBlock.includes('retrieveYitingContextWithModel') && recallBlock.includes('retrieveZhikuContextWithModel'), 'pre-main Promise.all must include both yiting and zhiku recall.');
+const recallMatch = sendWorkflow.match(/\b(const|let) \[yitingPreview, zhikuPreview\] = await Promise\.all\(\[/);
+assert(recallMatch, 'pre-main yiting/zhiku recall must remain parallel with Promise.all.');
+const recallStart = recallMatch.index;
+const recallBlock = sendWorkflow.slice(recallStart, recallStart + 2600);
+assert(recallBlock.includes('retrieveYitingContextWithModel') && recallBlock.includes('compileZhikuTurnWithModel'), 'pre-main Promise.all must include both yiting and zhiku recall.');
 
 assert(sendWorkflow.includes("state.gameSettings.backgroundTaskMode ?? 'sequential'"), 'send workflow must read backgroundTaskMode with sequential fallback.');
 assert(sendWorkflow.includes('runNewsBackgroundJob()'), 'send workflow must isolate news background job.');
 assert(sendWorkflow.includes('runYitingArchiveJob()'), 'send workflow must isolate yiting archive job.');
-assert(sendWorkflow.includes('runPhoneFallbackJob()'), 'send workflow must isolate phone fallback job.');
+assert(!sendWorkflow.includes('runPhoneFallbackJob()'), 'background jobs must not guess phone seeds outside the variable linker.');
 assert(sendWorkflow.includes('runNarrativeImageJob()'), 'send workflow must isolate narrative image job.');
 assert(sendWorkflow.includes('await Promise.all([') && sendWorkflow.includes('runNarrativeImageJob(),'), 'parallel mode must launch independent background jobs together.');
 assert(sendWorkflow.includes('chatHistory: finalHistoryForSave'), 'auto-save must use the final chat history after narrative images finish.');

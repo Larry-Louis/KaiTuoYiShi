@@ -48,8 +48,9 @@ export function 生成世界ID(): string {
 }
 
 /** 按世界 ID 生成命名空间化设置存储键。默认世界沿用旧键，免数据迁移。 */
-export function 世界存储键(baseKey: string, worldId: string): string {
-  return worldId === DEFAULT_WORLD_ID ? baseKey : `${baseKey}:${worldId}`;
+export function 世界存储键(baseKey: string, worldId?: string): string {
+  if (!worldId || worldId === DEFAULT_WORLD_ID) return baseKey;
+  return `${baseKey}:${worldId}`;
 }
 
 /** 归一化世界档案列表（兼容旧数据 / 外部导入）。 */

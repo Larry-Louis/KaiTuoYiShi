@@ -18,6 +18,7 @@ const providerOptions: { value: AI提供商; label: string; defaultBaseUrl: stri
   { value: 'opencode', label: 'OpenCode Zen', defaultBaseUrl: 'https://opencode.ai/zen/v1', defaultModel: 'deepseek-v4-flash' },
   { value: 'mimo', label: '小米 MiMo', defaultBaseUrl: 'https://api.xiaomimimo.com/v1', defaultModel: 'mimo-v2.5-pro' },
   { value: 'ark', label: '火山方舟', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: 'doubao-seed-1-6' },
+  { value: 'cline', label: 'Cline', defaultBaseUrl: 'https://api.cline.bot/api/v1', defaultModel: 'cline-pass/kimi-k3' },
   { value: 'claude', label: 'Claude', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
   { value: 'claude_compatible', label: 'Claude 兼容', defaultBaseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
   { value: 'gemini', label: 'Gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta', defaultModel: 'gemini-2.5-pro' },
@@ -218,16 +219,30 @@ export function YitingSettingsTab({ settings, onChange, apiSettings }: Props) {
       <Section title="系统开关">
         <ToggleField
           label="启用忆庭召回"
-          desc="开启后，达到触发回合后会检索回忆档案并注入主剧情。关闭只停止召回，回合纪要仍会入库，方便之后重新开启。"
+          desc="开启后，达到触发回合后会检索回忆档案并注入主剧情。关闭只停止召回，回合记忆仍会写入回忆档案，方便之后重新开启。"
           checked={memory.忆庭启用 !== false}
           onChange={(checked) => patchMemory({ 忆庭启用: checked })}
         />
         <ToggleField
           label="启用独立精炼"
-          desc="开启后，忆庭入库会调用精炼 API 生成概要；关闭时使用主剧情小总结和本地格式兜底。"
+          desc="对标参考项目：回忆档案默认由即时记忆直接推导（概括=AI 回合小结）。开启后额外调用精炼 API 生成概要作为概括增强。"
           checked={memory.忆庭独立精炼 === true}
           onChange={(checked) => patchMemory({ 忆庭独立精炼: checked })}
         />
+        <ToggleField
+          label="忆庭命中并存注入"
+          desc="对标参考项目：关闭（默认）时，召回命中会暂停短期/中期/长期记忆注入，旧事承接完全由剧情回忆承担；开启后短/中/长记忆与回忆并存注入。"
+          checked={memory.忆庭命中并存注入 === true}
+          onChange={(checked) => patchMemory({ 忆庭命中并存注入: checked })}
+        />
+        <div className="mt-2">
+          <NumberField
+            label="完整原文条数 N"
+            value={memory.剧情回忆完整原文条数N}
+            onChange={(value) => patchMemory({ 剧情回忆完整原文条数N: Math.max(1, Math.trunc(value)) })}
+            hint="对标参考项目：候选池中最近 N 条回忆向检索模型展示完整原文，更早的只展示概括（默认 20）。"
+          />
+        </div>
       </Section>
 
       <ApiSection

@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpenText, ChevronRight, Database, ListTree, Lock, Pencil, UserRound, X } from 'lucide-react';
+import { ArrowLeft, BookOpenText, ChevronRight, Database, ListTree, Lock, UserRound, X } from 'lucide-react';
 import {
   useId,
   useRef,
@@ -14,7 +14,6 @@ import { ReaderFontSizeControl } from './ReaderFontSizeControl';
 import type { ReaderRefreshStatus } from './ReaderFontSizeControl';
 import { formatArchiveParagraphLine } from './archiveDocumentFormatting';
 import { buildZhikuReaderStyle, ZHIKU_READER_FONT_SIZE_DEFAULT } from './readerFontSize';
-import { ZhikuEntryEditor, type ZhikuEntryPatch } from './ZhikuEntryEditor';
 import { ZhikuPageFrame } from './ZhikuPageFrame';
 import './zhiku-v3.css';
 import './archive-browser.css';
@@ -60,7 +59,6 @@ interface ArchiveBrowserProps {
   reducedMotion?: boolean;
   onBack?: () => void;
   onClose?: () => void;
-  onUpdateEntry?: (entryId: string, patch: ZhikuEntryPatch) => void;
 }
 
 const formatSequence = (index: number): string => String(index + 1).padStart(2, '0');
@@ -201,13 +199,11 @@ export function ArchiveBrowser({
   reducedMotion = false,
   onBack,
   onClose,
-  onUpdateEntry,
 }: ArchiveBrowserProps) {
   const [selectedItemId, setSelectedItemId] = useState(initialItemId ?? '');
   const [activeView, setActiveView] = useState<ZhikuArchiveView>('archive');
   const [selectedInjectionVariantId, setSelectedInjectionVariantId] = useState('');
   const [mobilePane, setMobilePane] = useState<'catalog' | 'detail'>(initialItemId ? 'detail' : 'catalog');
-  const [editOpen, setEditOpen] = useState(false);
   const archiveTabRef = useRef<HTMLButtonElement>(null);
   const injectionTabRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -368,52 +364,38 @@ export function ArchiveBrowser({
                   <span>{selectedItem.meta ?? '已收录档案'}</span>
                   {selectedItem.status === 'new' && <b>新</b>}
                 </div>
-                <div className="zhiku-v3-browser__toolbar">
-                  <div
-                    className="zhiku-v3-browser__view-tabs"
-                    role="tablist"
-                    aria-label={`${category.label}内容视图`}
-                    onKeyDown={handleViewKeyDown}
+                <div
+                  className="zhiku-v3-browser__view-tabs"
+                  role="tablist"
+                  aria-label={`${category.label}内容视图`}
+                  onKeyDown={handleViewKeyDown}
+                >
+                  <button
+                    ref={archiveTabRef}
+                    id={archiveTabId}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeView === 'archive'}
+                    aria-controls={panelId}
+                    tabIndex={activeView === 'archive' ? 0 : -1}
+                    onClick={() => setActiveView('archive')}
                   >
-                    <button
-                      ref={archiveTabRef}
-                      id={archiveTabId}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeView === 'archive'}
-                      aria-controls={panelId}
-                      tabIndex={activeView === 'archive' ? 0 : -1}
-                      onClick={() => setActiveView('archive')}
-                    >
-                      <BookOpenText size={13} strokeWidth={1.6} aria-hidden="true" />
-                      档案预览
-                    </button>
-                    <button
-                      ref={injectionTabRef}
-                      id={injectionTabId}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeView === 'injection'}
-                      aria-controls={panelId}
-                      tabIndex={activeView === 'injection' ? 0 : -1}
-                      onClick={() => setActiveView('injection')}
-                    >
-                      <Database size={13} strokeWidth={1.6} aria-hidden="true" />
-                      注入内容
-                    </button>
-                  </div>
-                  {onUpdateEntry && selectedItem.status !== 'locked' && (
-                    <button
-                      type="button"
-                      className="zhiku-v3-browser__edit-btn"
-                      onClick={() => setEditOpen(true)}
-                      aria-label="编辑当前档案条目"
-                      title="编辑当前档案条目"
-                    >
-                      <Pencil size={13} strokeWidth={1.6} aria-hidden="true" />
-                      编辑
-                    </button>
-                  )}
+                    <BookOpenText size={13} strokeWidth={1.6} aria-hidden="true" />
+                    档案预览
+                  </button>
+                  <button
+                    ref={injectionTabRef}
+                    id={injectionTabId}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeView === 'injection'}
+                    aria-controls={panelId}
+                    tabIndex={activeView === 'injection' ? 0 : -1}
+                    onClick={() => setActiveView('injection')}
+                  >
+                    <Database size={13} strokeWidth={1.6} aria-hidden="true" />
+                    注入内容
+                  </button>
                 </div>
               </header>
               {activeView === 'archive' ? (
@@ -528,31 +510,6 @@ export function ArchiveBrowser({
         <span>ARCHIVE // {selectedIndex >= 0 ? formatSequence(selectedIndex) : '--'} / {String(items.length).padStart(2, '0')}</span>
         <i />
       </div>
-
-      {editOpen && selectedItem && onUpdateEntry && (
-        <ZhikuEntryEditor
-          entry={selectedInjectionVariant
-            ? {
-                ...selectedItem,
-                body: selectedInjectionVariant.body || selectedItem.body,
-                triggerKeywords: selectedInjectionVariant.triggerKeywords ?? selectedItem.triggerKeywords,
-                secondaryKeywords: selectedInjectionVariant.secondaryKeywords ?? selectedItem.secondaryKeywords,
-                secondaryKeywordLogic: selectedInjectionVariant.secondaryKeywordLogic ?? selectedItem.secondaryKeywordLogic,
-              }
-            : selectedItem}
-          onCancel={() => setEditOpen(false)}
-          onSave={(patch) => {
-            const entryId = selectedInjectionVariant?.id ?? selectedItem.id;
-            if (entryId === selectedItem.id) {
-              onUpdateEntry(entryId, patch);
-            } else {
-              const { 标题: _ignoredTitle, ...variantPatch } = patch;
-              onUpdateEntry(entryId, variantPatch);
-            }
-            setEditOpen(false);
-          }}
-        />
-      )}
     </section>
   );
 }

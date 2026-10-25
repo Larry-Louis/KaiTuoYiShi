@@ -3,6 +3,8 @@ import { appendApiErrorReport } from './apiErrorReportService';
 import { withRetries } from './retry';
 import { isPioneerBaseUrl, normalizePioneerBaseUrl } from './pioneerProxyCore';
 import { isArkBaseUrl, normalizeArkBaseUrl } from './arkProxyCore';
+import { isClineBaseUrl } from './clineProxyCore';
+import { CLINE_RECOMMENDED_MODELS } from './clineModels';
 import { fetchOpenAICompatibleModels } from './openAICompatibleModels';
 import { normalizeGeminiBaseUrl } from './geminiEndpointPolicy';
 import {
@@ -39,6 +41,9 @@ export async function fetchModels(config: any): Promise<string[]> {
       }
       if (config.provider === 'opencode') {
         return fetchOpenCodeModels(baseRaw, apiKey);
+      }
+      if (config.provider === 'cline' || isClineBaseUrl(baseRaw)) {
+        return [...CLINE_RECOMMENDED_MODELS];
       }
       if (config.provider === 'ark' || isArkBaseUrl(baseRaw)) {
         return fetchArkModels(baseRaw, apiKey);
@@ -301,8 +306,11 @@ async function fetchBaiduQianfanModels(baseRaw: string, apiKey: string): Promise
 
 async function fetchGeminiModels(baseRaw: string, apiKey: string): Promise<string[]> {
   const base = normalizeGeminiBaseUrl(baseRaw);
-  const url = `${base}/models?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url).catch((e) => {
+  // Key 走 x-goog-api-key header（与 chatCompletionClient 一致），避免 Key 进入 URL 查询参数泄漏到历史/代理日志。
+  const url = `${base}/models`;
+  const res = await fetch(url, {
+    headers: { 'x-goog-api-key': apiKey },
+  }).catch((e) => {
     void appendApiErrorReport({
       source: 'Gemini 模型列表',
       config: { provider: 'gemini', baseUrl: baseRaw, apiKey },
@@ -392,7 +400,7 @@ export async function testConnection(config: any): Promise<ConnectionTestResult>
         chatCompletionNonStream(config, {
           messages: [{ role: 'user', content: `请只返回这个随机校验码：${challenge}` }],
           systemPrompt: '你正在执行 API 连接测试。必须只返回用户提供的随机校验码，不得添加解释、标点或 Markdown。',
-          maxTokens: 32,
+          maxTokens: config.provider === 'cline' || isClineBaseUrl(config.baseUrl) ? 256 : 32,
           temperature: 0,
           deepSeekRecovery: 'disabled',
         }),

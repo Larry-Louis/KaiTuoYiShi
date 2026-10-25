@@ -1,7 +1,15 @@
 import type { NPC账本选择结果 } from './npc';
-import type { ZhikuRunTrace } from '@/services/zhikuRunTrace';
 
 export type 消息角色 = 'user' | 'assistant' | 'system';
+
+/** 工作包C：主剧情消息模式（finalizer 运行时派生，不写入存档）。
+ *  standard / cot_pseudo / deepseek_standard / deepseek_prefix / tavern_v2。 */
+export type 主剧情消息模式 =
+  | 'standard'
+  | 'cot_pseudo'
+  | 'deepseek_standard'
+  | 'deepseek_prefix'
+  | 'tavern_v2';
 
 /** 「本回合 user 发送之前」的变量切片快照。挂在 assistant message 上，用于 reroll 时回滚。
  *  保留方式：只在最近一条 assistant message 上持久化，生成新 assistant 时清掉上一条的 snapshot，
@@ -22,10 +30,21 @@ export interface 回合快照 {
   queueTasks?: unknown[];
   turnCount: number;
   pendingOpeningTrigger?: string | null;
+  /**
+   * 回合前的 gameSettings 运行时字段（宏全局变量 / 世界书触发状态）。
+   * 只保存严格限定字段，不复制 API Key 等无关设置进每条消息快照。
+   * 重 Roll / 失败 / 中止恢复时，仅成功提交的回合才消费 cooldown/delay 与宏变量变化。
+   */
+  gameSettingsTurnState?: {
+    macroGlobalVars?: Record<string, string>;
+    worldbookTriggerStates?: Record<string, number>;
+  };
 }
 
 export interface 聊天消息 {
   id: string;
+  /** 稳定的 user → assistant 回合身份。旧存档缺少时保持 undefined，由迁移/诊断逻辑处理。 */
+  turnId?: string;
   role: 消息角色;
   content: string;
   timestamp: number;
@@ -40,15 +59,6 @@ export interface 聊天消息 {
     systemPrompt: string;
     messages: Array<{ role: 消息角色; content: string }>;
     requestHash?: string;
-    zhikuRunTrace?: ZhikuRunTrace;
-    zhikuCompileId?: string;
-    zhikuCatalogVersion?: string;
-    zhikuCatalogRevision?: number;
-    zhikuActualProvider?: string;
-    zhikuActualModel?: string;
-    zhikuFinishReason?: string;
-    zhikuPredictionRequestHash?: string;
-    zhikuRequestDifferenceReasons?: string[];
     requestCapabilities?: {
       transport: string;
       endpoint: string;
@@ -56,7 +66,7 @@ export interface 聊天消息 {
       mergesSystemMessages: boolean;
       supportsAssistantPrefill: boolean;
       streaming: boolean;
-      mode: 'native' | 'tavern-v2';
+      mode: 主剧情消息模式;
       prefixRequested: boolean;
       prefixApplied: boolean;
     };
@@ -72,6 +82,10 @@ export interface 聊天消息 {
     stV2Attempted?: boolean;
     stV2Used?: boolean;
     stV2FallbackReason?: string;
+    playerSpeechCorrections?: Array<{
+      code: 'inline_tag_split' | 'sound_effect_reassigned' | 'unsupported_player_line_reassigned';
+      lineIndex: number;
+    }>;
     rerollSimilarity?: number;
     rerollSimilarityRetried?: boolean;
     cachePrefixDiagnostics?: 缓存前缀诊断;
@@ -180,6 +194,12 @@ export interface 解析后回复 {
   variableDraft: string;
   /** 主剧情模型输出的后续承接备忘。用于下一回合接续伏笔、强制承接、延后/受阻项和镜头余波。 */
   storyPlan: string;
+  /** 剧情推进申报（《剧情规划》内 <剧情推进> 子块）：AI 主动声明本分段完成情况与目标分段。 */
+  storyAdvance?: {
+    completed: boolean;
+    targetSegment?: string;
+    basis?: string;
+  };
   /** AI 在主流程中发出的「命途狭间」邀请。内容为命途 ID(hunt/destruction/...)。
    *  非空时 sendWorkflow 会写入 世界状态.待触发狭间,并在聊天区渲染一张邀请卡片。 */
   awakenInvite: string;

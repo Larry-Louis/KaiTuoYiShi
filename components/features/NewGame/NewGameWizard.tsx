@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { 角色数据结构 } from '@/models/character';
 import { PATH_STAGE_DEFS, 创建命途进度 } from '@/models/path';
@@ -13,9 +13,7 @@ import type {
   阵营ID,
   开局来源,
   自由开局地点来源,
-  开局地区,
 } from '@/models/journey';
-import { DEFAULT_WORLD_ID } from '@/models/worldProfile';
 import {
   abilityPresets,
   openingRegions,
@@ -56,9 +54,6 @@ interface NewGameWizardProps {
   currentTheme: 主题预设;
   openingArchiveApiConfig?: API配置项 | null;
   onGenerateTravelerTemplate?: (context: TravelerTemplateContext) => Promise<TravelerTemplateDraft>;
-  /** 当前世界观 ID：自建世界强制自由开局，隐藏星穹铁道官方预设与地区锚点。 */
-  worldId?: string;
-  worldName?: string;
 }
 
 type Step = 'character' | 'path' | 'skill' | 'world' | 'historian' | 'overview';
@@ -166,7 +161,7 @@ const FREE_OPENING_PLANET_SOURCE_OPTIONS: Array<{
   title: string;
   text: string;
 }> = [
-  { id: 'existing', title: '已有地点', text: '从黑塔空间站、雅利洛-VI、仙舟罗浮、匹诺康尼等已有关联地点切入。' },
+  { id: 'existing', title: '已有地点', text: '从黑塔空间站、雅利洛-VI、仙舟罗浮、匹诺康尼、翁法罗斯、二相乐园等已有关联地点切入。' },
   { id: 'custom', title: '自创地点', text: '开启原创舞台工作台，由玩家自建地点、NPC、势力与规则。' },
 ];
 
@@ -323,19 +318,10 @@ function mergeFreeOpeningPrompt(baseText: string, workshopText: string): string 
   return parts.join('\n\n');
 }
 
-export function NewGameWizard({ onStart, onBack, openingArchiveApiConfig, onGenerateTravelerTemplate, worldId, worldName }: NewGameWizardProps) {
-  const isCustomWorld = Boolean(worldId && worldId !== DEFAULT_WORLD_ID);
-  // 自建世界：地区表替换为单一通用地区，官方预设 / 创意工坊模板 / 地区锚点全部隐藏。
-  const customOpeningRegion: 开局地区 = useMemo(() => ({
-    id: 'custom_world',
-    name: worldName?.trim() || '自定义世界',
-    description: '你的原创世界：一切设定由你书写，游戏从自由开局开始。',
-    defaultLocationHint: '一处尚未被讲述的起点',
-  }), [worldName]);
-  const effectiveOpeningRegions = isCustomWorld ? [customOpeningRegion] : openingRegions;
+export function NewGameWizard({ onStart, onBack, openingArchiveApiConfig, onGenerateTravelerTemplate }: NewGameWizardProps) {
   const [step, setStep] = useState<Step>('character');
   const [openingPresets, setOpeningPresets] = useState<OpeningPlayerPreset[]>([]);
-  const [openingSource, setOpeningSource] = useState<OpeningSource>(() => isCustomWorld ? 'free' : 'official_preset');
+  const [openingSource, setOpeningSource] = useState<OpeningSource>('official_preset');
   const [freeOpeningMainlineEnabled, setFreeOpeningMainlineEnabled] = useState(true);
   const [freeOpeningPlanetSource, setFreeOpeningPlanetSource] = useState<FreeOpeningPlanetSource>('existing');
   const [freeOpeningWorkshop, setFreeOpeningWorkshop] = useState<FreeOpeningWorkshopDraft>(DEFAULT_FREE_OPENING_WORKSHOP);
@@ -373,7 +359,7 @@ export function NewGameWizard({ onStart, onBack, openingArchiveApiConfig, onGene
   const [openingSkillSlotKey, setOpeningSkillSlotKey] = useState<OpeningSkillSlotKey>('normal:1');
 
   const [startingScenarioId, setStartingScenarioId] = useState<string>(
-    isCustomWorld ? '' : (startingScenarios[0]?.id ?? ''),
+    startingScenarios[0]?.id ?? '',
   );
   const [selectedWorkshopTemplateId, setSelectedWorkshopTemplateId] = useState(workshopOpeningTemplates[0]?.id ?? '');
   const [canonicalTrailblazer, setCanonicalTrailblazer] = useState<CanonicalTrailblazer>('stelle');
@@ -470,33 +456,32 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
     setOpeningSkillSlotKey(toOpeningSkillSlotKey(openingSkillSlots[0]));
   }, [openingSkillSlotKey, openingSkillSlots]);
   const selectedFaction = useMemo(() => getFaction(factionId) ?? factions[0], [factionId]);
-  // 自建世界：任何场景锚点都不得引用星穹铁道内置章节，派生值一律走空锚点回退。
-  const effectiveStartingScenarioId = isCustomWorld ? '' : startingScenarioId;
   const selectedScenario = useMemo<OpeningScenario | undefined>(
-    () => getStartingScenario(effectiveStartingScenarioId),
-    [effectiveStartingScenarioId],
+    () => getStartingScenario(startingScenarioId),
+    [startingScenarioId],
   );
   const selectedScenarioPreset = useMemo(
     () =>
-      getOfficialOpeningPresetByChapterId(effectiveStartingScenarioId)
+      getOfficialOpeningPreset(startingScenarioId)
+      ?? getOfficialOpeningPresetByChapterId(startingScenarioId)
       ?? (selectedScenario?.officialPresetId ? getOfficialOpeningPreset(selectedScenario.officialPresetId) : undefined)
       ?? getOfficialOpeningPresetByChapterId(selectedScenario?.id ?? ''),
-    [selectedScenario, effectiveStartingScenarioId],
+    [selectedScenario, startingScenarioId],
   );
-  const selectedScenarioBundle = useMemo(() => getOpeningScenarioBundle(effectiveStartingScenarioId), [effectiveStartingScenarioId]);
+  const selectedScenarioBundle = useMemo(() => getOpeningScenarioBundle(startingScenarioId), [startingScenarioId]);
   const selectedRegionId =
     selectedScenarioBundle.region?.id
     ?? selectedScenarioPreset?.regionId
-    ?? effectiveOpeningRegions[0]?.id
-    ?? 'custom_world';
-  const selectedOpeningRegion = getOpeningRegion(selectedRegionId) ?? effectiveOpeningRegions[0];
-  const selectedOpeningDate = selectedScenarioPreset?.referenceDate ?? (isCustomWorld ? '自定义纪 元年 01.01' : '琥珀纪 2157.03.07');
+    ?? openingRegions[0]?.id
+    ?? 'herta_space_station';
+  const selectedOpeningRegion = getOpeningRegion(selectedRegionId) ?? openingRegions[0];
+  const selectedOpeningDate = selectedScenarioPreset?.referenceDate ?? '琥珀纪 2157.03.07';
   const selectedOpeningTime = selectedScenarioPreset?.referenceTime ?? '06:40';
   const selectedOpeningLocation =
     selectedScenarioPreset?.defaultLocationHint
     ?? selectedScenarioBundle.chapter?.defaultLocationHint
     ?? selectedScenario?.name
-    ?? (isCustomWorld ? '一处尚未被讲述的起点' : '黑塔空间站');
+    ?? '黑塔空间站';
   const selectedOpeningTitle =
     selectedScenarioPreset?.title
     ?? (selectedScenarioBundle.region && selectedScenarioBundle.chapter
@@ -569,7 +554,7 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
     [customAbilities, selectedAbilityIds],
   );
   const openingHighlights = selectedScenarioPreset?.openingPressure ?? selectedScenarioBundle.chapter?.openingPressure ?? selectedScenario?.openingHighlights ?? [];
-  const effectiveFreeMainlineEnabled = isCustomWorld ? false : (openingSource === 'official_preset' || freeOpeningMainlineEnabled);
+  const effectiveFreeMainlineEnabled = openingSource === 'official_preset' || freeOpeningMainlineEnabled;
   const freeOpeningWorkshopText = useMemo(() => formatFreeOpeningWorkshopDraft(freeOpeningWorkshop, freeOpeningPlanetSource), [freeOpeningPlanetSource, freeOpeningWorkshop]);
   const effectiveCustomStartPrompt = useMemo(
     () => mergeFreeOpeningPrompt(customStartPrompt, openingSource !== 'official_preset' ? freeOpeningWorkshopText : ''),
@@ -594,7 +579,7 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
                 openingHighlights: selectedScenarioBundle.chapter.openingPressure,
               }
             : selectedScenario ?? {
-                id: effectiveStartingScenarioId,
+                id: startingScenarioId,
                 name: selectedOpeningTitle,
                 description: '',
                 openingHighlights: [],
@@ -612,11 +597,10 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
         abilities: selectedAbilityNames,
         skills: openingSkills,
       }),
-    [canonicalTrailblazer, customIdentity, effectiveCustomStartPrompt, effectiveStartingScenarioId, openingSkills, pathId, selectedAbilityNames, selectedFaction, selectedOpeningDate, selectedOpeningLocation, selectedOpeningTime, selectedOpeningTitle, selectedPath, selectedPathStage, selectedScenario, selectedScenarioBundle.chapter, selectedScenarioPreset, storyModeDef.name],
+    [canonicalTrailblazer, customIdentity, effectiveCustomStartPrompt, openingSkills, pathId, selectedAbilityNames, selectedFaction, selectedOpeningDate, selectedOpeningLocation, selectedOpeningTime, selectedOpeningTitle, selectedPath, selectedPathStage, selectedScenario, selectedScenarioBundle.chapter, selectedScenarioPreset, startingScenarioId, storyModeDef.name],
   );
 
   const selectOpeningSource = (source: OpeningSource) => {
-    if (isCustomWorld && source === 'official_preset') return;
     setOpeningSource(source);
     if (source === 'workshop') {
       const template =
@@ -677,7 +661,7 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
     }
     const officialPreset = getOfficialOpeningPresetsByRegion(regionId)[0];
     if (officialPreset) {
-      setStartingScenarioId(officialPreset.chapterId);
+      setStartingScenarioId(officialPreset.id);
       return;
     }
     const scenario = startingScenarios.find((item) => getOpeningScenarioBundle(item.id).region?.id === regionId);
@@ -872,7 +856,7 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
     setOpeningArchiveStatus('');
     const selectedPathDef = getPath(pathId);
     const selectedScenarioDef = selectedScenario;
-    const scenarioBundle = getOpeningScenarioBundle(effectiveStartingScenarioId);
+    const scenarioBundle = getOpeningScenarioBundle(startingScenarioId);
     const scenarioPreset = selectedScenarioPreset ?? scenarioBundle.preset;
 
     const abilityNames = selectedAbilityNames;
@@ -927,13 +911,13 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
 
     const worldState = 创建空世界状态();
     let resolvedOpeningLocation = selectedOpeningLocation;
-    worldState.纪年法 = isCustomWorld ? '自定义纪' : '琥珀纪年';
+    worldState.纪年法 = '琥珀纪年';
     worldState.开拓天数 = 1;
     worldState.当前日期 = selectedOpeningDate;
     worldState.当前时间 = selectedOpeningTime;
     worldState.当前地点 = resolvedOpeningLocation;
     worldState.剧情模式 = storyMode;
-    worldState.起航之地ID = scenarioPreset?.chapterId ?? scenarioBundle.chapter?.id ?? effectiveStartingScenarioId ?? (isCustomWorld ? 'custom_opening' : 'herta_station_incident');
+    worldState.起航之地ID = scenarioPreset?.chapterId ?? scenarioBundle.chapter?.id ?? startingScenarioId ?? 'herta_station_incident';
     worldState.原著主角 = canonicalName;
     worldState.自定义开局 = effectiveCustomStartPrompt;
     const customOpeningText = effectiveCustomStartPrompt;
@@ -943,7 +927,7 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
           ...worldState,
           自定义开局: customOpeningText,
         }) : 根据起始场景创建开局档案(selectedScenarioDef ?? {
-          id: scenarioBundle.chapter?.id ?? effectiveStartingScenarioId,
+          id: scenarioBundle.chapter?.id ?? startingScenarioId,
           name: selectedOpeningTitle,
           description: scenarioBundle.chapter?.summary ?? '',
           openingHighlights: scenarioBundle.chapter?.openingPressure ?? [],
@@ -954,10 +938,10 @@ const [openingArchiveStatus, setOpeningArchiveStatus] = useState('');
         });
       } else {
         const freeOpeningInput = {
-          regionId: scenarioPreset?.regionId ?? scenarioBundle.region?.id ?? (isCustomWorld ? 'custom_world' : 'herta_space_station'),
-          regionName: scenarioPreset?.regionName ?? scenarioBundle.region?.name ?? (isCustomWorld ? (worldName?.trim() || '自定义世界') : '黑塔空间站'),
-          chapterId: scenarioPreset?.chapterId ?? scenarioBundle.chapter?.id ?? (effectiveStartingScenarioId || (isCustomWorld ? 'custom_opening' : 'herta_station_incident')),
-          chapterName: scenarioPreset?.chapterName ?? scenarioBundle.chapter?.name ?? selectedScenarioDef?.name ?? (isCustomWorld ? `${worldName?.trim() || '自定义世界'} · 开场` : '黑塔空间站 · 主线苏醒前夕'),
+          regionId: scenarioPreset?.regionId ?? scenarioBundle.region?.id ?? 'herta_space_station',
+          regionName: scenarioPreset?.regionName ?? scenarioBundle.region?.name ?? '黑塔空间站',
+          chapterId: scenarioPreset?.chapterId ?? scenarioBundle.chapter?.id ?? (startingScenarioId || 'herta_station_incident'),
+          chapterName: scenarioPreset?.chapterName ?? scenarioBundle.chapter?.name ?? selectedScenarioDef?.name ?? '黑塔空间站 · 主线苏醒前夕',
           chapterSummary: scenarioPreset?.summary ?? scenarioBundle.chapter?.summary ?? selectedScenarioDef?.description ?? '',
           playerText: customOpeningText,
           defaultLocationHint: selectedOpeningLocation,
@@ -1354,7 +1338,6 @@ style={{
                 background={background}
                 onBackground={setBackground}
                 storyModeName={storyModeDef.name}
-                customWorldOnly={isCustomWorld}
                 templateOpeningContext={{
                   openingSourceLabel: openingSource === 'workshop' ? '创意工坊' : openingSource === 'free' ? '自由开局' : '官方预设',
                   openingRegionName: selectedOpeningRegion?.name,
@@ -1444,8 +1427,6 @@ style={{
                 onRemoveFreeOpeningCustomNpc={removeFreeOpeningCustomNpc}
                 customStartPrompt={customStartPrompt}
                 onCustomStartPrompt={setCustomStartPrompt}
-                regions={effectiveOpeningRegions}
-                customWorldOnly={isCustomWorld}
                 onNext={goNext}
                 onBack={goPrev}
               />
@@ -2158,7 +2139,6 @@ function CharacterStep({
   background,
   onBackground,
   storyModeName,
-  customWorldOnly,
   templateOpeningContext,
   onGenerateTemplate,
   onNext,
@@ -2184,8 +2164,6 @@ function CharacterStep({
   background: string;
   onBackground: (v: string) => void;
   storyModeName: string;
-  /** 自建世界：背景故事占位文案不引用星穹铁道地点。 */
-  customWorldOnly: boolean;
   templateOpeningContext?: Pick<
     TravelerTemplateContext,
     'openingSourceLabel' | 'openingRegionName' | 'openingChapterName' | 'openingLocationHint' | 'openingMainlineEnabled' | 'openingEntryText'
@@ -2386,7 +2364,7 @@ function CharacterStep({
                   value={background}
                   onChange={(e) => onBackground(e.target.value)}
                   rows={6}
-                  placeholder={customWorldOnly ? '可选。写下你的出身、过去经历、来到本世界的缘由、与某个势力或人物的关系。这里会显示在旅人档案中，也会被主剧情读取。' : '可选。写下你的出身、过去经历、为何来到黑塔空间站、与命途或某个组织的关系。这里会显示在旅人档案中，也会被主剧情读取。'}
+                  placeholder="可选。写下你的出身、过去经历、为何来到黑塔空间站、与命途或某个组织的关系。这里会显示在旅人档案中，也会被主剧情读取。"
                   className="kaituo-input w-full resize-none px-3 py-2 text-sm"
                   style={{ clipPath: smallClip }}
                 />
@@ -3103,8 +3081,6 @@ function OpeningAnchorStep({
   onRemoveFreeOpeningCustomNpc,
   customStartPrompt,
   onCustomStartPrompt,
-  regions,
-  customWorldOnly,
   onNext,
   onBack,
 }: {
@@ -3128,14 +3104,10 @@ function OpeningAnchorStep({
   onRemoveFreeOpeningCustomNpc: (id: string) => void;
   customStartPrompt: string;
   onCustomStartPrompt: (v: string) => void;
-  /** 可选地区列表（自建世界为单个通用地区）。 */
-  regions: 开局地区[];
-  /** 自建世界：仅允许自由开局，隐藏官方预设与主线坐标。 */
-  customWorldOnly: boolean;
   onNext: () => void;
   onBack: () => void;
 }) {
-  const selectedRegion = getOpeningRegion(selectedRegionId) ?? regions[0];
+  const selectedRegion = getOpeningRegion(selectedRegionId) ?? openingRegions[0];
   const freeGuide = getFreeOpeningGuide(selectedRegionId);
   const filteredOfficialPresets = getOfficialOpeningPresetsByRegion(selectedRegionId);
   const filteredChapters = openingChapterAnchors.filter((item) => item.regionId === selectedRegionId);
@@ -3156,9 +3128,11 @@ function OpeningAnchorStep({
         )
       : openingSource === 'official_preset'
         ? filteredOfficialPresets.map((preset) => ({
-            id: preset.chapterId,
+            // 官方预设可以共享同一个章节锚点，卡片身份必须使用预设 ID。
+            id: preset.id,
             regionId: preset.regionId,
-            name: preset.chapterName,
+            // 卡片展示标题要区分同一章节下的不同开局预设，章节名由右侧徽章展示。
+            name: preset.title,
             summary: preset.summary,
             officialChapterName: openingChapterAnchors.find((item) => item.id === preset.chapterId)?.officialChapterName,
             officialChapterPhase: openingChapterAnchors.find((item) => item.id === preset.chapterId)?.officialChapterPhase,
@@ -3178,8 +3152,8 @@ function OpeningAnchorStep({
 
       <div className="grid gap-3 md:grid-cols-2">
         {[
-          ...(!customWorldOnly ? [{ id: 'official_preset' as OpeningSource, title: '官方预设', text: '稳定章节背景，适合快速进入某个主线节点。' }] : []),
-          { id: 'free' as OpeningSource, title: '自由开局', text: customWorldOnly ? '自建世界从自由开局开始：书写地点、设定与介入方式。' : '选择地区与主线进度后，自由书写真实起点和介入方式。' },
+          { id: 'official_preset' as OpeningSource, title: '官方预设', text: '稳定章节背景，适合快速进入某个主线节点。' },
+          { id: 'free' as OpeningSource, title: '自由开局', text: '选择地区与主线进度后，自由书写真实起点和介入方式。' },
         ].map((item) => {
           const active = openingSource === item.id;
           return (
@@ -3220,7 +3194,7 @@ function OpeningAnchorStep({
             {openingSource === 'official_preset' ? '地区' : '已有地点'}
           </div>
           <div className="space-y-2">
-            {regions.map((region) => {
+            {openingRegions.map((region) => {
               const active = selectedRegionId === region.id;
               return (
                 <button
@@ -3251,7 +3225,7 @@ function OpeningAnchorStep({
         </div>
 
         <div className="flex flex-col gap-4">
-          {openingSource !== 'official_preset' && !customWorldOnly ? (
+          {openingSource !== 'official_preset' ? (
             <div
               className="order-1 p-[13px]"
               style={{
@@ -3306,7 +3280,7 @@ function OpeningAnchorStep({
                 })}
               </div>
               <div className="mt-3 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-btn-primary-end), 0.92)' }}>
-                关闭主线后，原作主线不会自动注入正文。若后续需要罗浮、匹诺康尼等原作剧情，请在剧情编织中手动启用你想注入的主线内容。
+                关闭主线后，原作主线不会自动注入正文。若后续需要罗浮、匹诺康尼、翁法罗斯、二相乐园等原作剧情，请在剧情编织中手动启用你想注入的主线内容。
               </div>
               {freeOpeningMainlineEnabled ? (
                 <div
@@ -3362,7 +3336,7 @@ function OpeningAnchorStep({
                         {item.title}
                       </div>
                       <div className="mt-1 text-[11px] leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.76)' }}>
-                        {customWorldOnly && item.id === 'existing' ? '从当前世界的已设定地点切入。' : item.text}
+                        {item.text}
                       </div>
                     </button>
                   );
@@ -3378,7 +3352,7 @@ function OpeningAnchorStep({
                     clipPath: smallClip,
                   }}
                 >
-                  当前已有地点：{getOpeningRegionDisplayName(selectedRegion?.name)}。{customWorldOnly ? '这是本世界唯一的地区，开局场景将在这里展开。' : '需要切换时，请在左侧选择黑塔空间站、雅利洛-VI、仙舟罗浮或匹诺康尼。'}
+                  当前已有地点：{getOpeningRegionDisplayName(selectedRegion?.name)}。需要切换时，请在左侧选择黑塔空间站、雅利洛-VI、仙舟罗浮、匹诺康尼、翁法罗斯或二相乐园。
                 </div>
               ) : null}
               <div className="mt-3 grid gap-3 xl:grid-cols-2">
@@ -3393,7 +3367,7 @@ function OpeningAnchorStep({
                 <FreeOpeningWorkshopField
                   label="起始地点"
                   value={freeOpeningWorkshop.location}
-                  placeholder={freeOpeningPlanetSource === 'existing' ? (customWorldOnly ? '例如：主城街区、港口码头、边境驿站、地下实验室' : '例如：主控舱段 / 下层区诊所 / 星槎海中枢 / 白日梦酒店大堂') : '例如：城邦下城区、太空港、研究站、荒原营地'}
+                  placeholder={freeOpeningPlanetSource === 'existing' ? '例如：主控舱段 / 下层区诊所 / 星槎海中枢 / 白日梦酒店大堂' : '例如：城邦下城区、太空港、研究站、荒原营地'}
                   onChange={(value) => onFreeOpeningWorkshop('location', value)}
                 />
                 {freeOpeningPlanetSource === 'custom' ? (
@@ -3672,7 +3646,7 @@ function OpeningAnchorStep({
                 我的开局设定
               </div>
               <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(var(--tj-text-secondary), 0.82)' }}>
-                会影响开局走向。你可以写接入点、当前剧情正在发生什么、你和谁有什么关系；这段话会发送给 AI，并联动写入开局档案和伙伴关系。例如写{customWorldOnly ? '“我和边境驿站的守卫有旧交”' : '“和螺丝咕姆很熟”'}，伙伴关系也可能被整理进档案。
+                会影响开局走向。你可以写接入点、当前剧情正在发生什么、你和谁有什么关系；这段话会发送给 AI，并联动写入开局档案和伙伴关系。例如写“和螺丝咕姆很熟”，伙伴关系也可能被整理进档案。
               </div>
               <textarea
                 value={customStartPrompt}
@@ -4544,7 +4518,10 @@ function sanitizeOpeningPresetDraft(value: unknown): OpeningPresetDraft {
     customAbilities: sanitizeStringArray(raw.customAbilities).slice(0, 8),
     openingSkills: sanitizeOpeningSkills(raw.openingSkills),
     startingScenarioId:
-      typeof raw.startingScenarioId === 'string' && startingScenarios.some((item) => item.id === raw.startingScenarioId)
+      typeof raw.startingScenarioId === 'string' && (
+        startingScenarios.some((item) => item.id === raw.startingScenarioId)
+        || Boolean(getOfficialOpeningPreset(raw.startingScenarioId))
+      )
         ? raw.startingScenarioId
         : startingScenarios[0]?.id ?? '',
     selectedWorkshopTemplateId,

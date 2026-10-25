@@ -1,11 +1,36 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import esbuild from 'esbuild';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const avatarTs = read('data/builtinAvatars.ts');
 const staticManifest = JSON.parse(read('data/staticAssetManifest.json'));
 const inventory = JSON.parse(read('public/assets/builtin-avatars/candidates/avatar-candidates.json'));
+
+// canonicalCharacters.ts 会相对导入 ./zhikuCanonicalCharacters，
+// 单文件 transpile + data: URL 无法解析相对导入，改用项目回归通用的 esbuild bundle 方案。
+async function bundleCanonicalCharacters() {
+  const outfile = path.join(os.tmpdir(), `builtin-avatar-canonical-${Date.now()}.mjs`);
+  await esbuild.build({
+    entryPoints: [path.join(root, 'data/canonicalCharacters.ts')],
+    outfile,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    logLevel: 'silent',
+    plugins: [{
+      name: 'workspace-alias',
+      setup(build) {
+        build.onResolve({ filter: /^@\// }, (args) => ({ path: path.join(root, args.path.slice(2)) }));
+      },
+    }],
+  });
+  return import(`${pathToFileURL(outfile).href}?t=${Date.now()}`);
+}
+const { CANONICAL_CHARACTERS } = await bundleCanonicalCharacters();
 
 const errors = [];
 const characters = Array.isArray(inventory.characters) ? inventory.characters : [];
@@ -92,6 +117,17 @@ const candidateDir = path.join(root, 'public/assets/builtin-avatars/candidates')
 const localPngs = fs.readdirSync(candidateDir).filter((name) => name.endsWith('.png'));
 if (localPngs.length !== 0) {
   errors.push(`repository must not retain character avatar PNGs, found ${localPngs.length}`);
+}
+
+for (const canonical of CANONICAL_CHARACTERS) {
+  const avatarCharacter = characters.find((character) => character.name === canonical.name);
+  if (!avatarCharacter) continue;
+  const inventoryAliases = new Set(avatarCharacter.aliases ?? []);
+  for (const alias of canonical.aliases ?? []) {
+    if (!inventoryAliases.has(alias)) {
+      errors.push(`${canonical.name} canonical alias is missing from avatar inventory: ${alias}`);
+    }
+  }
 }
 if (avatarTs.includes('LOCAL_AVATAR_CANDIDATE_IDS') || avatarTs.includes("const BASE = '/assets/builtin-avatars/candidates'")) {
   errors.push('builtinAvatars.ts must not retain repository-local character avatar paths');

@@ -26,19 +26,20 @@ import {
 import { loadBundledZhikuCatalogWithFallback } from '@/data/zhikuCatalogRepository';
 import { clearWorkflowRecoveryJournal, isWorkflowRecoveryComplete } from '@/services/workflowRecovery';
 import { normalizeMemorySystem } from './memoryUtils';
-import { 归一化世界状态 } from '@/models/world';
+import { 归一化世界状态, type 世界状态 } from '@/models/world';
 import { 归一化忆庭系统 } from '@/models/yiting';
 import { 归一化手机系统 } from '@/models/phone';
 import { 归一化NPC记录列表 } from '@/models/npc';
 import { 归一化相册系统 } from '@/models/imageGeneration';
 import { 归一化新闻列表 } from '@/models/news';
 import { 归一化剧情编织系统 } from '@/models/storyWeaving';
-import { autoAlignCanonStoryProgress } from '@/services/storyProgressService';
-import { alignStoryWeavingToOpeningArchive, buildPersistedStoryWeavingSystem } from '@/data/storyWeavingPreset';
+import { restoreStoryWeavingForLoadedSave } from '@/data/storyWeavingPreset';
+import { ensureRuntimeSliceForLoadedSave } from '@/hooks/useGame/legacyRuntimeSlice';
 import { materializeAlbumRuntimePayload, pruneAlbumAssetCache } from '@/utils/albumObjectUrl';
 import { compactDuplicatedSaveImages } from '@/utils/saveImageCompactor';
 import { attachSaveTreeMeta, buildNextSaveTreeMeta, getSaveTreeMeta, type 存档树元信息 } from '@/utils/saveTree';
 import { compactChatHistoryForLongSession, compactVariableBatchHistory } from '@/utils/longSessionRetention';
+import { linkVariableBatchesToChatHistory } from '@/utils/variableBatchIdentity';
 
 let activeSaveTreeMeta: 存档树元信息 | null = null;
 
@@ -62,12 +63,15 @@ export function clearActiveSaveTreeMetaIfMatches(target?: { rootId?: string; nod
 export function buildSavePayload(
   state: UseGameStateReturn,
   type: 存档类型,
-  overrides?: Partial<Pick<存档数据, 'turnCount' | 'chatHistory' | '记忆' | '忆庭' | '智库' | '手机' | '世界' | '旅人' | 'NPC' | '相册' | '新闻' | '剧情' | '剧情编织' | 'variableBatches' | 'queueTasks'>>,
+  overrides?: Partial<Pick<存档数据, 'turnCount' | 'chatHistory' | '记忆' | '忆庭' | '智库' | '手机' | '世界' | '旅人' | 'NPC' | '相册' | '新闻' | '剧情' | '剧情编织' | 'variableBatches' | 'queueTasks' | 'gameSettings'>>,
 ): 存档数据 {
   const persistedChatHistory = compactChatHistoryForLongSession(
     overrides?.chatHistory ?? state.chatHistory,
   );
   const timestamp = Date.now();
+  // gameSettings 允许传入本回合最终覆盖值（宏全局变量 / 世界书触发状态等运行时字段），
+  // 自动存档与 saveSetting('gameSettings') 必须使用同一个最终对象，不能继续读闭包旧 state。
+  const gameSettingsForSave = overrides?.gameSettings ?? state.gameSettings;
   const baseSave = {
     id: 0,
     type,
@@ -88,15 +92,15 @@ export function buildSavePayload(
     variableBatches: compactVariableBatchHistory(overrides?.variableBatches ?? state.variableBatches),
     queueTasks: overrides?.queueTasks ?? state.queueTasks,
     gameSettings: buildSaveGameSettingsSnapshot({
-      ...state.gameSettings,
-      新闻系统: 归一化星际和平周报设置(state.gameSettings.新闻系统),
-      手机系统: 归一化手机系统设置(state.gameSettings.手机系统 ?? 创建默认手机系统设置()),
-      智库系统: 归一化智库系统设置(state.gameSettings.智库系统),
-      剧情编织系统: 归一化剧情编织系统设置(state.gameSettings.剧情编织系统),
-      文生图系统: 归一化文生图系统设置(state.gameSettings.文生图系统),
-      记忆系统: 归一化记忆系统设置(state.gameSettings.记忆系统 ?? 创建默认记忆系统设置()),
-      额外功能: 归一化额外功能设置(state.gameSettings.额外功能),
-      visualTextSettings: 归一化视觉文本设置(state.gameSettings.visualTextSettings),
+      ...gameSettingsForSave,
+      新闻系统: 归一化星际和平周报设置(gameSettingsForSave.新闻系统),
+      手机系统: 归一化手机系统设置(gameSettingsForSave.手机系统 ?? 创建默认手机系统设置()),
+      智库系统: 归一化智库系统设置(gameSettingsForSave.智库系统),
+      剧情编织系统: 归一化剧情编织系统设置(gameSettingsForSave.剧情编织系统),
+      文生图系统: 归一化文生图系统设置(gameSettingsForSave.文生图系统),
+      记忆系统: 归一化记忆系统设置(gameSettingsForSave.记忆系统 ?? 创建默认记忆系统设置()),
+      额外功能: 归一化额外功能设置(gameSettingsForSave.额外功能),
+      visualTextSettings: 归一化视觉文本设置(gameSettingsForSave.visualTextSettings),
     }),
     apiSettings: 创建空API设置(),
     theme: state.currentTheme,
@@ -252,6 +256,15 @@ export async function handleDeleteSave(id: number): Promise<void> {
   clearActiveSaveTreeMetaIfMatches((save as { saveTree?: 存档树元信息 } | null)?.saveTree);
 }
 
+/**
+ * 老存档读档迁移：旧档没有 世界.剧情运行时（V3 运行时切片），读档时按旧游标生成初始切片，
+ * 让老档立即获得当前焦点与排期世界事件——世界演变/事实物化/新闻联动从读档后即刻工作。
+ * - 只做"旧游标 → focus + 排期事件"的只读翻译：不推进剧情、不改游标、不补造旧回合事实
+ *   （遵守 r2-central「读档不得推进/重新判断剧情」回归锁定）；
+ * - 复用与首回合完全相同的投影/合并/dueAt 逻辑（buildStoryWeavingRuntimeProjection +
+ *   mergeProjectionEvents，按 eventInstanceId 去重，后续回合不会重复添加）；
+ * - 已有切片的存档（新档/已迁移档）直接通过；无剧情进度的存档跳过（首回合正常流程会自建）。
+ */
 async function applySaveToState(
   save: 存档数据,
   state: UseGameStateReturn,
@@ -261,6 +274,16 @@ async function applySaveToState(
   const safeWorld = 归一化世界状态(save.世界);
   const safeTraveler = normalizeSavedTraveler(save.旅人, safeWorld.当前日期);
   const safeGameSettings = normalizeSavedGameSettings(save.gameSettings);
+  // 旧档保留合法游标和运行时状态；读档不按地点跳段，不读取旧聊天，不重新判断或推进剧情，也不补造旧回合事实。
+  // 后续普通回合若明确建立了更后阶段，只由联合裁决器一次推进一格。
+  const nextStoryWeaving = restoreStoryWeavingForLoadedSave(
+    save.剧情编织,
+    state.剧情编织,
+    safeWorld.开局档案,
+  );
+  // 老存档运行时迁移：读档只恢复保存状态（不推进剧情、不补造事实），
+  // 旧档没有 世界.剧情运行时 时仅按旧游标生成初始运行时切片（已有切片不覆盖）。
+  const safeWorldWithRuntime = ensureRuntimeSliceForLoadedSave(safeWorld, nextStoryWeaving);
 
   if (state.interruptedWorkflow) {
     if (isWorkflowRecoveryComplete(state.interruptedWorkflow, safeChatHistory)) {
@@ -273,8 +296,10 @@ async function applySaveToState(
   }
 
   state.set旅人(safeTraveler);
-  state.set世界(safeWorld);
+  state.set世界(safeWorldWithRuntime);
   state.setChatHistory(safeChatHistory);
+  // 输入框受控化后：读档/切档必须清空草稿，避免残留上一局/上一档的未发送文本
+  state.setInputText('');
   state.set记忆(normalizeMemorySystem(save.记忆));   // 老存档缺 longTermMemories 时兜底
   const legacyArchives = (save.记忆 as unknown as { 回忆档案?: unknown[] })?.回忆档案 ?? [];
   state.set忆庭(
@@ -290,29 +315,17 @@ async function applySaveToState(
   state.set智库(nextZhiku);
   await saveSetting('zhikuSystem', buildPersistedZhikuSystem(nextZhiku));
   state.set手机(归一化手机系统(save.手机));
-  state.setNPC(归一化NPC记录列表(save.NPC));   // 旧存档/AI 半成品对象统一兜底
+  state.setNPC(归一化NPC记录列表(save.NPC, save.turnCount));   // 旧存档/AI 半成品对象统一兜底，并执行一次路人整理
   const nextAlbum = materializeAlbumRuntimePayload(归一化相册系统(save.相册));
   state.set相册(nextAlbum);
   pruneAlbumAssetCache(nextAlbum.assets.map((asset) => asset.id));
   state.set新闻(归一化新闻列表(save.新闻));                     // 旧存档没有该字段，兜底空数组
   state.set剧情(save.剧情 ?? []);           // 旧存档没有该字段，兜底空数组
-  const normalizedStoryWeaving = alignStoryWeavingToOpeningArchive(
-    归一化剧情编织系统(save.剧情编织),
-    safeWorld.开局档案,
-  );
-  const recentUser = [...safeChatHistory].reverse().find((message) => message.role === 'user');
-  const recentAssistant = [...safeChatHistory].reverse().find((message) => message.role === 'assistant');
-  const storyRepair = autoAlignCanonStoryProgress({
-    storyWeaving: normalizedStoryWeaving,
-    turnCount: save.turnCount ?? (safeChatHistory.length + 1),
-    userInput: recentUser?.content ?? '',
-    body: recentAssistant?.parsedResponse?.body ?? recentAssistant?.content ?? '',
-    currentLocation: safeWorld.当前地点,
-  });
-  const nextStoryWeaving = storyRepair.system;
   state.set剧情编织(nextStoryWeaving);
-  await saveSetting('storyWeavingSystem', buildPersistedStoryWeavingSystem(nextStoryWeaving));
-  state.setVariableBatches(compactVariableBatchHistory(save.variableBatches ?? []));
+  state.setVariableBatches(linkVariableBatchesToChatHistory(
+    compactVariableBatchHistory(save.variableBatches ?? []),
+    safeChatHistory,
+  ));
   state.setQueueTasks(save.queueTasks ?? []); // 旧存档没有该字段，兜底空数组
   // 兼容旧存档：promptModules 是后加的（需补齐 builtin + 迁移 customPrompt）。
   // API 配置属于本机设置，不跟随存档读取；否则旧档/导入档会把当前可用 API 覆盖成空值。

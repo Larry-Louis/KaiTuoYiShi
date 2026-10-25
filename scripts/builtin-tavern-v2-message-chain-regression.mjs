@@ -93,6 +93,7 @@ cleanTempDir();
 writeJsonModule('data/builtinPresets/shuangrenchenghang.json');
 writeJsonModule('data/builtinPresets/izumi.json');
 transpileModule('utils/macroEngine.ts');
+transpileModule('utils/narrativeRuntimePolicy.ts');
 transpileModule('data/builtinPresets/builtinPreset.ts');
 transpileModule('data/builtinPresets/index.ts');
 transpileModule('hooks/useGame/tavernFormatGuard.ts');
@@ -105,6 +106,7 @@ const { buildTavernMessageChain } = await import(builderUrl);
 
 const settings = {
   stPostProcessMode: '未选择',
+  enableActionOptions: true,
   promptModules: [
     { id: 'builtin_world_prompt', content: '项目世界观保护' },
     { id: 'builtin_main_plot_cot', content: '项目 CoT 保护' },

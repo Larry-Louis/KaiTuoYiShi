@@ -1,4 +1,4 @@
-import type { 智库关键词匹配结果, 智库系统, 智库条目 } from '@/models/zhiku';
+import type { 智库分类, 智库关键词匹配结果, 智库系统, 智库条目 } from '@/models/zhiku';
 import type { API配置项, 智库系统设置 } from '@/models/settings';
 import { chatCompletionNonStream } from '@/services/ai/chatCompletionClient';
 import { withRetries } from '@/services/ai/retry';
@@ -24,12 +24,34 @@ import {
   type ZhikuAiCompilationResult,
   type ZhikuAiRequest,
 } from '@/services/zhikuAiRetrievalIndex';
-import type {
-  ZhikuCandidateDecisionTrace,
-  ZhikuTraceChannel,
-  ZhikuTraceFinalRole,
-} from '@/services/zhikuRunTrace';
+export type ZhikuRecallChannel =
+  | 'keyword'
+  | 'present-fallback'
+  | 'ai-candidate'
+  | 'ai-supplement'
+  | 'ai-form-override';
 
+export type ZhikuRecallFinalRole = 'character' | 'strong' | 'weak' | 'none';
+
+export interface ZhikuCandidateDecision {
+  entryId: string;
+  title: string;
+  category: 智库分类 | 'unknown';
+  channels: ZhikuRecallChannel[];
+  evidence: string[];
+  gate: { passed: boolean; reason?: string };
+  decision: 'selected' | 'candidate' | 'filtered' | 'trimmed' | 'rejected' | 'replaced';
+  decisionReason: string;
+  finalRole: ZhikuRecallFinalRole;
+  stableOrder: number;
+  exclusionGroupId?: string;
+  replacement?: {
+    replacedEntryId: string;
+    retainedEntryId: string;
+    source: 'keyword-specificity' | 'ai-form-override' | 'cross-channel-collapse';
+  };
+  injectionExcerpt?: string;
+}
 
 export interface 智库检索结果 {
   entries: 智库条目[];
@@ -85,7 +107,36 @@ export interface 智库召回诊断 {
   体量预警: string[];
   被门禁过滤: Array<{ 标题: string; 原因: string }>;
   检查项: string[];
-  candidateDecisions: ZhikuCandidateDecisionTrace[];
+  candidateDecisions: ZhikuCandidateDecision[];
+}
+
+const ZHIKU_RECALL_CHANNEL_LABELS: Record<ZhikuRecallChannel, string> = {
+  keyword: '关键词窗口',
+  'present-fallback': '在场兜底',
+  'ai-candidate': 'AI候选',
+  'ai-supplement': 'AI补充',
+  'ai-form-override': 'AI形态修正',
+};
+
+/** 将每条资料的召回通道压成可读诊断，供真实回合 debugContext 与上下文预览复用。 */
+export function formatZhikuCandidateDecisionTrace(decisions?: ZhikuCandidateDecision[]): string {
+  if (!decisions?.length) return '无';
+  return decisions
+    .slice(0, 32)
+    .map((item) => {
+      const channels = item.channels.map((channel) => ZHIKU_RECALL_CHANNEL_LABELS[channel] ?? channel).join('+') || '未知来源';
+      const evidence = item.evidence.slice(0, 3).join('、');
+      const rawReason = item.decisionReason.replace(/\s+/gu, ' ').trim();
+      const reason = rawReason.length > 100 ? `${rawReason.slice(0, 97)}...` : rawReason;
+      return [
+        item.title,
+        `来源:${channels}`,
+        `结果:${item.decision}/${item.finalRole}`,
+        evidence ? `证据:${evidence}` : '',
+        reason ? `说明:${reason}` : '',
+      ].filter(Boolean).join('｜');
+    })
+    .join('；');
 }
 
 interface 智库召回分组 {
@@ -112,7 +163,14 @@ export interface 智库场景上下文 {
   openingArchiveText?: string;
   npcNames?: string[];
   presentNpcNamesForFallback?: string[];
+  /**
+   * 兼容旧快照的字段。现在兜底名单严格只使用 presentNpcNamesForFallback，
+   * mentioned/background 只能进入 AI 补充上下文，不能直接触发人物档案召回。
+   */
+  recallFallbackNames?: string[];
   anticipatedNpcNames?: string[];
+  /** 近期上下文点名（回顾窗口内出现）但未在场的人物：进 AI 候选的 MENTIONED 通道。 */
+  mentionedNpcNames?: string[];
   aiSupplementHints?: {
     currentLocation?: string;
     presentNpcNames?: string[];
@@ -143,6 +201,14 @@ const ZHIKU_SCENE_HINTS: Record<string, string[]> = {
   penacony_invitation: ['匹诺康尼', '白日梦酒店', '盛会之星', '家族', '宾客', '入梦池', '星期日', '知更鸟'],
   penacony_dream_edge: ['匹诺康尼', '黄金的时刻', '梦境边界', '筑梦边缘', '钟表小子', '猎犬家系', '流萤', '砂金'],
   penacony_reverie_crisis: ['匹诺康尼', '美梦崩塌', '谐乐大典', '匹诺康尼大剧院', '家族真相', '星期日', '知更鸟', '黄泉'],
+  amphoreus_falling_wood: ['翁法罗斯', '命运重渊', '黑潮', '黄金裔', '白厄', '缇宝', '逐火之旅', '泰坦'],
+  amphoreus_gate_throne: ['翁法罗斯', '奥赫玛', '金线', '阿格莱雅', '公民大会', '创世涡心', '盗火行者', '黑潮'],
+  amphoreus_sleeping_flowers: ['翁法罗斯', '斯缇科西亚', '冥界', '遐蝶', '塞纳托斯', '死亡名册', '花海'],
+  amphoreus_sun_hurt: ['翁法罗斯', '永劫回归', '循环', '白厄', '昔涟', '来古士', '哀丽秘榭'],
+  erxiang_paradise_welcome: ['二相乐园', '幻月', '幻月游戏', '愿力', '幻造种', '花火', '真珠', '突发事件应对指南'],
+  erxiang_paradise_pigeon_river: ['二相乐园', '鸽川区', '告死魔', '共愿帮', '不死途', '虚照', '世界尽头酒馆'],
+  erxiang_paradise_academy: ['二相乐园', '绘世学院', '火花', '火花大会', '模因病毒', '认知篡改', '直播'],
+  erxiang_paradise_ink_residue: ['二相乐园', '残卷', '墨色', '绯英', '建木', '渡画泉隐', '贪饕', '归寂'],
 };
 
 function isMainStoryInjectableZhikuEntry(entry: 智库条目): boolean {
@@ -212,6 +278,18 @@ function buildZhikuSceneHints(sceneContext?: 智库场景上下文): string[] {
   if (/仙舟|罗浮/.test(raw)) addHints(ZHIKU_SCENE_HINTS.xianzhou_luofu_entry);
   if (/匹诺康尼|白日梦酒店|黄金的时刻|梦境|家族|谐乐大典/.test(raw)) addHints(ZHIKU_SCENE_HINTS.penacony_entry);
   if (/列车|星穹/.test(raw)) addHints(ZHIKU_SCENE_HINTS.astral_express_temp_passenger);
+  if (/翁法罗斯|奥赫玛|命运重渊|黄金裔|逐火|泰坦|黑潮/.test(raw)) {
+    addHints(ZHIKU_SCENE_HINTS.amphoreus_falling_wood);
+    addHints(ZHIKU_SCENE_HINTS.amphoreus_gate_throne);
+    addHints(ZHIKU_SCENE_HINTS.amphoreus_sleeping_flowers);
+    addHints(ZHIKU_SCENE_HINTS.amphoreus_sun_hurt);
+  }
+  if (/二相乐园|幻月|幻造|愿力|鸽川|绘世学院|残卷|绯英|归寂/.test(raw)) {
+    addHints(ZHIKU_SCENE_HINTS.erxiang_paradise_welcome);
+    addHints(ZHIKU_SCENE_HINTS.erxiang_paradise_pigeon_river);
+    addHints(ZHIKU_SCENE_HINTS.erxiang_paradise_academy);
+    addHints(ZHIKU_SCENE_HINTS.erxiang_paradise_ink_residue);
+  }
 
   return Array.from(hints).slice(0, 16);
 }
@@ -271,7 +349,14 @@ function buildPresentCharacterFallbackEntries(system: 智库系统, npcNames: st
   for (const name of presentNames) {
     const seenExclusionGroups = new Set<string>();
     const pickedForRole = (entriesByName.get(name) ?? [])
-      .sort(比较智库人物节点)
+      // 直接命中优先：人物名列表精确含本组名字的条目（本体/主体档案）排前面——
+      // 否则「景元师父/景元徒弟」这类复合称呼会因包含匹配把镜流/彦卿拉进景元组，
+      // 同节点类型再按 updatedAt 排序会把景元本体挤出前 2 名。
+      .sort((a, b) => {
+        const aDirect = 获取智库人物名列表(a).some((characterName) => characterName === name) ? 0 : 1;
+        const bDirect = 获取智库人物名列表(b).some((characterName) => characterName === name) ? 0 : 1;
+        return aDirect - bDirect || 比较智库人物节点(a, b);
+      })
       .filter(isCharacterAnchorNode)
       .filter((entry) => {
         const groupId = entry.互斥组ID?.trim();
@@ -424,7 +509,9 @@ export function retrieveZhikuContext(system: 智库系统 | undefined, query: st
     .filter((entry) => isAllowedOriginalProtagonistEntry(获取智库人物名列表(entry), sceneContext?.originalProtagonist))
     .slice(0, getCharacterAnchorLimit(limit));
   const relevantNames = Array.from(new Set(characterAnchors.flatMap((entry) => 获取智库人物名列表(entry))));
-  const presentFallbackAnchors = buildPresentCharacterFallbackEntries(candidateSystem, sceneContext?.presentNpcNamesForFallback, sceneContext);
+  // 兜底召回严格只认当前在场人物；兼容字段 recallFallbackNames 不再拥有放宽范围的能力。
+  const recallFallbackNames = sceneContext?.presentNpcNamesForFallback;
+  const presentFallbackAnchors = buildPresentCharacterFallbackEntries(candidateSystem, recallFallbackNames, sceneContext);
   const rankedEntries = keywordMatchedEntries;
   const normalRankedEntries = rankedEntries.filter(isNormalRecallEntry);
   const primaryEntries = rankZhikuEntries(normalRankedEntries, sceneHints).slice(0, normalLimit);
@@ -610,16 +697,16 @@ export async function retrieveZhikuContextWithModel(
 }
 
 function mergeAiCandidateDecisions(input: {
-  keywordDecisions: ZhikuCandidateDecisionTrace[];
+  keywordDecisions: ZhikuCandidateDecision[];
   candidateIndex: ZhikuAiCandidateIndex;
   groups: 智库召回分组;
   compilation?: ZhikuAiCompilationResult;
   failureReason?: string;
-}): ZhikuCandidateDecisionTrace[] {
-  const records = new Map<string, ZhikuCandidateDecisionTrace>(
+}): ZhikuCandidateDecision[] {
+  const records = new Map<string, ZhikuCandidateDecision>(
     input.keywordDecisions.map((item) => [item.entryId, cloneCandidateDecision(item)]),
   );
-  const finalRoleById = new Map<string, ZhikuTraceFinalRole>();
+  const finalRoleById = new Map<string, ZhikuRecallFinalRole>();
   for (const entry of input.groups.characterEntries) finalRoleById.set(entry.id, 'character');
   for (const entry of input.groups.strongEntries) if (!finalRoleById.has(entry.id)) finalRoleById.set(entry.id, 'strong');
   for (const entry of input.groups.weakEntries) if (!finalRoleById.has(entry.id)) finalRoleById.set(entry.id, 'weak');
@@ -631,7 +718,7 @@ function mergeAiCandidateDecisions(input: {
     const current = records.get(candidate.entryId);
     const accepted = acceptedById.get(candidate.entryId);
     const rejection = rejectionById.get(candidate.entryId);
-    const channels: ZhikuTraceChannel[] = Array.from(new Set([
+    const channels: ZhikuRecallChannel[] = Array.from(new Set([
       ...(current?.channels ?? []),
       'ai-candidate' as const,
       ...(accepted ? [accepted.operation === 'FORM_OVERRIDE' ? 'ai-form-override' as const : 'ai-supplement' as const] : []),
@@ -710,7 +797,7 @@ function mergeAiCandidateDecisions(input: {
     .map((item, index) => ({ ...item, stableOrder: index }));
 }
 
-function cloneCandidateDecision(item: ZhikuCandidateDecisionTrace): ZhikuCandidateDecisionTrace {
+function cloneCandidateDecision(item: ZhikuCandidateDecision): ZhikuCandidateDecision {
   return {
     ...item,
     channels: [...item.channels],
@@ -775,6 +862,7 @@ export function buildZhikuAiRequestForTurn(
       currentLocation: hints?.currentLocation,
       presentCharacters: hints?.presentNpcNames ?? sceneContext?.presentNpcNamesForFallback ?? [],
       expectedCharacters: sceneContext?.anticipatedNpcNames ?? [],
+      mentionedCharacters: sceneContext?.mentionedNpcNames ?? [],
       immediateStoryReview: hints?.immediateStoryReview,
       recentStoryContext: hints?.recentStoryContext,
       storyPlan: hints?.storyPlan,
@@ -958,9 +1046,9 @@ function buildZhikuCandidateDecisions(input: {
   modelCandidates: 智库条目[];
   aiSupplementEntries: 智库条目[];
   groups: 智库召回分组;
-}): ZhikuCandidateDecisionTrace[] {
-  const records = new Map<string, ZhikuCandidateDecisionTrace>();
-  const finalRoleById = new Map<string, ZhikuTraceFinalRole>();
+}): ZhikuCandidateDecision[] {
+  const records = new Map<string, ZhikuCandidateDecision>();
+  const finalRoleById = new Map<string, ZhikuRecallFinalRole>();
   for (const entry of input.groups.characterEntries) finalRoleById.set(entry.id, 'character');
   for (const entry of input.groups.strongEntries) {
     if (!finalRoleById.has(entry.id)) finalRoleById.set(entry.id, 'strong');
@@ -969,7 +1057,7 @@ function buildZhikuCandidateDecisions(input: {
     if (!finalRoleById.has(entry.id)) finalRoleById.set(entry.id, 'weak');
   }
 
-  const addRecord = (entry: 智库条目, channel: ZhikuTraceChannel, evidence: string[] = []) => {
+  const addRecord = (entry: 智库条目, channel: ZhikuRecallChannel, evidence: string[] = []) => {
     const current = records.get(entry.id);
     if (current) {
       if (!current.channels.includes(channel)) current.channels.push(channel);

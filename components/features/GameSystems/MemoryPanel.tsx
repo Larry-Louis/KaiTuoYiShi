@@ -1,4 +1,4 @@
-﻿// 记忆系统面板（v2）。
+// 记忆系统面板（v2）。
 // 左侧切换 即时 / 短期 / 中期 / 长期，右侧显示条目与整理动作。
 
 import { useState } from 'react';
@@ -11,6 +11,7 @@ import {
   compressToShortTerm,
   compressToMiddleTerm,
   compressToLongTerm,
+  拆分即时与短期,
 } from '@/hooks/useGame/memoryUtils';
 
 interface MemoryPanelProps {
@@ -52,18 +53,25 @@ export function MemoryPanel({
   onRetryFailedDraft,
   onIgnoreFailedDraft,
   onOpenBatchRebuild,
+  onTriggerManualCompress,
 }: MemoryPanelProps & {
   failedDrafts?: 记忆失败草稿[];
   onRetryFailedDraft?: (draft: 记忆失败草稿) => void;
   onIgnoreFailedDraft?: (draft: 记忆失败草稿) => void;
   onOpenBatchRebuild?: () => void;
+  /** 阶段1·主链压缩手动入口：玩家点击后触发三阶段压缩弹窗（remind→processing→review） */
+  onTriggerManualCompress?: () => void;
 }) {
   const [activeLayer, setActiveLayer] = useState<MemoryLayer>('immediate');
   const failedDrafts = failedDraftsProp ?? memorySystem.失败草稿 ?? [];
 
   const visibleTextItems =
     activeLayer === 'immediate'
-      ? memorySystem.即时记忆
+      ? memorySystem.即时记忆.map((item) => {
+          // 对标参考项目：即时条目为「即时内容 + 短期摘要」合体存储，展示时拆开。
+          const { 即时内容, 短期摘要 } = 拆分即时与短期(item);
+          return 短期摘要 ? `${即时内容}\n  ↳ 短期摘要：${短期摘要}` : 即时内容;
+        })
       : activeLayer === 'short'
         ? memorySystem.短期记忆
         : activeLayer === 'middle'
@@ -134,6 +142,17 @@ export function MemoryPanel({
           : activeLayer === 'long'
             ? memorySystem.长期记忆.length
             : failedDrafts.filter((draft) => draft.status === 'pending' || draft.status === 'retrying').length;
+
+  // 阶段1·主链压缩手动入口：计算各层待压缩条数，用于按钮高亮/灰显
+  const apiSummaryEnabled = (settings as 记忆系统设置 & { 启用中短长期API总结?: boolean }).启用中短长期API总结 !== false;
+  const manualImmediateThreshold = settings.即时转短期阈值 ?? 10;
+  const manualShortThreshold = settings.短期转中期阈值 ?? 30;
+  const manualMiddleThreshold = settings.中期转长期阈值 ?? 50;
+  const manualImmediatePending = Math.max(0, memorySystem.即时记忆.length - manualImmediateThreshold + 1);
+  const manualShortPending = Math.max(0, memorySystem.短期记忆.length - manualShortThreshold + 1);
+  const manualMiddlePending = Math.max(0, (memorySystem.中期记忆 ?? []).length - manualMiddleThreshold + 1);
+  const manualNeedsCompression = apiSummaryEnabled
+    && (manualImmediatePending > 0 || manualShortPending > 0 || manualMiddlePending > 0);
 
   return (
     <div className="flex min-h-full w-full min-w-0 flex-col gap-3 overflow-x-hidden md:h-full md:min-h-0 md:flex-row md:gap-4 md:overflow-hidden">
@@ -223,6 +242,17 @@ export function MemoryPanel({
             </div>
 
             <div className="flex flex-wrap gap-2">
+              {onTriggerManualCompress && (
+                <ActionButton
+                  onClick={onTriggerManualCompress}
+                  tone="gold"
+                  disabled={!manualNeedsCompression}
+                >
+                  {manualNeedsCompression
+                    ? `立即压缩记忆（即${manualImmediatePending}/短${manualShortPending}/中${manualMiddlePending}）`
+                    : '暂无需压缩'}
+                </ActionButton>
+              )}
               {onOpenBatchRebuild && (
                 <ActionButton onClick={onOpenBatchRebuild} tone="gold">
                   批量重建记忆
@@ -268,6 +298,7 @@ export function MemoryPanel({
             <HintCard title="短期阈值" value={`${settings.短期转中期阈值} 条`} text="达到后会自动压缩到中期。" />
             <HintCard title="中期阈值" value={`${settings.中期转长期阈值} 条`} text="达到后会自动压缩到长期。" />
             <HintCard title="NPC 阈值" value={`${settings.NPC记忆压缩阈值} 条`} text="伙伴的与你同行的记忆达到后会自动压缩。" />
+            <HintCard title="主剧情注入" value="短 30 / 中全量 / 长全量" text="对标参考项目：短期注入最近 30 条（带时间戳），中期/长期全量注入；回忆召回命中时暂停三层记忆注入；即时层为滑动窗口（超限摘要自动滚入短期）。" />
           </div>
         </div>
       </main>

@@ -1,6 +1,6 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import type { NPC记录, NPC阶位, NPC_NSFW年龄确认 } from '@/models/npc';
+import type { NPC记录, NPC阶位, NPC_NSFW年龄确认, 约定结构, 约定状态 } from '@/models/npc';
 import { NPC_AFFINITY_MAX, NPC_AFFINITY_MIN, buildNpcMemoryLedgerView, 格式化NPC关系, 归一化NPC记录列表, 提取NPC同行记忆文本列表, 读取NPC头像 } from '@/models/npc';
 import type { 相册系统 } from '@/models/imageGeneration';
 import { buildNpcRelationshipPlanning, type NPC关系规划条目 } from '@/services/npcRelationshipPlanning';
@@ -14,11 +14,11 @@ interface CompanionPanelProps {
   album?: 相册系统;
   turnCount: number;
   nsfwEnabled: boolean;
-  maleNsfwArchiveEnabled?: boolean;
   devMode?: boolean;
 }
 
-type DetailTab = 'archive' | 'planning' | 'memory' | 'nsfw';
+type DetailTab = 'archive' | 'planning' | 'memory' | 'agreement' | 'nsfw';
+type RosterTab = NPC阶位 | 'archived';
 
 const cardClip =
   'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)';
@@ -40,35 +40,58 @@ const nsfwColor = 'rgb(var(--tj-ui-nsfw))';
 const activeSurface = 'linear-gradient(90deg, rgba(var(--tj-btn-primary-start), 0.16), rgba(var(--tj-tech-cyan), 0.055))';
 const quietSurface = 'linear-gradient(135deg, rgba(var(--tj-ui-panel), 0.62), rgba(var(--tj-ui-panel-strong), 0.72))';
 
-export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnabled, maleNsfwArchiveEnabled = false, devMode = false }: CompanionPanelProps) {
-  const [tab, setTab] = useState<NPC阶位>('companion');
+/**
+ * 稳定的 NPC 持久化指纹：只覆盖整理/归一化可能改写的字段，
+ * 与整表深比较相比，不受记忆内容、外貌等无关字段变化影响。
+ */
+function buildNpcPersistFingerprint(records: NPC记录[]): string {
+  return JSON.stringify(records.map((n) => [
+    n.id,
+    n.阶位,
+    n.阶位来源,
+    n.手动阶位覆盖,
+    n.归档,
+    n.归档回合,
+    n.同行,
+    n.累计互动次数,
+    n.好感度,
+    n.关系,
+    n.亲密关系,
+    n.职务,
+    n.原著角色,
+    n.NPC来源,
+    n.合并来源ID,
+  ]));
+}
+
+export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, turnCount, nsfwEnabled, devMode = false }: CompanionPanelProps) {
+  const [tab, setTab] = useState<RosterTab>('companion');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const normalizedRecords = useMemo(() => {
-    const normalized = 归一化NPC记录列表(npcRecords);
-    return enrichNpcArchives(normalized, {
-      nsfwEnabled,
-      maleNsfwArchiveEnabled,
-    }).records;
-  }, [npcRecords, nsfwEnabled, maleNsfwArchiveEnabled]);
+    const normalized = 归一化NPC记录列表(npcRecords, turnCount);
+    return enrichNpcArchives(normalized).records;
+  }, [npcRecords, turnCount]);
 
   useEffect(() => {
-    const normalized = 归一化NPC记录列表(npcRecords);
-    const enriched = enrichNpcArchives(normalized, {
-      nsfwEnabled,
-      maleNsfwArchiveEnabled,
-    });
-    if (enriched.changed) onNpcRecordsChange(enriched.records);
-  }, [npcRecords, nsfwEnabled, maleNsfwArchiveEnabled, onNpcRecordsChange]);
+    const normalized = 归一化NPC记录列表(npcRecords, turnCount);
+    const enriched = enrichNpcArchives(normalized);
+    // 稳定持久化指纹：只比较整理/归一化可能改写的字段，避免整表深比较
+    // 因无关字段变化或重复渲染误回写（tab 切换、选中项变化不触发回写）。
+    if (enriched.changed || buildNpcPersistFingerprint(enriched.records) !== buildNpcPersistFingerprint(npcRecords)) {
+      onNpcRecordsChange(enriched.records);
+    }
+  }, [npcRecords, turnCount, onNpcRecordsChange]);
 
   const companions = useMemo(
-    () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'companion')),
+    () => sortNpcRecords(normalizedRecords.filter((n) => !n.归档 && n.阶位 === 'companion')),
     [normalizedRecords],
   );
   const extras = useMemo(
-    () => sortNpcRecords(normalizedRecords.filter((n) => n.阶位 === 'extra' && n.关系 !== 'enemy')),
+    () => sortNpcRecords(normalizedRecords.filter((n) => !n.归档 && n.阶位 === 'extra' && n.关系 !== 'enemy')),
     [normalizedRecords],
   );
-  const visible = tab === 'companion' ? companions : extras;
+  const archived = useMemo(() => sortNpcRecords(normalizedRecords.filter((n) => n.归档)), [normalizedRecords]);
+  const visible = tab === 'companion' ? companions : tab === 'extra' ? extras : archived;
 
   const travelingCount = companions.filter((n) => n.同行).length;
   const friendCount = companions.filter((n) => ['friend', 'close'].includes(n.关系)).length;
@@ -89,8 +112,16 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
     onNpcRecordsChange((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
   };
 
-  const promoteToCompanion = (id: string) => updateRecord(id, { 阶位: 'companion' });
-  const demoteToExtra = (id: string) => updateRecord(id, { 阶位: 'extra', 同行: false });
+  const promoteToCompanion = (id: string) => updateRecord(id, { 阶位: 'companion', 手动阶位覆盖: 'companion', 阶位来源: 'manual', 归档: false });
+  const demoteToExtra = (id: string) => updateRecord(id, { 阶位: 'extra', 手动阶位覆盖: 'extra', 阶位来源: 'manual', 同行: false });
+  const restoreArchived = (id: string) => updateRecord(id, { 归档: false, 归档回合: undefined });
+  const deleteArchived = (id: string, name: string, mergedFromIds?: string[]) => {
+    // 两步确认：第一步确认意图，第二步明确提示姓名与不可恢复性。
+    if (!window.confirm('确定要永久删除归档 NPC 记录吗？')) return;
+    if (!window.confirm(`确认永久删除「${name}」？该操作不可恢复，且会一并删除其合并来源记录。`)) return;
+    const idSet = new Set([id, ...(mergedFromIds ?? [])]);
+    onNpcRecordsChange((prev) => prev.filter((n) => !idSet.has(n.id)));
+  };
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overflow-x-hidden md:flex-row md:gap-4 md:overflow-hidden">
       <aside className="flex min-w-0 shrink-0 flex-col gap-3 md:min-h-0 md:w-[260px]">
@@ -116,12 +147,15 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <TabButton active={tab === 'companion'} onClick={() => setTab('companion')}>
             伙伴 {companions.length}
           </TabButton>
           <TabButton active={tab === 'extra'} onClick={() => setTab('extra')}>
             路人 {extras.length}
+          </TabButton>
+          <TabButton active={tab === 'archived'} onClick={() => setTab('archived')}>
+            已归档 {archived.length}
           </TabButton>
         </div>
 
@@ -152,7 +186,10 @@ export function CompanionPanel({ npcRecords, onNpcRecordsChange, album, nsfwEnab
             nsfwEnabled={nsfwEnabled}
             onPromote={() => promoteToCompanion(selected.id)}
             onDemote={() => demoteToExtra(selected.id)}
+            onRestore={() => restoreArchived(selected.id)}
+            onDelete={() => deleteArchived(selected.id, selected.姓名, selected.合并来源ID)}
             onToggleTraveling={() => updateRecord(selected.id, { 同行: !selected.同行 })}
+            onUpdateNpc={(patch) => updateRecord(selected.id, patch)}
             planning={selectedPlanning}
             devMode={devMode}
           />
@@ -246,6 +283,7 @@ function NpcListItem({
           style={{ color: mutedColor }}
         >
           {relation}
+          {npc.职务 ? ` / ${npc.职务}` : ''}
           {npc.原著角色 ? ' / 原著' : ''}
         </div>
         <AffinityMeter value={npc.好感度} compact />
@@ -330,7 +368,10 @@ function NpcDetail({
   album,
   onPromote,
   onDemote,
+  onRestore,
+  onDelete,
   onToggleTraveling,
+  onUpdateNpc,
   nsfwEnabled,
   planning,
   devMode,
@@ -339,7 +380,10 @@ function NpcDetail({
   album?: 相册系统;
   onPromote: () => void;
   onDemote: () => void;
+  onRestore?: () => void;
+  onDelete?: () => void;
   onToggleTraveling: () => void;
+  onUpdateNpc: (patch: Partial<NPC记录>) => void;
   nsfwEnabled: boolean;
   planning?: NPC关系规划条目;
   devMode: boolean;
@@ -388,6 +432,9 @@ function NpcDetail({
               </h3>
               {npc.别名 && <span className="font-serif text-[13px] italic text-[rgb(var(--tj-text-secondary))]">({npc.别名})</span>}
               {npc.原著角色 && <Chip tone="gold">原著角色</Chip>}
+              {npc.职务 && <Chip tone="silver">{npc.职务}</Chip>}
+              {npc.阶位来源 === 'manual' && <Chip tone="silver">手动覆盖</Chip>}
+              {npc.归档 && <Chip tone="silver">已归档</Chip>}
               {npc.图像档案?.状态 && <Chip tone="silver">{npc.图像档案.状态 === 'pending' ? '图像生成中' : '图像档案'}</Chip>}
             </div>
 
@@ -398,6 +445,12 @@ function NpcDetail({
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
+              {npc.归档 && onRestore && (
+                <ActionChip active={false} onClick={onRestore}>恢复为活跃路人</ActionChip>
+              )}
+              {npc.归档 && onDelete && (
+                <ActionChip active={false} onClick={onDelete}>永久删除</ActionChip>
+              )}
               {isCompanion && (
                 <ActionChip active={npc.同行} onClick={onToggleTraveling}>
                   {npc.同行 ? '当前在场' : '设为在场'}
@@ -440,6 +493,9 @@ function NpcDetail({
               )}
               <TabButton active={detailTab === 'memory'} onClick={() => setDetailTab('memory')}>
                 {devMode ? '记忆账本' : '同行记忆'}
+              </TabButton>
+              <TabButton active={detailTab === 'agreement'} onClick={() => setDetailTab('agreement')}>
+                约定
               </TabButton>
               {nsfwEnabled && (
                 <TabButton active={detailTab === 'nsfw'} onClick={() => setDetailTab('nsfw')}>
@@ -507,6 +563,10 @@ function NpcDetail({
 
       {detailTab === 'memory' && <MemoryPanel npc={npc} devMode={devMode} />}
 
+      {detailTab === 'agreement' && (
+        <AgreementPanel npc={npc} onUpdateNpc={onUpdateNpc} />
+      )}
+
       {nsfwEnabled && detailTab === 'nsfw' && <NSFWArchivePanel npc={npc} />}
     </div>
   );
@@ -567,6 +627,211 @@ function AvatarSlotCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// 阶段1补充·约定展示环：玩家可查看/筛选/编辑/删除 NPC 约定
+type AgreementFilter = 'all' | 'waiting' | 'completed';
+
+const agreementFilterItems: { id: AgreementFilter; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'waiting', label: '等待中' },
+  { id: 'completed', label: '已完结' },
+];
+
+const agreementStatusConfig: Record<约定状态, { label: string; color: string; bg: string }> = {
+  等待中: { label: '等待中', color: 'rgb(var(--tj-ui-warning, #f59e0b))', bg: 'rgba(var(--tj-ui-warning, 245,158,11), 0.16)' },
+  已履行: { label: '已履行', color: 'rgb(var(--tj-ui-success, #10b981))', bg: 'rgba(var(--tj-ui-success, 16,185,129), 0.16)' },
+  已违约: { label: '已违约', color: 'rgb(var(--tj-ui-error, #ef4444))', bg: 'rgba(var(--tj-ui-error, 239,68,68), 0.16)' },
+  已作废: { label: '已作废', color: 'rgba(var(--tj-ui-muted), 0.8)', bg: 'rgba(var(--tj-ui-muted), 0.14)' },
+};
+
+const agreementStatusOptions: 约定状态[] = ['等待中', '已履行', '已违约', '已作废'];
+
+function AgreementPanel({ npc, onUpdateNpc }: { npc: NPC记录; onUpdateNpc: (patch: Partial<NPC记录>) => void }) {
+  const [filter, setFilter] = useState<AgreementFilter>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editStatus, setEditStatus] = useState<约定状态>('等待中');
+
+  const agreements = npc.约定 ?? [];
+  const filtered = useMemo(() => {
+    const sorted = [...agreements].sort((a, b) => b.回合 - a.回合);
+    if (filter === 'waiting') return sorted.filter((a) => a.当前状态 === '等待中');
+    if (filter === 'completed') return sorted.filter((a) => a.当前状态 !== '等待中');
+    return sorted;
+  }, [agreements, filter]);
+
+  const stats = useMemo(() => {
+    const waiting = agreements.filter((a) => a.当前状态 === '等待中').length;
+    const completed = agreements.filter((a) => a.当前状态 !== '等待中').length;
+    return { total: agreements.length, waiting, completed };
+  }, [agreements]);
+
+  const handleUpdateStatus = (id: string) => {
+    const next = agreements.map((a) => (a.id === id ? { ...a, 当前状态: editStatus } : a));
+    onUpdateNpc({ 约定: next });
+    setEditingId(null);
+  };
+
+  const handleDelete = (id: string) => {
+    const next = agreements.filter((a) => a.id !== id);
+    onUpdateNpc({ 约定: next });
+    if (editingId === id) setEditingId(null);
+  };
+
+  return (
+    <section className="px-4 py-4" style={panelStyle}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-serif text-[12px] tracking-[0.28em]" style={{ color: accentColor }}>
+            约定
+          </div>
+          <div className="mt-1 text-xs" style={{ color: mutedColor }}>
+            共 {stats.total} 条 · 等待中 {stats.waiting} · 已完结 {stats.completed}
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          {agreementFilterItems.map((item) => {
+            const active = filter === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setFilter(item.id)}
+                className="px-3 py-1.5 text-xs transition-all"
+                style={{
+                  color: active ? activeTextColor : mutedColor,
+                  background: active ? activeSurface : quietSurface,
+                  boxShadow: active
+                    ? 'inset 0 0 0 1px rgba(var(--tj-accent-primary), 0.5)'
+                    : 'inset 0 0 0 1px rgba(var(--tj-border), 0.5)',
+                  clipPath: smallClip,
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {filtered.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm" style={{ color: mutedColor }}>
+            {agreements.length === 0 ? '尚未建立任何约定。' : '当前筛选条件下没有约定。'}
+          </div>
+        ) : (
+          filtered.map((agreement) => {
+            const config = agreementStatusConfig[agreement.当前状态];
+            const isEditing = editingId === agreement.id;
+            return (
+              <div
+                key={agreement.id}
+                className="px-4 py-3"
+                style={{
+                  background: quietSurface,
+                  boxShadow: 'inset 0 0 0 1px rgba(var(--tj-border), 0.5)',
+                  clipPath: smallClip,
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="shrink-0 px-2 py-0.5 text-[11px] font-serif tracking-[0.16em]"
+                        style={{ color: config.color, background: config.bg, clipPath: smallClip }}
+                      >
+                        {config.label}
+                      </span>
+                      <span className="truncate font-serif text-sm tracking-[0.14em]" style={{ color: titleColor }}>
+                        {agreement.标题}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px]" style={{ color: faintColor }}>
+                      回合 {agreement.回合}
+                      {agreement.约定时间 ? ` · ${agreement.约定时间}` : ''}
+                      {agreement.来源 ? ` · 来源：${agreement.来源}` : ''}
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed" style={{ color: bodyColor }}>
+                      {agreement.内容}
+                    </p>
+                    {agreement.后果 && (
+                      <p className="mt-2 text-xs leading-relaxed" style={{ color: mutedColor }}>
+                        后果：{agreement.后果}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-xs" style={{ color: mutedColor }}>改为：</span>
+                    {agreementStatusOptions.map((status) => {
+                      const active = editStatus === status;
+                      const cfg = agreementStatusConfig[status];
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setEditStatus(status)}
+                          className="px-2 py-1 text-[11px] transition-all"
+                          style={{
+                            color: active ? cfg.color : mutedColor,
+                            background: active ? cfg.bg : 'transparent',
+                            boxShadow: active ? `inset 0 0 0 1px ${cfg.color}` : 'inset 0 0 0 1px rgba(var(--tj-border), 0.5)',
+                            clipPath: smallClip,
+                          }}
+                        >
+                          {cfg.label}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateStatus(agreement.id)}
+                      className="ml-auto px-3 py-1 text-xs"
+                      style={{ color: activeTextColor, background: activeSurface, clipPath: smallClip }}
+                    >
+                      确认
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="px-3 py-1 text-xs"
+                      style={{ color: mutedColor, clipPath: smallClip }}
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(agreement.id);
+                        setEditStatus(agreement.当前状态);
+                      }}
+                      className="px-3 py-1 text-xs"
+                      style={{ color: mutedColor, clipPath: smallClip }}
+                    >
+                      改状态
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(agreement.id)}
+                      className="px-3 py-1 text-xs"
+                      style={{ color: 'rgb(var(--tj-ui-error, #ef4444))', clipPath: smallClip }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1119,20 +1384,20 @@ function Chip({ tone, children }: { tone: 'gold' | 'silver'; children: ReactNode
   );
 }
 
-function EmptyRoster({ tab }: { tab: NPC阶位 }) {
+function EmptyRoster({ tab }: { tab: RosterTab }) {
   return (
     <div className="px-4 py-8 text-center" style={panelStyle}>
       <div className="font-serif text-[20px]" style={{ color: 'rgba(var(--tj-btn-primary-start), 0.45)' }}>
         ✦
       </div>
       <div className="mt-2 font-serif text-[13px] tracking-[0.18em]" style={{ color: faintColor }}>
-        {tab === 'companion' ? '尚未结识伙伴' : '尚无路人档案'}
+        {tab === 'companion' ? '尚未结识伙伴' : tab === 'extra' ? '尚无路人档案' : '暂无已归档 NPC'}
       </div>
     </div>
   );
 }
 
-function NoSelection({ tab }: { tab: NPC阶位 }) {
+function NoSelection({ tab }: { tab: RosterTab }) {
   return (
     <div className="flex h-full items-center justify-center px-6 text-center" style={panelStyle}>
       <div>
@@ -1140,7 +1405,7 @@ function NoSelection({ tab }: { tab: NPC阶位 }) {
           ✦
         </div>
         <div className="mt-3 font-serif text-[14px] tracking-[0.22em]" style={{ color: faintColor }}>
-          从左侧选择一位{tab === 'companion' ? '伙伴' : '路人'}
+          从左侧选择一位{tab === 'companion' ? '伙伴' : tab === 'extra' ? '路人' : '已归档 NPC'}
         </div>
       </div>
     </div>
